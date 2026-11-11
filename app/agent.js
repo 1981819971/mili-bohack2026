@@ -26,7 +26,7 @@
   const DS = {
     on: true,
     base: 'https://api.deepseek.com',
-    key: 'YOUR_DEEPSEEK_API_KEY',
+    key: 'sk-REPLACE_WITH_YOUR_OWN_KEY',
     model: 'deepseek-flash',
   };
 
@@ -34,7 +34,13 @@
      DeepSeek 的 delta 里除了 content 还有 reasoning_content（思维链）——
      那个不要念给老人听，只用来判断它是不是卡住了。 */
   async function* dsStream(body, signal) {
-    const b = Object.assign({}, body, { model: DS.model, stream: true });
+    /* 2026-11-11：一定要 usage，不然花了多少钱只能靠后台截图猜。
+       include_usage 会在流末尾补一个 choices 为空的 chunk，里面带
+       prompt_tokens / prompt_cache_hit_tokens / completion_tokens。 */
+    const b = Object.assign({}, body, {
+      model: DS.model, stream: true,
+      stream_options: { include_usage: true },
+    });
     delete b.signal;
     const r = await fetch(DS.base + '/chat/completions', {
       method: 'POST',
@@ -107,7 +113,14 @@
        16 轮 + 60 秒总时限是给一长串 UI 自动化留的，但十句里八句是闲聊，
        一旦模型吐错格式就是 60 秒空转。这里一刀砍到 6 轮 / 16 秒，
        真要連点屏幕的工具由它们自己的短超时兜底，不再让整轮陪跑。 */
-    maxRounds: 6,
+    /* 2026-11-11 账单复盘：一次对话 6 轮，每轮都把 4.3K 系统提示 + 8K 工具
+       清单重发一遍，实测单轮固定开销 10.9K tokens —— 6 轮就是 74K，
+       这就是一天烧掉 3900 万 tokens 的结构性来由（不是死循环）。
+       闲聊一句就回，真正要工具的多数 2~3 轮落地：6 轮上限是给
+       「开微信→搜人→点进去→发出去」那种长链留的，现在这几条都有
+       一步到位的专工具（wechat_message / wechat_call / wechat_scan），
+       4 轮够用。 */
+    maxRounds: 4,
     maxTokens: 360,          // 原 700，工具参数本来就只有几十个字
     sayTokens: 560,          // 原 1600，老人一句话上限 46 字
     effort: 'minimal',       // 只对 hy3 这类 onlyReasoning 模型起作用
@@ -125,6 +138,78 @@
     totalTimeout: 16000,     // 20:0x 提速：60s → 16s，卡住最多等 16 秒就有话说
     sayMaxChars: 46,         // 老人一句话别超过这个字数
   };
+
+  /* ==========================================================================
+   * 账本：这次请求的 token 花在哪
+   *
+   * 2026-11-11 菲尔特：「这个米粒怎么花了我这么多钱，是不是在空转」。
+   * 实测答案是「不是空转，是结构」：单轮固定开销 10,909 tokens
+   * （系统提示 4.3K + 66 个工具清单 8K），6 轮一次对话就是 74K。
+   * 以前这个数字只有 DeepSeek 后台看得见，现在每次请求都落一行：
+   *   localStorage['mili.usage']  或  adb logcat | grep MILI_USAGE
+   * 按天累计，只留 14 天。
+   * ======================================================================== */
+  const USAGE_KEY = 'mili.usage';
+  function usageLog(u, rounds) {
+    if (!u) return;
+    let all = {};
+    try { all = JSON.parse(localStorage.getItem(USAGE_KEY) || '{}') || {}; } catch (e) { all = {}; }
+    const d = new Date();
+    const k = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    const a = all[k] || (all[k] = { calls: 0, convs: 0, input: 0, hit: 0, miss: 0, output: 0 });
+    a.calls++;
+    a.input += u.prompt_tokens || 0;
+    a.hit += u.prompt_cache_hit_tokens || 0;
+    a.miss += u.prompt_cache_miss_tokens || 0;
+    a.output += u.completion_tokens || 0;
+    const ks = Object.keys(all).sort();
+    while (ks.length > 14) { delete all[ks.shift()]; }
+    try { localStorage.setItem(USAGE_KEY, JSON.stringify(all)); } catch (e) {}
+    try {
+      /* 第一个数是「本次这一轮」，括号里才是当天累计 —— 混在一起根本看不出单次花了多少 */
+      console.log('MILI_USAGE ' + k + ' r' + (rounds || 0) +
+        ' 本次=' + (u.prompt_tokens || 0) + '(hit=' + (u.prompt_cache_hit_tokens || 0) +
+        ',miss=' + (u.prompt_cache_miss_tokens || 0) + ',out=' + (u.completion_tokens || 0) + ')' +
+        ' | 今日 call#' + a.calls + ' in=' + a.input + ' out=' + a.output);
+    } catch (e) {}
+  }
+  const usageToday = () => {
+    try {
+      const all = JSON.parse(localStorage.getItem(USAGE_KEY) || '{}') || {};
+      const d = new Date();
+      const k = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+      return all[k] || null;
+    } catch (e) { return null; }
+  };
+
+  /* ==========================================================================
+   * 工具集收敛：第 2 轮起只挂「这一轮之前真调过的手 + 通用几只」
+   *
+   * 不判断意图（不新增任何意图正则），纯按已经发生的调用收敛 ——
+   * 第一轮全量保证选得对，之后模型手上还有它自己用过的那几只，
+   * 换路也换得动。太小（<6 只）就退回全量，宁可多花几 K 也别让它没得选。
+   * ======================================================================== */
+  const TOOL_ALWAYS = ['search_web', 'recall', 'remember', 'tell_time', 'read_screen', 'go_back'];
+  function toolSubset(used) {
+    try {
+      const keep = {};
+      TOOL_ALWAYS.forEach(function (n) { keep[n] = 1; });
+      /* 已用过的 + 同族（同前缀）的都要留着 ——
+         wechat_message 没办成时它得能换 wechat_call / wechat_scan，
+         把兄弟工具砍掉等于逼它说「办不了」。 */
+      const fams = {};
+      used.forEach(function (n) {
+        keep[n] = 1;
+        fams[String(n).split('_')[0]] = 1;
+      });
+      const all = window.MILI_TOOLS.schema();
+      const out = all.filter(function (t) {
+        const nm = t.function.name;
+        return keep[nm] || fams[String(nm).split('_')[0]];
+      });
+      return out.length >= 6 ? out : null;
+    } catch (e) { return null; }
+  }
 
   /* ---------- 状态 ---------- */
   let _cloud = null;
@@ -248,9 +333,9 @@
       call + '你叫米粒。米粒是你自己的名字，不是老人的名字 ——',
       '永远不要用米粒称呼老人。' + howCall,
       '',
-      '【你手上真有的本事】',
-      toolList,
-      '这些是真能动手的。老人让你办事，你就调工具，不要只用嘴说「我这就去」。',
+      /* 工具名和用法全在 tools 参数里，这里不再重复列一遍 ——
+         2026-11-11 账单复盘：这段 739 字符每轮都发，纯冗余。 */
+      '【你手上真有的本事】老人让你办事就调工具，不要只用嘴说「我这就去」。',
 
       /* ===== 2026-11-10 真机两条硬规矩（模型跑偏实证）===== */
       '【发微信只有一条路】',
@@ -266,6 +351,8 @@
       '「别人给我钱」「收款码」→ receive_code()。这三个都不碰钱，最后一下永远归老人。',
       '   绝不要 open_app 微信再自己点，也不要拿通用点屏工具在微信里找入口。',
       '   只有老人报了具体金额、需要核对那张卡时，才用 scan_pay(amount=那个数)。',
+      '【找不到人怎么办】工具说通讯录里没有这个人 → 别再换名字重试、也别 recall 查记忆，',
+      '   直接问老人一句：「他在通讯录里叫啥名？或者号码多少？」',
       '【recall 什么时候才用】',
       '   只有老人在问「你还记得吗」「我之前说过啥」这类**问句**时才 recall。',
       '   办事的路上（发消息、放电视、打电话）永远不查记忆 —— 记忆里没有就直说，',
@@ -316,7 +403,6 @@
       /* 2026-11-10 菲尔特拍板：「不论看什么只保留抖音」，悟空弃用。 */
       '「我想看 XX」「XX 最新一期」（具体片名，直达单上没有的）→ search_in_app(app=抖音, keyword=XX)',
       '   一步到位进去搜、搜到就点开播放并全屏。绝不用 search_wukong / open_url，也别拆成一步步点。',
-      '「抖音上搜 XX」「红果里找 XX」这种点名平台的才用 search_in_app。',
       '「明天天气」「后天冷不冷」→ get_weather(day=tomorrow / after)，别拿今天的数字糊弄',
       '「刷刷抖音」「抖音上看看」「看短剧」→ watch_video(app=抖音)',
       '「抖音上搜 XX」「抖音打开 XX，然后全屏」→ search_in_app(app=抖音, keyword=XX)，一步到位，**永远第一个试它**。',
@@ -577,6 +663,8 @@
     let gateBuf = '';
     /* 焊死：这一轮确认是在办事，从头到尾一句话都不往外念。 */
     let gateDead = false;
+    /* usage 只在流末尾那个 choices 为空的 chunk 里出现，这里单独接住。 */
+    let lastUsage = null;
 
     try {
       const ctrl = new AbortController();
@@ -596,14 +684,22 @@
          所以给思维链单独压预算：调小 effort，别让它写论文。 */
       /* DeepSeek 只认 low / high / max。默认 low：先出声，不写论文。 */
       body.reasoning = { effort: opts.effort || 'high' };
-      /* 工具只在需要时挂。闲聊不挂工具，模型就不会手痒去开电视。 */
-      if (opts.tools !== false) {
+      /* 工具只在需要时挂。闲聊不挂工具，模型就不会手痒去开电视。
+         2026-11-11 省 token：opts.tools 可以是数组（本轮只挂这几个）。
+         66 个工具的清单就有 8K tokens，每轮重发是账单最大的单笔；
+         第 1 轮之后只挂「已经动过的手 + 通用几只」，语义不变、明文少一半。 */
+      if (opts.tools === false) {
+        /* 不挂 */
+      } else if (Array.isArray(opts.tools)) {
+        if (opts.tools.length) { body.tools = opts.tools; body.tool_choice = 'auto'; }
+      } else {
         body.tools = window.MILI_TOOLS.schema();
         body.tool_choice = 'auto';
       }
 
       const src = DS.on ? dsStream(body, ctrl.signal) : c.llm.chat.completions.create(body);
       for await (const ch of src) {
+        if (ch && ch.usage) lastUsage = ch.usage;
         if (!firstMs) firstMs = Date.now() - t0;
         const cc = ch.choices && ch.choices[0];
         if (!cc) continue;
@@ -661,7 +757,7 @@
       return {
         err: aborted ? 'timeout' : ((e && e.message) || 'call_failed'),
         text: hv.text, reason: reason, tcs: tcs.filter(Boolean).concat(hv.calls),
-        ms: Date.now() - t0, firstMs: firstMs, fin: fin,
+        ms: Date.now() - t0, firstMs: firstMs, fin: fin, usage: lastUsage,
       };
     }
 
@@ -670,7 +766,7 @@
     return {
       err: null, text: hv.text, reason: reason,
       tcs: tcs.filter(Boolean).concat(hv.calls),
-      ms: Date.now() - t0, firstMs: firstMs, fin: fin,
+      ms: Date.now() - t0, firstMs: firstMs, fin: fin, usage: lastUsage,
     };
   }
 
@@ -692,7 +788,9 @@
   const FAIL_WORDS = /(没办成|没打成|没打通|没弄好|不行|没法|失败|没找到|没查到|打不开|弄不了|办不了|办不成|没关|没开|没设|没记住|没看|去不了|看不了|拍不了|打不了)/;
 
   /* 这句话听起来像「真的动了手」吗 —— 用来判断它是不是在无凭据邀功 */
-  const ACT_CLAIM = /(打开|关上|关掉|开开|拨出|发出去|放上|设好|找到|记住了|导航|带您|给您放|给您开|已经|办好|弄好)/;
+  /* 只认「完成态」的邀功。2026-11-11 去掉了「带您 / 给您放 / 给您开」——
+     这三个是提议句式（「要不我给您放段豫剧听听？」），不是「已经做了」。 */
+  const ACT_CLAIM = /(打开|关上|关掉|开开|拨出|发出去|放上|设好|找到|记住了|导航|已经|办好|弄好|开好啦|关好啦|放好啦|设好啦)/;
 
   function guardHonest(text, results, triedTools) {
     if (!text) return text;
@@ -707,14 +805,25 @@
        宁可生硬，不许骗。 */
     const failed = R.filter((r) => r && r.ok === false);
     if (failed.length) {
-      return failed[failed.length - 1].detail || '没办成';
+      /* 用**第一条**失败：多步链路里后面的失败常常是模型自己瞎试出来的
+         （真机：「给闺女打电话」失败 → 换名重试 → recall 查记忆 → 说「没记着」），
+         拿最后一条等于把最没用的那句念给老人。 */
+      return failed[0].detail || '没办成';
     }
 
     /* ---- ② 压根没调工具，它却在邀功 ---- */
     /* triedTools 表示这一轮到底有没有发生工具调用（不管成败）。
        一个都没调，却说「打开了」，就是凭空编的。 */
     if (!triedTools && !(results || []).length) {
-      if (ACT_CLAIM.test(text) && !FAIL_WORDS.test(text)) {
+      /* 🚨 2026-11-11 真机实证（菲尔特：「我说我好无聊啊，他说这个还没真动手」）：
+         模型原话是「外婆无聊啦？米粒陪您说说话呀。要不我给您放段豫剧听听？」
+         —— 这是**提议**，却被 ACT_CLAIM 里的「给您放」抓住，整句被换成
+         「这个我还没真动手，您再说一遍，我这就去办」，老人听到的就是答非所问。
+         现在：带问号、带征询词的一律不算邀功；「给您放/给您开/带您」这三个
+         从词表里去掉 —— 它们本来就是提议句式，不是完成态。 */
+      const asking = /[?？]\s*$/.test(String(text).trim()) ||
+        /(要不|要不要|想不想|好不好|行不行|好吗|怎么样|陪您|咱们)/.test(text);
+      if (!asking && ACT_CLAIM.test(text) && !FAIL_WORDS.test(text)) {
         /* 换一句不打保票的话。不能让老人白跑一趟。 */
         return '这个我还没真动手，您再说一遍，我这就去办。';
       }
@@ -887,6 +996,16 @@
     /* 这一轮里已经报过的工具词。每轮清空 —— 跨轮不清的话，
        老人第二次说「打开微信」，它就不吭声了，又变成一片安静。 */
     const _saidTool = {};
+    /* 这一句话里真动过的手。第 2 轮起只挂它们 + 通用几只（省 6~7K tokens/轮）。 */
+    const usedNames = new Set();
+    /* 整句话里「工具名+参数」的指纹表。跨轮生效 —— 重复调用会白烧一整轮 tokens，
+       真机实证 ui_map 在同一屏连调两次，第二次照样把整屏节点再发一遍。 */
+    const _seenSig = {};
+    /* 撞上重复调用时，直接拿「第一条真失败」收尾，不再给模型下一轮。
+       2026-11-11 真机：「给我闺女打电话」连试两次没这个人，第三次被拦，
+       模型没有别的可说，就把拦截回执复述成「这一步刚做过，没变化」——
+       老人听到的是答非所问。宁可硬收尾，也不能让它念系统提示。 */
+    let dupFinal = '';
 
     try {
       const messages = [{ role: 'system', content: systemPrompt(text) }]
@@ -908,6 +1027,9 @@
            老人耳朵里听到的就是这堆符号。
            现在一直挂着，靠轮数上限和「同一工具连败两次就封」来控制不乱来。 */
         const useTools = (opts.tools === false) ? false : (r < CFG.maxRounds - 1);
+        /* 第 2 轮起收窄工具集：66 个清单 8K tokens，重发一次就是一次白花钱。
+           返回 null 时 turn 会退回全量（工具太少就不冒险）。 */
+        const roundTools = (r >= 1 && usedNames.size) ? toolSubset(usedNames) : null;
         _forceTools = false;
         _retryAfterFail = false;
         const left = CFG.totalTimeout - (Date.now() - T0);
@@ -926,7 +1048,13 @@
         const liveDelta = (opts.onDelta && !anyFailYet && !riskyFirst) ? opts.onDelta : null;
 
         const t = await turn(sanitizeMessages(messages), {
-          tools: useTools,
+          tools: useTools ? (roundTools || undefined) : false,
+          /* 2026-11-11 真机实证：同一个句子两次跑，一次 today_info、一次 search_web；
+             「打开拼多多搜拖鞋」一次 search_in_app 一次 open_app+ui_map。
+             0.55 是为了防复读，代价是路由不稳定 —— 老人眼里就是「有时候乱干」。
+             要动工具的轮次压到 0.28（选哪个工具、填什么参数要确定），
+             纯说话的最后一轮仍是 0.55（说人话要自然）。 */
+          temperature: useTools ? 0.28 : CFG.temperature,
           maxTokens: (r === 0 || useTools) ? CFG.maxTokens : CFG.sayTokens,
           timeout: Math.max(4000, Math.min(CFG.turnTimeout, left)),
           onDelta: liveDelta,
@@ -947,7 +1075,10 @@
           reason: (t.reason || '').slice(0, 160),
           said: (t.text || '').slice(0, 120),
           calls: (t.tcs || []).map((x) => ({ name: x.name, args: x.args })),
+          tok: t.usage ? t.usage.prompt_tokens : 0,
         });
+        /* 账本：这一轮到底烧了多少，落盘 + 一行日志 */
+        usageLog(t.usage, r + 1);
 
         if (t.err) {
           /* 400 兜底：消息结构仍被拒收时，把工具对折成摘要再试一次。
@@ -981,11 +1112,39 @@
 
           /* 失败反思提示先攒着，所有回执收齐后再放（根治 400 的另一半） */
           let nudge = null;
-
+          /* 同一步（工具名 + 参数完全相同）在同一句话里第二次出现就当原地打转。
+              2026-11-11 真机实证：「打开拼多多搜拖鞋」连调两次 ui_map，
+              同一屏同样的 23 个节点，第二次照样真跑一遍、照样进 messages
+              （多花 6,591 tokens），老人看到的就是「一直在想」。
+              `_failCount` 只抓失败，抓不住「成功了但重复」—— 这里补上。 */
           for (let k = 0; k < calls.length; k++) {
             const call = calls[k];
             let args = {};
             try { args = JSON.parse(call.function.arguments || '{}'); } catch (e) { args = {}; }
+
+            const sig = call.function.name + '|' + (call.function.arguments || '{}');
+            if (_seenSig[sig]) {
+              /* 不真执行，只回一句实话：让它换路或者认账，别再空转一轮。 */
+              messages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                content: JSON.stringify({
+                  ok: false,
+                  detail: '（这是给你的系统提示，不要念给老人）这一步刚刚已经做过了，结果一模一样。' +
+                          '别再重复，换个办法；实在没有别的办法，就把上一条真实结果如实告诉老人。',
+                }),
+              });
+              results.push({ ok: false, detail: '这一步刚做过，没变化。' });
+              /* 拿第一条真失败当收尾话术；没有就退一步用最后一条成功的 detail。 */
+              const _real = results.filter(function (x) {
+                return x && x.detail && !/刚做过|刚刚已经做过/.test(String(x.detail));
+              });
+              dupFinal = _real.length ? _real[0].detail
+                       : (_real.length === 0 && results.length ? results[0].detail : '');
+              try { console.log('[TOOL] ' + call.function.name + ' 重复调用已拦截 → 硬收尾'); } catch (e) {}
+              continue;
+            }
+            _seenSig[sig] = 1;
 
             /* 状态可见化：执行哪个工具就让屏幕写哪个动作，别让她干瞪眼 */
             try { window.__onAgentPhase && window.__onAgentPhase('doing', call.function.name, args); } catch (e) {}
@@ -1035,6 +1194,13 @@
                   .includes(call.function.name) ? 8000 : 6000)),
             ]);
             results.push(res);
+            /* 记下这只手已经用过：下一轮的工具清单只挂它们 + 通用几只。 */
+            usedNames.add(call.function.name);
+            /* 动过屏幕/换过界面之后，之前的「看屏」结果就作废了 ——
+               清空指纹表，否则「滚动后重新 ui_map」这种正当操作会被误拦。 */
+            if (/^(tap_|type_|scroll_|swipe_|open_app|go_back|press_|launch|search_in_app|wechat_|play_|player_)/.test(call.function.name)) {
+              for (const _k in _seenSig) delete _seenSig[_k];
+            }
             /* 2026-11-10：工具结果进 logcat，真机「做不了事」不用再猜。 */
             try { console.log('[TOOL] ' + call.function.name + ' ok=' + res.ok
               + ' ' + String(res.detail || res.why || '').slice(0, 50)); } catch (e) {}
@@ -1138,6 +1304,9 @@
           }
           if (nudge) { messages.push(nudge); nudge = null; }
           if (fastFinal) { finalText = fastFinal; break; }
+          /* 重复调用已经发生：这一句到此为止，直接把真失败说给老人，
+             不再花一轮 tokens 让模型自己组织语言（它只会复述系统提示）。 */
+          if (dupFinal) { finalText = dupFinal; break; }
           continue;
         }
 
@@ -1173,9 +1342,18 @@
         break;
       }
 
-      /* 兜底：轮数用完了还没说话 */
+      /* 兜底：轮数用完了还没说话。
+         2026-11-11 真机：通讯录里没有「闺女」，重试两次后被「重复调用」拦住，
+         兜底直接把拦截语「这一步刚做过，没变化」念给了老人。
+         拦截语是给模型看的，不是给老人听的 —— 优先挑一条真正的失败原因。 */
       if (!finalText && results.length) {
-        const last = results[results.length - 1];
+        const real = results.filter(function (x) {
+          return x && x.detail && !/刚做过|刚刚已经做过/.test(String(x.detail));
+        });
+        /* 用**第一条**真实失败，不用最后一条：真机实测「给闺女打电话」三轮
+           依次是「通讯录没找到闺女」→「没找到女儿」→「没说是给谁打」，
+           拿最后一条等于把最没用的那句念给老人。第一条才是主路径的真原因。 */
+        const last = real.length ? real[0] : results[results.length - 1];
         finalText = last.detail || (last.ok ? '办好了' : '没办成');
       }
 
@@ -1413,6 +1591,8 @@
     note: (role, content) => pushHist(role, content),
     agentBusy: agentBusy,
     systemPrompt: systemPrompt,
+    /* 今天的 token 账本（calls / input / hit / miss / output），自测和界面都能读 */
+    usageToday: usageToday,
     CFG: CFG,
     /* 看图：直接走 deepseek-flash 自己。
        它 input_modalities 是 ["text","image"]，官方 API 实测收 image_url，

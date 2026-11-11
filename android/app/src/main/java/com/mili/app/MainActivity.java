@@ -204,7 +204,7 @@ public class MainActivity extends Activity {
            老人不知道该点哪个，也不敢点。那是给浏览器用户用的，不是给他用的。 */
         s.setSaveFormData(false);
         s.setSavePassword(false);
-        /* 页面是 https（托管域名），米粒自己的服务器是 http（your-ecs-host.example.com:9001，没有证书）。
+        /* 页面是 https（托管域名），米粒自己的服务器是 http（YOUR_SERVER_HOST:9001，没有证书）。
            不放开这个开关，登录、配对、药箱全部会被 WebView 当「混合内容」直接掐断 ——
            而且报错在控制台里，界面上只会显示「连不上」，看不出来是被拦的。
            只放行混合内容，不放开任何别的策略。 */
@@ -1473,6 +1473,22 @@ public class MainActivity extends Activity {
 
     /* ---------------- 桥 ---------------- */
     public class Bridge {
+        /* ===== 2026-11-11：跨 App 时唯一靠得住的「等」 =====
+           米粒把拼多多/抖音切到前台后，本 Activity 进后台，
+           Chromium 立刻把页面里的 setTimeout 节流到每分钟一次 ——
+           agent-tools.js 里每个 await wait(2600) 都会变成「永久等待」。
+           真机实证（cb4a7512 20:32:31 open_app 成功 → 20:36:11
+           search_in_app 才报「等太久」，代码里写的超时是 8 秒，实际 220 秒）。
+           桥方法跑在 Java 线程上，不受页面生命周期节流限制，
+           Thread.sleep 是唯一能老实数完这 2600 毫秒的地方。
+           约束：只给「等界面加载」用，单次上限 15 秒，不做长轮询。 */
+        @JavascriptInterface
+        public String sleepMs(int ms) {
+            int n = Math.max(0, Math.min(ms, 15000));
+            try { Thread.sleep(n); } catch (Throwable ignored) {}
+            return "{\"ok\":true,\"ms\":" + n + "}";
+        }
+
         @JavascriptInterface
         public boolean isAvailable() { return true; }
 

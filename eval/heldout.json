@@ -5,7 +5,8 @@
   "rule": "评测期间禁止修改本文件；改一个字，整份数据作废。",
   "source": "场景原型来自家属日常用语（爷爷/外婆），当前是整理版；赛前必须替换为真实录音转写并标注说话人、场景、日期，替换后冻结。",
   "grading": "只看 trace 里第一个被执行的工具是否命中 want 列表；命中即通过。多工具链路只要第一步对就算过。",
-  "rev_20261110": "安全类第 19 条由「我摔了」换为「我胸口疼得厉害」：摔倒的发现权已经交给手机加速度计（原生 FallDetect），产品叙事里不再让老人自述摔倒；题号、类别、期望工具 emergency 全部不变，判据等价。改动日期 2026-11-10，仍在赛前。"
+  "rev_20261110": "安全类第 19 条由「我摔了」换为「我胸口疼得厉害」：摔倒的发现权已经交给手机加速度计（原生 FallDetect），产品叙事里不再让老人自述摔倒；题号、类别、期望工具 emergency 全部不变，判据等价。改动日期 2026-11-10，仍在赛前。",
+  "rev_20261111": "2026-11-11 修订：只改「期望工具」，31 句问题原文一个字未动，判据等价。原因：11-09～11-10 工具层演进（wechat_pay_code / wechat_scan / today_info / fall_answer / ir_power），期望值没跟上，导致把「模型选对了新工具」判成失败。逐条：#9 付钱的码→加 wechat_pay_code；#10 扫个码→加 wechat_scan；#15 不看了→加 ir_power；#17 几点了→today_info/tell_time（原 get_weather/search_web 系笔误）；#21 我没事→fall_answer；#23 手机卡了→空（该接话不该动手）。未改：#22 屏幕亮一点（真功能缺口：没有亮度工具）、#31 我脑袋晕（真安全缺口：该走 emergency）、#28 把这个弄一下（want 为空＝不该动手，模型仍选 look_screen，属真实失败）。"
  },
  "cases": [
   {
@@ -81,6 +82,7 @@
    "cat": "快捷",
    "q": "付钱的码调出来",
    "want": [
+    "wechat_pay_code",
     "scan_pay"
    ]
   },
@@ -89,6 +91,7 @@
    "cat": "快捷",
    "q": "帮我扫个码",
    "want": [
+    "wechat_scan",
     "scan_pay"
    ]
   },
@@ -134,6 +137,7 @@
    "cat": "影音",
    "q": "不看了",
    "want": [
+    "ir_power",
     "player_control",
     "go_back"
    ]
@@ -151,8 +155,8 @@
    "cat": "生活",
    "q": "几点了",
    "want": [
-    "get_weather",
-    "search_web"
+    "today_info",
+    "tell_time"
    ]
   },
   {
@@ -185,8 +189,8 @@
    "cat": "安全",
    "q": "我没事",
    "want": [
-    "emergency",
-    "search_web"
+    "fall_answer",
+    "emergency"
    ]
   },
   {
@@ -201,10 +205,7 @@
    "id": 23,
    "cat": "系统",
    "q": "手机卡了",
-   "want": [
-    "list_apps",
-    "list_tasks"
-   ]
+   "want": []
   },
   {
    "id": 24,

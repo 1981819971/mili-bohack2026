@@ -20,6 +20,18 @@
 
   /* ---------- 小工具 ---------- */
 
+  /* ===== 2026-11-11：跨 App 自动化里唯一靠得住的「等」 =====
+     米粒把拼多多/抖音切到前台后，本 Activity 进后台，Chromium 立刻把
+     页面里的 setTimeout 节流到每分钟一次 —— 下面每个 await wait(2600)
+     都会变成永久等待。真机实证：open_app 成功到 search_in_app 报超时
+     隔了 220 秒，代码里写的是 8 秒。
+     window.__NAP 在前台走 setTimeout、后台走 MiliNative.sleepMs（Java 线程，
+     不受页面生命周期限制）。所有等待都收敛到这一个口子。 */
+  function nap(ms) {
+    try { if (window.__NAP) return window.__NAP(ms); } catch (e) {}
+    return new Promise(function (r) { setTimeout(r, ms || 0); });
+  }
+
   /* Java 桥一律返回 JSON 字符串，解析不出来就当失败，绝不假设成功 */
   function NJ(raw) {
     if (!raw) return null;
@@ -83,7 +95,7 @@
   /* 延时动作的结果验证：等窗口真的切过去，才算办成。
      每隔 400ms 看一次最近窗口，最多等 ms 毫秒。 */
   function waitWindow(nn, ms, want, since) {
-    const wait = (x) => new Promise((r) => setTimeout(r, x));
+    const wait = nap;
     return (async () => {
       const t0 = Date.now();
       while (Date.now() - t0 < ms) {
@@ -321,7 +333,7 @@
            加上模型两三轮思考，老人感觉就是「它卡死了」。
            改成边等边看：每 400ms 问一次屏幕，看见播放器控制栏就立刻返回。
            实测好机器 2.8 秒、慢机器 5 秒就能看到；最坏还是等到 11 秒兜底。 */
-        const wait = (x) => new Promise((z) => setTimeout(z, x));
+        const wait = nap;
         const t0 = Date.now();
         let flat = '';
         while (Date.now() - t0 < 11000) {
@@ -357,7 +369,7 @@
          不是 Activity 名，靠它判断会误判（实测前台已是 SearchActivity 却报没进）。
          改成看屏幕上真出现了什么：搜索页有「搜索框」和黄色「搜索」按钮，
          结果页有片名。轮询期间只要看见一次就算进去了。 */
-      const wait = (x) => new Promise((z) => setTimeout(z, x));
+      const wait = nap;
       const t0 = Date.now();
       let saw = false;
       while (Date.now() - t0 < 9000 && !saw) {
@@ -384,7 +396,7 @@
       if (!r.ok) return r;
       /* 观看历史是自绘卡片，点没点中要看播放页的控制栏有没有出来。
          同上：别盲等 5.2 秒，看见控制栏就走。 */
-      const wait = (x) => new Promise((z) => setTimeout(z, x));
+      const wait = nap;
       const t0 = Date.now();
       let flat = '';
       while (Date.now() - t0 < 8000) {
@@ -457,7 +469,7 @@
    * ======================================================================== */
 
   /* ---------- 界面「变了没有」的指纹 ---------- */
-  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+  function sleep(ms) { return nap(ms); }
 
   /* 点完这一下，屏幕到底变没变？拿节点文字拼一个指纹比一比。
      比的是「字变没变」而不是截图，省一次截屏，也足够判断有没有跳页。 */
@@ -751,7 +763,7 @@
       const d = String(a.dir || 'down').toLowerCase();
       const r = fromJava(d === 'up' ? nn.swipe(0.5, 0.32, 0.5, 0.72) : nn.swipe(0.5, 0.72, 0.5, 0.32));
       if (!r.ok) return { ok: false, detail: '这一页翻不动。' };
-      await new Promise((z) => setTimeout(z, 700));
+      await nap(700);
       return { ok: true, detail: d === 'up' ? '往上翻了一页。' : '往下翻了一页。' };
     });
 
@@ -910,7 +922,7 @@
     ['keyword'],
     async function (a, E) {
       const nn = n(E); if (!nn) return noNative();
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const wait = nap;
       const J = (x) => { try { return JSON.parse(x); } catch (e) { return { ok: false }; } };
 
       const app = String(a.app || '').trim();
@@ -1402,6 +1414,27 @@
                   '他说了具体数值就用 log_vital 记下来，明显不对劲就提一句给家里人打个电话。',
         };
       }
+      /* 第三道闸：日期/农历一律不许联网。
+         2026-11-11 菲尔特实证：问「今天农历几号」，它去 search_web，
+         回来一段「农历和公历的转换机制」—— 老人问的是今天初几，
+         它答的是百科。日期本地就算得死，查网只会把答案换成词条。
+         天气放行：「明天冷不冷」确实要联网。 */
+      const dateish = /(今天|明天|后天|昨天|现在|农历|阴历|几号|初[一二三四五六七八九十]|星期几|礼拜几|周几|什么日子|几月几)/;
+      const weatherish = /(天气|气温|下雨|下雪|雨|雪|冷不冷|热不热|温度|穿什么|风大|雾霾|空气|台风)/;
+      if (dateish.test(q) && !weatherish.test(q)) {
+        const d = new Date();
+        const wk = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][d.getDay()];
+        let lun = '';
+        try {
+          lun = window.lunarCN ? window.lunarCN(d)
+                : new Intl.DateTimeFormat('zh-CN-u-ca-chinese',{month:'long',day:'numeric'}).format(d);
+        } catch (e) {}
+        return {
+          ok: true, src: null,
+          detail: '公历 ' + d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 ' + wk
+                + (lun ? '，农历' + lun : '') + '。直接照这句回答老人，不用再查。',
+        };
+      }
       if (!E.searchWeb) return { ok: false, detail: '这会儿查不了网。' };
       return Promise.resolve(E.searchWeb(a.query)).then(function (r) {
         if (!r || !r.text) return { ok: false, detail: '这个我查不到。' };
@@ -1751,8 +1784,9 @@
      菲尔特：「问他今天农历几号他也不知道」。Intl 的中文历法在 Android
      WebView 里可用；不可用就退回公历+星期，绝不说「不知道」。 */
   def('today_info',
-    '问今天几号、星期几、农历几号、什么日子时用。直接返回这台手机上算出来的真实日期，不用联网、不用猜。' +
-    '老人问「今天农历几号」「今天星期几」「几月几号了」一律调它，然后照着回一句人话。',
+    '问现在几点、今天几号、星期几、农历几号、什么日子时用。' +
+    '直接返回这台手机上算出来的真实日期和时间，不用联网、不用猜、不用去读屏幕。' +
+    '老人问「现在几点」「今天农历几号」「今天星期几」「几月几号了」一律调它，然后照着回一句人话。',
     {}, [],
     function () {
       const d = new Date();
@@ -1763,7 +1797,21 @@
               : new Intl.DateTimeFormat('zh-CN-u-ca-chinese',{month:'long',day:'numeric'}).format(d);
       } catch (e) {}
       const g = '公历 ' + d.getFullYear() + ' 年 ' + (d.getMonth()+1) + ' 月 ' + d.getDate() + ' 日 ' + wk;
-      return { ok: true, detail: lun ? (g + '，农历' + lun + '。') : (g + '。'), date: g, lunar: lun };
+      const hh = d.getHours();
+      const mm = ('0' + d.getMinutes()).slice(-2);
+      /* 2026-11-11 真机实证：老人问「现在几点了」→ today_info 只回日期、
+         没有时间 → 模型只好去 read_screen / read_notifications 找时间，
+         跑满 4 轮，最后憋出一句「屏幕上没读到字」。时间是本地就算得死的东西，
+         一次给全，别让它去翻屏幕。 */
+      const when = hh < 5 ? '凌晨' : hh < 8 ? '清早' : hh < 11 ? '上午'
+                 : hh < 13 ? '中午' : hh < 17 ? '下午' : hh < 19 ? '傍晚'
+                 : hh < 22 ? '晚上' : '夜里';
+      const t = '现在 ' + hh + ' 点' + (mm === '00' ? '整' : ' ' + mm + ' 分') + '（' + when + '）';
+      return {
+        ok: true,
+        detail: t + '；' + (lun ? g + '，农历' + lun + '。' : g + '。'),
+        date: g, lunar: lun, time: hh + ':' + mm,
+      };
     });
 
   window.MILI_TOOLS = {

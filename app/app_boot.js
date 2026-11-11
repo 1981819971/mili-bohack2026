@@ -11346,7 +11346,7 @@ window.MILI_FALL_NOW = function(by){
         var note = { t: Date.now(), text: nt, sent: false };
         try { localStorage.setItem('mili.note', JSON.stringify(note)); } catch(err){}
         try {
-          fetch('http://your-ecs-host.example.com:9001/state?k=mili2026&dev=note', {
+          fetch('http://your-ecs-host.example.com:9001/state?k=YOUR_STATE_KEY&dev=note', {
             method:'PUT', headers:{ 'Content-Type':'application/json' },
             body: JSON.stringify(note)
           }).then(function(){ note.sent = true;
@@ -11717,7 +11717,7 @@ window.MILI_FALL_NOW = function(by){
     } catch(e){}
     /* 网页兜底（本地调试用）：直连自己的 ECS */
     try {
-      const r = await fetch(API() + '/state?k=mili2026&dev=cfg_' + encodeURIComponent(code), {
+      const r = await fetch(API() + '/state?k=YOUR_STATE_KEY&dev=cfg_' + encodeURIComponent(code), {
         method:'PUT', headers:{'Content-Type':'application/json; charset=utf-8'}, body:String(json)
       });
       return await r.json();
@@ -11729,7 +11729,7 @@ window.MILI_FALL_NOW = function(by){
       if (n && n.cfgGet) return JSON.parse(n.cfgGet(String(code)) || '{}');
     } catch(e){}
     try {
-      const r = await fetch(API() + '/state?k=mili2026&dev=cfg_' + encodeURIComponent(code));
+      const r = await fetch(API() + '/state?k=YOUR_STATE_KEY&dev=cfg_' + encodeURIComponent(code));
       const d = await r.json();
       if (d && d.ok && d.data) return { ok:true, cfg: JSON.parse(d.data) };
       return { ok:false, why:'这个码还没人配置过' };
@@ -12862,7 +12862,7 @@ window.MILI_FALL_NOW = function(by){
           }
         } catch(e){}
         try {
-          fetch('http://your-ecs-host.example.com:9001/state?k=mili2026&dev=note')
+          fetch('http://your-ecs-host.example.com:9001/state?k=YOUR_STATE_KEY&dev=note')
             .then(function(r){ return r.json(); })
             .then(function(j){
               if (j && j.t && j.t > noteSeen && j.t > Date.now() - 10*60*1000 && j.text){

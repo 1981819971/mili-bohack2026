@@ -129,7 +129,7 @@ public class StateBackup {
 
     /* ================= 阿里云 ECS（your-ecs-host.example.com:9001，复用米粒自己的 ASR 服务） =========
        用 ANDROID_ID 做设备键：清除数据不会变，所以不用账号、不用登录、不用人管。 */
-    private static final String STATE_URL = "http://your-ecs-host.example.com:9001/state?k=mili2026&dev=";
+    private static final String STATE_URL = "http://your-ecs-host.example.com:9001/state?k=YOUR_STATE_KEY&dev=";
 
     private static String devId(Context c) {
         String id = "";

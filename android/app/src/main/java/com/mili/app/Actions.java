@@ -59,7 +59,7 @@ public class Actions {
                 num = who.replaceAll("[^0-9+]", "");
             }
             if (num == null) {
-                return fail("no_contact", "通讯录里没找到" + who + "，你告诉我号码也行。");
+                return fail("no_contact", "通讯录里没找到" + who + "，您告诉我叫啥名、或者号码多少？");
             }
             Intent i = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + num));
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

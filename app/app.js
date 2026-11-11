@@ -347,7 +347,7 @@ window.__petMode = petMode;   // 原生桥/调试也能切
 (function () {
   /* 走自己 ECS 的中继（9001/tv/）：手机 WebView 到境外 IP 全被墙，
      中继在阿里云上拉上游 + 分片预取缓存（实测冷 4s / 热 0.19s）。 */
-  const HOST = 'http://your-ecs-host.example.com:9001/tv/';
+  const HOST = 'http://YOUR_SERVER_HOST:9001/tv/';
   /* 每一项都实测过解码（2026-11-07），新增频道照这个格式加、先 ffprobe 验 */
   const TV_MAP = [
     { k: ['新闻联播', '新闻频道', 'cctv13', '中央13', '新闻'], ch: 'cctv13hd', name: 'CCTV-13 新闻' },
@@ -1054,6 +1054,26 @@ const NATIVE = () => {
   try { return (typeof n.isAvailable === 'function' && n.isAvailable()) ? n : n; } catch (e) { return null; }
 };
 let speaking = false, voiceOn = true, zhVoice = null;
+
+/* ===== 2026-11-11：跨 App 自动化时的「等」 =====
+   真机实证：open_app 打开拼多多后，米粒 Activity 进后台，Chromium 把页面
+   定时器节流到每分钟一次 —— agent-tools.js 里每个 await wait(2600) 变成
+   永久等待，工具超时（8 秒）也一起失效。实测 open_app 20:32:31 成功，
+   search_in_app 20:36:11 才报超时，中间挂了 220 秒。老人看到的就是
+   「一直在想」+ 从此不再理人（_busy 卡死）。
+   前端可见时照旧用 setTimeout（不卡渲染）；页面隐藏时改走 Java 线程的
+   MiliNative.sleepMs —— 它不受页面生命周期节流。 */
+window.__NAP = function (ms) {
+  const n = (function () { try { return NATIVE(); } catch (e) { return null; } })();
+  try {
+    if (n && typeof n.sleepMs === 'function' && document.hidden) {
+      n.sleepMs(Math.max(0, Math.min(ms || 0, 15000)));
+      return Promise.resolve();
+    }
+  } catch (e) {}
+  return new Promise(function (r) { setTimeout(r, ms || 0); });
+};
+
 
 function pickVoice() {
   if (!('speechSynthesis' in window)) return;
@@ -3444,7 +3464,7 @@ function accPhoneMask(p) {
 }
 
 /* ============================================================================
- * 米粒自己的服务器（阿里云 your-ecs-host.example.com:9001，跟语音识别同一个进程）
+ * 米粒自己的服务器（阿里云 YOUR_SERVER_HOST:9001，跟语音识别同一个进程）
  *
  * 为什么换了：原来用第三方 BaaS，2026-11-05 一换登录账号，整个 App 的云端就废了。
  * 数据不在自己手里，就是这样。现在账号、配对、药箱全在 `/root/mili-data/mili.db`，
@@ -3466,7 +3486,7 @@ const MILI_API = (function () {
     const o = q.get('api');
     if (o && /^https?:\/\//i.test(o)) return o.replace(/\/+$/, '');
   } catch (e) {}
-  return 'http://your-ecs-host.example.com:9001';
+  return 'http://YOUR_SERVER_HOST:9001';
 })();
 
 /* 一张票走天下。角色存在 S.accRole 里（'elder' / 'fam'）。
@@ -11345,7 +11365,7 @@ window.MILI_FALL_NOW = function(by){
         var note = { t: Date.now(), text: nt, sent: false };
         try { localStorage.setItem('mili.note', JSON.stringify(note)); } catch(err){}
         try {
-          fetch('http://your-ecs-host.example.com:9001/state?k=mili2026&dev=note', {
+          fetch('http://YOUR_SERVER_HOST:9001/state?k=YOUR_STATE_KEY&dev=note', {
             method:'PUT', headers:{ 'Content-Type':'application/json' },
             body: JSON.stringify(note)
           }).then(function(){ note.sent = true;
@@ -11716,7 +11736,7 @@ window.MILI_FALL_NOW = function(by){
     } catch(e){}
     /* 网页兜底（本地调试用）：直连自己的 ECS */
     try {
-      const r = await fetch(API() + '/state?k=mili2026&dev=cfg_' + encodeURIComponent(code), {
+      const r = await fetch(API() + '/state?k=YOUR_STATE_KEY&dev=cfg_' + encodeURIComponent(code), {
         method:'PUT', headers:{'Content-Type':'application/json; charset=utf-8'}, body:String(json)
       });
       return await r.json();
@@ -11728,7 +11748,7 @@ window.MILI_FALL_NOW = function(by){
       if (n && n.cfgGet) return JSON.parse(n.cfgGet(String(code)) || '{}');
     } catch(e){}
     try {
-      const r = await fetch(API() + '/state?k=mili2026&dev=cfg_' + encodeURIComponent(code));
+      const r = await fetch(API() + '/state?k=YOUR_STATE_KEY&dev=cfg_' + encodeURIComponent(code));
       const d = await r.json();
       if (d && d.ok && d.data) return { ok:true, cfg: JSON.parse(d.data) };
       return { ok:false, why:'这个码还没人配置过' };
@@ -11947,7 +11967,7 @@ window.MILI_FALL_NOW = function(by){
     h += '<div class="v9card" style="padding:14px 16px">' +
          '<div class="v9row" style="padding:0 0 8px"><span class="tx">紧急呼叫联系人电话号码</span></div>' +
          '<input id="v9sosPhone" class="v9input" type="tel" inputmode="numeric" ' +
-           'placeholder="例如 13800000000" value="' + E9(S.sosPhone || '') + '">' +
+           'placeholder="例如 13800138000" value="' + E9(S.sosPhone || '') + '">' +
          '<button class="v9row" data-do="saveSos" style="border-top:1px solid #EDEDF7;margin-top:10px">' +
            '<span class="tx">保存号码</span><span class="go">›</span></button>' +
          '<div class="sb" style="font-size:12px;color:#9A9FBA;padding:0 0 4px">' +
@@ -12861,7 +12881,7 @@ window.MILI_FALL_NOW = function(by){
           }
         } catch(e){}
         try {
-          fetch('http://your-ecs-host.example.com:9001/state?k=mili2026&dev=note')
+          fetch('http://YOUR_SERVER_HOST:9001/state?k=YOUR_STATE_KEY&dev=note')
             .then(function(r){ return r.json(); })
             .then(function(j){
               if (j && j.t && j.t > noteSeen && j.t > Date.now() - 10*60*1000 && j.text){
