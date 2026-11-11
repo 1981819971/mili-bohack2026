@@ -22,13 +22,29 @@
 (function () {
   'use strict';
 
-  /* ---------- 直连 DeepSeek ---------- */
+  /* ---------- 直连大模型：主路走无限卡的聚合站，官方当备路 ----------
+     2026-11-12 菲尔特开通了 dpflash 无限日卡，要求接进米粒。
+     实测（tools / 流式 / 看图 / 思维链 都验过）：
+       · 模型名不一样：官方 deepseek-flash ↔ 这边 deepseek-v4.1-flash
+       · usage 字段不一样：官方 prompt_cache_hit_tokens ↔ 这边 cache_read_input_tokens
+       · 复杂任务（比如看图）思维链会吃满 max_tokens，正文可能为空
+     主备策略：主路挂了（401/402/5xx/网络）自动切官方，一个请求只切一次；
+     每次切换都会在 console 里留一行，现场一眼能看出走的哪条路。 */
   const DS = {
     on: true,
-    base: 'https://api.deepseek.com',
+    base: 'https://6.6666166.xyz/v1',
     key: 'sk-REPLACE_WITH_YOUR_OWN_KEY',
-    model: 'deepseek-flash',
+    model: 'deepseek-v4.1-flash',
+    /* 备路：官方按量计费，只在主路挂掉时兜底，平时一分不花 */
+    backup: {
+      base: 'https://api.deepseek.com',
+      key: 'sk-REPLACE_WITH_YOUR_OWN_KEY',
+      model: 'deepseek-flash',
+    },
   };
+  /* 这一轮实际走的哪条路，给日志和界面用 */
+  let _dsRoute = 'main';
+  const dsRoute = () => _dsRoute;
 
   /* 把 SSE 流翻成和云端 SDK 一样的 chunk 结构，上层代码一个字都不用改。
      DeepSeek 的 delta 里除了 content 还有 reasoning_content（思维链）——
@@ -36,21 +52,41 @@
   async function* dsStream(body, signal) {
     /* 2026-11-11：一定要 usage，不然花了多少钱只能靠后台截图猜。
        include_usage 会在流末尾补一个 choices 为空的 chunk，里面带
-       prompt_tokens / prompt_cache_hit_tokens / completion_tokens。 */
-    const b = Object.assign({}, body, {
-      model: DS.model, stream: true,
-      stream_options: { include_usage: true },
-    });
-    delete b.signal;
-    const r = await fetch(DS.base + '/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DS.key,
-      },
-      body: JSON.stringify(b),
-      signal: signal,
-    });
+       prompt_tokens / prompt_cache_hit_tokens / completion_tokens。
+       2026-11-12：主备切换。只在这一步（还没开始读流）失败才切，
+       流一旦开始就不能重来 —— 否则老人会听见半句话再来一遍。 */
+    const open = (cfg) => {
+      const b = Object.assign({}, body, {
+        model: cfg.model, stream: true,
+        stream_options: { include_usage: true },
+      });
+      delete b.signal;
+      return fetch(cfg.base + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + cfg.key,
+        },
+        body: JSON.stringify(b),
+        signal: signal,
+      });
+    };
+    let r = null, boom = null;
+    try { r = await open(DS); } catch (e) { boom = e; }
+    if (!r || !r.ok) {
+      let t = '';
+      try { if (r) t = await r.text(); } catch (e) {}
+      const why = boom ? String(boom && boom.message || boom) : (r.status + ' ' + String(t).slice(0, 100));
+      if (DS.backup && DS.backup.key) {
+        try { console.log('[DS] 主路挂了(' + why.slice(0, 60) + ')，切官方备路'); } catch (e) {}
+        _dsRoute = 'backup';
+        r = await open(DS.backup);
+      } else {
+        throw new Error('DeepSeek ' + why);
+      }
+    } else {
+      _dsRoute = 'main';
+    }
     if (!r.ok || !r.body) {
       let t = '';
       try { t = await r.text(); } catch (e) {}
@@ -130,12 +166,16 @@
        老人聊天不需要确定性，需要的是说人话。0.55 既保住工具参数的稳定，
        又让长句不复读。 */
     temperature: 0.55,
-    turnTimeout: 4500,       // 20:0x 提速：6s → 4.5s（实测单轮多在 1~3s）
+    /* 2026-11-12 接无限卡后改：官方单轮 1.5~2.5s，聚合站要 4.5~5.2s 才吐完 tool_calls，
+       4.5 秒正好卡在最后一刻被 abort（真机实证：三次都是 4503ms 无工具返回）。
+       8 秒是「还能忍」和「别掐断」的平衡点；总时限跟着放到 24 秒。 */
+    turnTimeout: 8000,
+    
     /* 2026-11-10 订正：11-09 把总上限压到 11 秒，是按「一轮工具」算的。
        但「打开抖音搜一部剧点开全屏」是一串 UI 自动化，真机实测就要 20 秒以上，
        总上限一到整个任务被腰斩 —— 老人看到的就是「做到一半没下文」。
        交代语已经说了「稍等啊」，多步任务给 60 秒；单轮超时仍是 6 秒不变。 */
-    totalTimeout: 16000,     // 20:0x 提速：60s → 16s，卡住最多等 16 秒就有话说
+    totalTimeout: 24000,     // 8000×3 轮；聚合站慢，留够但别让老人等太久
     sayMaxChars: 46,         // 老人一句话别超过这个字数
   };
 
@@ -158,10 +198,32 @@
     const k = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
     const a = all[k] || (all[k] = { calls: 0, convs: 0, input: 0, hit: 0, miss: 0, output: 0 });
     a.calls++;
-    a.input += u.prompt_tokens || 0;
-    a.hit += u.prompt_cache_hit_tokens || 0;
-    a.miss += u.prompt_cache_miss_tokens || 0;
-    a.output += u.completion_tokens || 0;
+    /* 两家字段名不一样（2026-11-12 接无限卡时踩到）：
+       官方 prompt_cache_hit_tokens / prompt_cache_miss_tokens
+       聚合站 cache_read_input_tokens / cache_creation_input_tokens
+       统一成 hit / miss，缺哪个用总数减出来，绝不让账本漏记。 */
+    const _hit = u.prompt_cache_hit_tokens != null ? u.prompt_cache_hit_tokens
+               : (u.cache_read_input_tokens != null ? u.cache_read_input_tokens : 0);
+    const _pt = u.prompt_tokens || (u.input_tokens) || 0;
+    const _miss = u.prompt_cache_miss_tokens != null ? u.prompt_cache_miss_tokens
+                : Math.max(0, _pt - _hit);
+    a.input += _pt;
+    a.hit += _hit;
+    a.miss += _miss;
+    a.output += u.completion_tokens || (u.output_tokens) || 0;
+    /* 2026-11-12：每笔都留一条带时间戳的流水（最多 500 条），
+       以后「几点几分烧了多少」自己就能查，不用等后台导出。 */
+    try {
+      const lg = a.log || (a.log = []);
+      const d2 = new Date();
+      lg.push([
+        ('0' + d2.getHours()).slice(-2) + ':' + ('0' + d2.getMinutes()).slice(-2) + ':' + ('0' + d2.getSeconds()).slice(-2),
+        u.prompt_tokens || 0,
+        u.prompt_cache_miss_tokens || 0,
+        rounds || 0,
+      ]);
+      while (lg.length > 500) lg.shift();
+    } catch (e) {}
     const ks = Object.keys(all).sort();
     while (ks.length > 14) { delete all[ks.shift()]; }
     try { localStorage.setItem(USAGE_KEY, JSON.stringify(all)); } catch (e) {}
@@ -173,6 +235,24 @@
         ' | 今日 call#' + a.calls + ' in=' + a.input + ' out=' + a.output);
     } catch (e) {}
   }
+  /* ==========================================================================
+   * 硬闸：PC / 无头环境每天最多烧 200 万 tokens
+   *
+   * 2026-11-11 深夜：一晚跑评测烧掉大几千万，而真机账本只有 96 万 ——
+   * 说明烧钱的是「浏览器里跑的脚本」，不是老人手上的手机。
+   * 真机（有 MiliNative）一律不拦；PC / puppeteer 超过上限直接拒绝发请求，
+   * 让它当场报错，而不是闷头把余额烧完。
+   * ======================================================================== */
+  const PC_DAILY_CAP = 2000000;
+  function overCap() {
+    try {
+      if (window.MiliNative) return false;          /* 真机不拦 */
+      const u = usageToday();
+      if (!u) return false;
+      return (u.input + u.output) > PC_DAILY_CAP;
+    } catch (e) { return false; }
+  }
+
   const usageToday = () => {
     try {
       const all = JSON.parse(localStorage.getItem(USAGE_KEY) || '{}') || {};
@@ -663,6 +743,9 @@
     const model = DS.on ? DS.model : await pickModel();
     if (!model) return { err: 'no_model' };
 
+    if (overCap()) {
+      return { err: 'budget_exhausted', text: '', tcs: [], ms: 0, firstMs: 0, fin: '', usage: null };
+    }
     const t0 = Date.now();
     let firstMs = 0, text = '', reason = '', fin = '';
     const tcs = [];
@@ -705,6 +788,14 @@
         body.tool_choice = 'auto';
       }
 
+      /* 2026-11-11 深夜查账：把每次请求的真实体量打出来（字符数 + 消息条数 + 带没带图）。
+         账单上「平均 5 万 tokens/次」和我们实测的 1 万对不上，只能靠这个抓。 */
+      try {
+        const _sz = JSON.stringify(body).length;
+        const _imgs = (JSON.stringify(body).match(/image_url/g) || []).length;
+        console.log('REQ msgs=' + (messages || []).length + ' chars=' + _sz + ' tools=' +
+          (body.tools ? body.tools.length : 0) + ' imgs=' + _imgs);
+      } catch (e) {}
       const src = DS.on ? dsStream(body, ctrl.signal) : c.llm.chat.completions.create(body);
       for await (const ch of src) {
         if (ch && ch.usage) lastUsage = ch.usage;
@@ -1609,14 +1700,10 @@
     vision: async function (b64, question, o) {
       o = o || {};
       const t0 = Date.now();
-      const r = await fetch(DS.base + '/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + DS.key,
-        },
-        body: JSON.stringify({
-          model: DS.model,
+      /* 2026-11-12：看图也走主备。主路（无限卡）对复杂图会把预算全给思维链、
+         正文空着回来，这种也算失败 —— 直接换官方重试一次。 */
+      const vbody = (model) => JSON.stringify({
+          model: model,
           stream: false,
           temperature: o.temperature === undefined ? 0.1 : o.temperature,
           /* 2026-11-07 实测：视觉请求如果 max_tokens 给小了，思考链会把预算吃光，
@@ -1632,14 +1719,34 @@
               { type: 'text', text: String(question || '这张图里是什么？') },
             ],
           }],
-        }),
+        });
+      const vcall = (cfg) => fetch(cfg.base + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
+        body: vbody(cfg.model),
       });
+      let r = await vcall(DS);
+      if (!r.ok && DS.backup) {
+        try { console.log('[DS] 看图主路挂了(' + r.status + ')，切官方备路'); } catch (e) {}
+        _dsRoute = 'backup';
+        r = await vcall(DS.backup);
+      }
       if (!r.ok) {
         let t = '';
         try { t = await r.text(); } catch (e) {}
         throw new Error('vision ' + r.status + ' ' + String(t).slice(0, 120));
       }
       const j = await r.json();
+      /* 2026-11-12：看图这条一直没记账 —— 它不走 turn()，账单上完全看不见。
+         实测一张 720×1600 的图 778 tokens，看着不多，但老人一天问十几次屏、
+         真要排查花销时会变成瞎区。这里补上。 */
+      try {
+        usageLog(j && j.usage, 1);
+        if (j && j.usage) {
+          console.log('MILI_USAGE-VISION in=' + (j.usage.prompt_tokens || 0) +
+            ' out=' + (j.usage.completion_tokens || 0));
+        }
+      } catch (e) {}
       const m = j && j.choices && j.choices[0] && j.choices[0].message;
       return {
         text: String((m && m.content) || '').trim(),
