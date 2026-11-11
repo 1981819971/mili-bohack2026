@@ -865,6 +865,16 @@
       return fromJava(nn.volume(v.indexOf('down') >= 0 || v.indexOf('小') >= 0 ? 'down' : 'up'));
     });
 
+  def('set_brightness',
+    '调屏幕亮度。老人说「屏幕亮一点」「太暗了看不见」「调暗点刺眼」时用。',
+    { action: { type: 'string', description: 'up 或 down' } },
+    ['action'],
+    function (a, E) {
+      const nn = n(E); if (!nn || !nn.setBrightness) return noNative();
+      const v = String(a.action || '').toLowerCase();
+      return fromJava(nn.setBrightness(v.indexOf('down') >= 0 || v.indexOf('暗') >= 0 ? 'down' : 'up'));
+    });
+
   def('media',
     '播放控制：暂停、接着放、下一集、上一集。' +
     '老人说「暂停」「别放了」「下一集」「上一集」「接着放」时用。任何播放器都吃这一套。',

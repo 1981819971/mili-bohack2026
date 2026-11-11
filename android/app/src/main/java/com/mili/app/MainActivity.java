@@ -1482,6 +1482,33 @@ public class MainActivity extends Activity {
            桥方法跑在 Java 线程上，不受页面生命周期节流限制，
            Thread.sleep 是唯一能老实数完这 2600 毫秒的地方。
            约束：只给「等界面加载」用，单次上限 15 秒，不做长轮询。 */
+        /* 2026-11-11 评测 #22「屏幕亮一点」一直是功能缺口（模型只能去乱按按键）。
+           系统亮度要 WRITE_SETTINGS 这个特殊权限，没有就把他领到开关页，
+           别默默失败 —— 老人不知道发生了什么。 */
+        @JavascriptInterface
+        public String setBrightness(String dir) {
+            try {
+                if (!android.provider.Settings.System.canWrite(MainActivity.this)) {
+                    android.content.Intent i = new android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS);
+                    i.setData(android.net.Uri.parse("package:" + getPackageName()));
+                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                    return "{\"ok\":false,\"detail\":\"调屏幕得先允许我改系统设置，我把那个开关给您打开了，打开「允许」再说一声就行。\"}";
+                }
+                android.content.ContentResolver cr = getContentResolver();
+                int cur = android.provider.Settings.System.getInt(
+                        cr, android.provider.Settings.System.SCREEN_BRIGHTNESS);
+                boolean up = !"down".equals(dir);
+                int next = up ? Math.min(255, cur + 70) : Math.max(15, cur - 70);
+                android.provider.Settings.System.putInt(
+                        cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, next);
+                return "{\"ok\":true,\"detail\":\"" + (up ? "屏幕调亮了。" : "屏幕调暗了。") + "\"}";
+            } catch (Throwable t) {
+                return "{\"ok\":false,\"detail\":\"屏幕亮度没调成，可能系统不让改。\"}";
+            }
+        }
+
         @JavascriptInterface
         public String sleepMs(int ms) {
             int n = Math.max(0, Math.min(ms, 15000));
