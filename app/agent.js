@@ -1060,9 +1060,9 @@
           /* 2026-11-11 真机实证：同一个句子两次跑，一次 today_info、一次 search_web；
              「打开拼多多搜拖鞋」一次 search_in_app 一次 open_app+ui_map。
              0.55 是为了防复读，代价是路由不稳定 —— 老人眼里就是「有时候乱干」。
-             要动工具的轮次压到 0.28（选哪个工具、填什么参数要确定），
+             要动工具的轮次压到 0.15（选哪个工具、填什么参数要确定），
              纯说话的最后一轮仍是 0.55（说人话要自然）。 */
-          temperature: useTools ? 0.28 : CFG.temperature,
+          temperature: useTools ? 0.15 : CFG.temperature,
           maxTokens: (r === 0 || useTools) ? CFG.maxTokens : CFG.sayTokens,
           timeout: Math.max(4000, Math.min(CFG.turnTimeout, left)),
           onDelta: liveDelta,
