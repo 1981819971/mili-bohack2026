@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>米粒</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;background:transparent;overflow:hidden;
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-user-select:none;user-select:none}
+
+  /* 小鸡本体：真序列帧，不是一张静态图做呼吸。
+     2026-11-06 换成菲尔特自己做的待机/唱歌两段动画。
+     为什么不用透明视频：Android WebView 播 alpha 视频不可靠
+     （ExoPlayer 至今不支持 alpha，Chrome Android 的 VP9 alpha 还有 bug），
+     所以走「AI 抠图 → WebP 网格雪碧图 → canvas 逐帧」这条路。 */
+  #pet{position:absolute;left:0;bottom:0;width:100%;height:100%;
+    display:flex;align-items:flex-end;justify-content:center;
+    transition:transform .22s cubic-bezier(.22,.8,.3,1)}
+  #pet canvas{width:100%;height:100%;object-fit:contain;pointer-events:none;
+    filter:drop-shadow(0 8px 18px rgba(40,34,24,.22))}
+  #pet.away{transform:translateY(120%) scale(.7);opacity:0}
+
+  /* 气泡 */
+  #bub{position:absolute;left:50%;bottom:calc(100% - 18px);transform:translateX(-50%) scale(.86);
+    background:#fff;border-radius:16px;padding:9px 13px;
+    font-size:13.5px;line-height:1.5;color:#14151a;
+    box-shadow:0 6px 20px rgba(20,18,14,.16);
+    max-width:74vw;opacity:0;pointer-events:none;
+    transition:opacity .2s ease,transform .2s cubic-bezier(.22,.8,.3,1);
+    white-space:normal;word-break:break-word}
+  #bub.on{opacity:1;transform:translateX(-50%) scale(1)}
+  #bub::after{content:"";position:absolute;left:50%;top:100%;margin-left:-5px;
+    width:0;height:0;border:5px solid transparent;border-top-color:#fff}
+
+  /* 对话层：点小鸡才出来 */
+  #talk{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(246,244,239,.94);border-radius:22px;padding:14px}
+  #talk.on{display:flex}
+  .col{width:100%;text-align:center}
+  .q{font-size:13px;color:#6b6f78;margin-bottom:9px}
+  .big{width:100%;height:44px;border:0;border-radius:22px;background:#14151a;color:#fff;
+    font-size:15px;font-weight:600;margin-top:7px}
+  .big:active{transform:scale(.97)}
+  .ghost{background:#fff;color:#5a5f6a;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .list{max-height:120px;overflow:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
+  .chip{background:#fff;border:0;border-radius:12px;padding:9px 11px;font-size:13px;
+    color:#14151a;text-align:left;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+</style>
+</head>
+<body>
+
+<div id="pet">
+  <canvas id="cv" width="250" height="250"></canvas>
+</div>
+
+<div id="bub"></div>
+
+<div id="talk">
+  <div class="col">
+    <p class="q" id="qt">找米粒有事？</p>
+    <div class="list" id="chips"></div>
+    <button class="big" id="mic">按住说</button>
+    <button class="big ghost" id="close">收起来</button>
+  </div>
+</div>
+
+<script>
+/* 桌宠本体：两套真序列帧。
+   idle = 待机（缓慢转头，动作轻），sing = 唱歌（张嘴展翅眯眼笑）。
+   数据由 build-pet.mjs 内联成 data URI 塞进来，桌宠是离线页面，不能发请求。
+   帧率 12fps，两段各 49 帧、约 4 秒一轮，正好对应原视频 4.04 秒。 */
+var FRAMES = window.__PET_FRAMES__ || null;
+
+var cv = document.getElementById('cv');
+var ctx = cv.getContext('2d');
+var pet = document.getElementById('pet');
+var bub = document.getElementById('bub');
+var talk = document.getElementById('talk');
+var chips = document.getElementById('chips');
+var qt = document.getElementById('qt');
+var N = window.MiliPet;
+
+var cur = null;      // 当前在放的套（idle / sing）
+var idx = 0;
+var timer = null;
+var imgs = {};       // 每套一张雪碧图
+
+function loadSet(name, cb) {
+  if (!FRAMES || !FRAMES[name]) { cb && cb(false); return; }
+  if (imgs[name]) { cb && cb(true); return; }
+  var im = new Image();
+  im.onload = function () {
+    imgs[name] = im;
+    if (N && N.log) { try { N.log('sprite ' + name + ' ' + im.naturalWidth + 'x' + im.naturalHeight); } catch (e) {} }
+    cb && cb(true);
+  };
+  im.onerror = function () {
+    if (N && N.log) { try { N.log('sprite FAILED ' + name); } catch (e) {} }
+    cb && cb(false);
+  };
+  im.src = FRAMES[name].src;
+}
+
+function draw(name, i) {
+  var meta = FRAMES[name];
+  var im = imgs[name];
+  if (!meta || !im) return;
+  var cols = meta.cols, w = meta.w, h = meta.h;
+  var c = i % meta.n;
+  var sx = (c % cols) * w;
+  var sy = Math.floor(c / cols) * h;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(im, sx, sy, w, h, 0, 0, cv.width, cv.height);
+}
+
+function play(name) {
+  if (!FRAMES || !FRAMES[name]) return;
+  if (cur === name && timer) return;
+  cur = name;
+  loadSet(name, function (ok) {
+    if (!ok) return;
+    if (timer) clearInterval(timer);
+    timer = setInterval(function () {
+      idx = (idx + 1) % FRAMES[name].n;
+      draw(name, idx);
+    }, 1000 / 12);
+  });
+}
+
+/* 说话时切唱歌，说完回待机。用时长兜底，免得原生忘了发 stop。 */
+var backT = null;
+window.__play = function (name, ms) {
+  play(name === 'sing' ? 'sing' : 'idle');
+  if (backT) clearTimeout(backT);
+  if (name === 'sing') {
+    backT = setTimeout(function () { play('idle'); }, ms || 6000);
+  }
+};
+
+/* 先把待机这套加载起来，画第一帧，别让老人看到空白 */
+loadSet('idle', function (ok) {
+  if (ok) { draw('idle', 0); play('idle'); }
+  else if (N && N.log) { try { N.log('no idle sprite'); } catch (e) {} }
+});
+/* 唱歌那套后台预热，等真说话时不用等加载 */
+setTimeout(function () { loadSet('sing'); }, 1200);
+
+/* ---- 气泡 ---- */
+var bubT = null;
+function bubble(text, ms) {
+  bub.textContent = text;
+  bub.classList.add('on');
+  clearTimeout(bubT);
+  bubT = setTimeout(function () { bub.classList.remove('on'); }, ms || Math.max(2600, text.length * 260));
+}
+
+/* ---- 原生调过来：说一句话 ---- */
+window.__say = function (text) {
+  bubble(text);
+};
+
+/* ---- 原生调过来：被叫醒了 ---- */
+window.__wake = function () {
+  pet.classList.remove('away');
+  bubble('哎，我来啦！', 2400);
+  play('sing');
+  if (backT) clearTimeout(backT);
+  backT = setTimeout(function () { play('idle'); }, 3200);
+  setTimeout(function () { openTalk(); }, 620);
+};
+
+/* ---- 点一下：弹对话 ---- */
+function openTalk() {
+  talk.classList.add('on');
+  bub.classList.remove('on');
+  if (N && N.say) { try { N.say(''); } catch (e) {} }
+  renderChips();
+}
+function closeTalk() { talk.classList.remove('on'); }
+
+pet.addEventListener('click', openTalk);
+document.getElementById('close').addEventListener('click', function (e) {
+  e.stopPropagation(); closeTalk();
+});
+
+/* ---- 常做的事，直接给按钮，老人不用想怎么说 ---- */
+function renderChips() {
+  var base = [
+    ['我要吃药', '该吃药了'],
+    ['给女儿打电话', '给女儿打电话'],
+    ['我要看戏', '我想看那个'],
+    ['今天天气', '今天天气'],
+  ];
+  chips.innerHTML = '';
+  base.forEach(function (row) {
+    var b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = row[0];
+    b.onclick = function (e) {
+      e.stopPropagation();
+      closeTalk();
+      bubble('好，等我一下', 1600);
+      if (N && N.ask) { try { N.ask(row[1]); } catch (err) {} }
+    };
+    chips.appendChild(b);
+  });
+}
+
+/* ---- 按住说话：交给原生主界面去识别，这里只做入口 ---- */
+var mic = document.getElementById('mic');
+mic.addEventListener('touchstart', function (e) { e.stopPropagation(); mic.textContent = '松手就说完了'; });
+mic.addEventListener('touchend', function (e) {
+  e.stopPropagation();
+  mic.textContent = '按住说';
+  closeTalk();
+  if (N && N.ask) { try { N.ask('__listen__'); } catch (err) {} }
+});
+
+/* 长按小鸡：收起悬浮窗 */
+var holdT = null;
+pet.addEventListener('touchstart', function () {
+  holdT = setTimeout(function () {
+    bubble('我先躲一边，想我了再叫我', 2200);
+    setTimeout(function () { if (N && N.hide) { try { N.hide(); } catch (e) {} } }, 1400);
+  }, 1200);
+});
+pet.addEventListener('touchend', function () { clearTimeout(holdT); });
+pet.addEventListener('touchmove', function () { clearTimeout(holdT); });
+
+/* 启动时冒一下头，让老人知道它在了 */
+setTimeout(function () { bubble('我在这儿呢', 2600); }, 900);
+</script>
+</body>
+</html>

@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F4F5FF">
+<title>米粒</title>
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="design-tokens.css">
+<link rel="stylesheet" href="app.css">
+  <!-- 云服务 SDK（免密 LLM）。只有从部署域名打开时才生效；file:// 打开会静默跳过。 -->
+  <script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+  <!-- 错误收集：只留「记录 + 画红条」这两件事，调试浮层与 ?dbg=1 探针已删。
+       老人机没有 DevTools，屏幕顶部那条红条是唯一能看见错的地方，
+       所以它保留 —— 但只在真出错时出现，平时看不见。 -->
+  <script>
+  window.__errs = window.__errs || [];
+  function __paintErr(msg){
+    try{
+      var b = document.getElementById('__errbar');
+      if(!b){
+        b = document.createElement('div'); b.id = '__errbar';
+        b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;'
+          + 'background:#7a1512;color:#ffe;font:12px/1.4 monospace;padding:8px;'
+          + 'white-space:pre-wrap;max-height:40vh;overflow:auto';
+        document.body.appendChild(b); b.textContent = '';
+      }
+      b.textContent += msg + '\n';
+    }catch(x){}
+  }
+  var __ERR_SCREEN = /[?&]debug=1/.test(location.search);   /* 只有调试口才把错画到屏幕上 */
+  window.addEventListener('error', function(e){
+    window.__errs.push(String(e.message||e) + ' @' + String(e.filename||'').slice(-24) + ':' + e.lineno);
+    if (e.message && __ERR_SCREEN) __paintErr('[ERR] ' + e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno);
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var m = String(e.reason && e.reason.message || e.reason);
+    window.__errs.push('REJ: ' + m);
+    /* 2026-11-08：视频 play() 被下一次 load 打断、自动播放策略拒绝这类「良性中断」
+       也会走 unhandledrejection —— 以前直接在画面顶上刷一条红底黑字，
+       看电视时正好挡住节目。屏幕只在 ?debug=1 时画错误，正式版只记进 __errs。 */
+    if (!/interrupted by a (new load request|call to pause)|play\(\) failed|NotAllowedError/i.test(m)) {
+      __paintErr('[REJ] ' + m);
+    }
+  });
+  window.__paintErr = __paintErr;
+  </script>
+</head>
+<body>
+
+<div id="phone">
+
+  <!-- ① 家
+       ====================================================================
+       2026-11-06 深夜第五次重做（菲尔特拍板「确定性优先」）：
+         顶部：大号时间 + 日期星期 + 天气 + 问候 —— 老人打开先知道现在几点；
+         米粒：小鸡 120px + 气泡常驻（不再 hidden）；
+         接下来要做：吃药卡 + 一颗大按钮「吃过了」；
+         异常才出现：血压/血糖告警（正常时整块不占位）；
+         底部：唯一主按钮「点这儿，跟米粒说话」。
+       ==================================================================== -->
+  <section class="page on" id="page-home">
+    <div class="homehead" id="homeHead">
+      <div class="hhtime" id="hhTime">--:--</div>
+      <div class="hhr">
+        <span id="hhDate"></span><span class="hhsep">·</span><span id="hhWx"></span>
+      </div>
+      <div class="hhlunar" id="hhLunar"></div>
+      <div class="hhgreet" id="hhGreet"></div>
+    </div>
+
+    <!-- 家人快拨：老人桌面的亲情联系人思路 —— 最常打的人直接摆在桌面上，
+         一颗头像一个名字，点了就拨号（号码从通讯录里查，不用老人记）。 -->
+    <div class="famdial" id="famDial"></div>
+
+    <!-- 桌面大图标：照老人桌面的设计思路 —— 大图标+大字标签，点了就走。
+         电话/短信/微信/拍照/相册/手电筒/通话记录/设置，全是老人一天要摸好几遍的去处。 -->
+    <div class="deskgrid" id="deskGrid"></div>
+
+    <!-- 全部应用：真桌面化的第一步。老人不用记「哪个功能藏在哪个 App 里」，
+         一格一个软件，点开就是那个软件。 -->
+    <button class="adentry" id="adBtn" aria-label="全部应用">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+      <span>全部应用</span>
+    </button>
+
+    <!-- 全屏电视层：直达链播放。0.2 秒开台的关键 —— 不跳 App、不搜索，
+         本地文件/预置地址直接全屏放。退出：点右上角 ✕ 或说「不看了」。 -->
+    <div class="petcard">
+      <div class="petava" id="petAva">
+        <img id="petPoster" src="assets/chick-icon.png" alt="米粒"
+             style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain">
+        <video id="petIdleV" src="assets/chick-idle.mp4" autoplay muted loop
+               poster="assets/chick-icon.png"
+               playsinline preload="auto"></video>
+        <video id="petSingV" src="assets/chick-sing.mp4" muted loop
+               poster="assets/chick-icon.png"
+               playsinline preload="auto"></video>
+      </div>
+
+      <!-- 状态可见（产品结构第 5 条）：待机 / 在听 / 在想 / 在说。
+           模型还没回来时靠这颗胶囊给反馈，不再用「嗯」「我看看啊」垫声音。 -->
+      <div class="petstate" id="petState" data-s="idle"><i></i><span id="petStateTxt">待机</span></div>
+
+      <!-- 它说的话：常驻显示，说完回到一句主动的话，不再整块消失 -->
+      <div class="bubble" id="bubble">
+        <span id="bubbleText"></span>
+        <span class="recall" id="recall" hidden></span>
+      </div>
+    </div>
+
+    <!-- 血压 / 血糖告警条：只在超标时出现，正常时整块 hidden（不占位）。
+         老人一打开，最该看的就是这一行。平时不显示，所以它不会把米粒挤小。 -->
+    <button class="vitalcard" id="vitalWarn" hidden>
+      <div class="vitalhd">
+        <span class="vitalnm" id="vwName">血压</span>
+        <span class="vitaltag warn" id="vwTag">偏高</span>
+      </div>
+      <div class="vitalbig warn" id="vwBig">
+        <b id="vwSys">148</b><span class="sep">/</span><b id="vwDia">92</b><i>mmHg</i>
+      </div>
+      <p class="vitalsay" id="vwSay">比平时高。先坐下歇五分钟再量一次。</p>
+      <p class="vitalsub" id="vwSub">要告诉家里人吗？点一下，它就发过去。</p>
+    </button>
+
+    <!-- 快捷入口与药盒行：结构保留（app.js 要往里写），但 CSS 里首页已隐藏。
+         退到「常用」页去 —— 想看电视就说，说不清再点。 -->
+    <div class="quickgrid" id="quickGrid"></div>
+
+    <!-- 接下来要做：吃药卡。点卡片进药箱，点「吃过了」当场记一笔。 -->
+    <div class="medrow" id="medRow" role="button" tabindex="0">
+      <span class="mico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="2.5" y="8.5" width="19" height="7" rx="3.5" transform="rotate(-40 12 12)"/><path d="M8.5 8.5l7 7"/></svg></span>
+      <span class="mtx"><span class="t1">今天要吃的药</span><span class="t2" id="medCap">还没填，让家里人帮你加</span></span>
+      <button class="mtake" id="medTaken">吃过了</button>
+    </div>
+
+    <!-- SOS：整屏唯一的红。老人机的底线 —— 出事了不用找、不用学，一按就有人来。 -->
+    <button class="sosbtn" id="sosBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5L2.8 19.5h18.4z"/><path d="M12 10v4M12 16.8v.2"/></svg>
+      <b>紧急呼叫</b><span id="sosName">家人</span>
+    </button>
+
+    <!-- 底部输入区：一条白胶囊。
+         左边相机（拍一张问它），中间跟米粒说话，右边键盘（切成打字）、加号（相册）。
+         默认只露这一条；点键盘才把输入框顶上来。 -->
+    <div class="dock">
+      <div class="composer" id="composer">
+        <button class="cbtn" id="camBtn" aria-label="拍照问米粒">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5h2.6L8 5.6h8l1.4 1.9H20v11H4z"/><circle cx="12" cy="13" r="3.3"/></svg>
+        </button>
+        <button class="chold callentry" id="holdBtn">点这儿，跟米粒说话</button>
+        <button class="cbtn" id="kbBtn" aria-label="打字">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.6" y="6.6" width="18.8" height="10.8" rx="3"/><path d="M6.4 10h.01M9.8 10h.01M13.2 10h.01M16.6 10h.01M6.4 13.6h.01M9.8 13.6h.01M13.2 13.6h.01M16.6 13.6h.01"/></svg>
+        </button>
+        <button class="cbtn" id="plusBtn" aria-label="从相册选一张">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+
+      <!-- 打字模式：点键盘后从下面顶上来 -->
+      <div class="typebar" id="typebar" hidden>
+        <button id="kbBack" aria-label="回到说话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <input id="typeIn" type="text" inputmode="text" autocomplete="off"
+               placeholder="跟米粒说点什么" />
+        <button id="typeSend" aria-label="发送">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <!-- 相册浮层 -->
+      <div class="plussheet" id="plusSheet" hidden>
+        <button id="pickAlbum">
+          <span class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="8.6" cy="10" r="1.6"/><path d="M4.5 17l4.6-4.4 3.2 3 2.6-2.4 4.6 4.3"/></svg></span>
+          <span>从相册选</span>
+        </button>
+        <button id="pickCam">
+          <span class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 7.5h2.6L8 5.6h8l1.4 1.9H20v11H4z"/><circle cx="12" cy="13" r="3.3"/></svg></span>
+          <span>拍一张</span>
+        </button>
+        <button id="pickVoice">
+          <span class="pic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+          <span>说话</span>
+        </button>
+      </div>
+      <input type="file" id="fileIn" accept="image/*" hidden>
+    </div>
+
+    <!-- 通话条：打开就在通话。这条只在「通着」的时候露出来，告诉他三件事 ——
+         还在听、通了多久、怎么挂。 -->
+    <div class="callbar" id="callBar" hidden>
+      <p class="cbsub"><b class="cbname">米粒</b><span id="cbSub">在听 · 您说</span></p>
+      <p class="cbtime" id="cbTime">00:00</p>
+      <div class="cbrow">
+        <button class="cbr" id="cbMic" aria-label="麦克风">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <button class="cbr hang" id="cbHang" aria-label="挂断">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.2 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.34 1.79.66 2.63a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.84.32 1.73.54 2.63.66A2 2 0 0 1 22 16.92z"/></svg>
+        </button>
+        <button class="cbr" id="cbKey" aria-label="打字">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.6" y="6.6" width="18.8" height="10.8" rx="3"/><path d="M6.4 10h.01M9.8 10h.01M13.2 10h.01M16.6 10h.01M6.4 13.6h.01M9.8 13.6h.01M13.2 13.6h.01M16.6 13.6h.01"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 演示/家人用的后门。做得很小，老人不会误碰；点开才回得到首页。 -->
+    <button class="sbdots" id="sbDots" aria-label="更多" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+    </button>
+  </section>
+
+  <!-- ② 办了 -->
+  <section class="page" id="page-did">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>办过的事</h2>
+    </div>
+    <div class="scroll" id="didList"></div>
+  </section>
+
+  <!-- ③ 学的 -->
+  <section class="page" id="page-learn">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>它替你记着的</h2>
+    </div>
+    <!-- 2026-11-05 菲尔特：「老人看这个玩意儿吗」。
+         原来这页写的是「它记住的事 3」「日新 常用话听懂 22/28 句」——
+         全是给评委看的内部指标，老人一句读不懂。现在头一句先讲人话，
+         数字缩到底下一行小字。 -->
+    <div class="prog" style="flex:none;margin-bottom:12px">
+      <div class="top"><i id="gForm">刚出壳</i><b id="gCount">0</b></div>
+      <div class="bar"><div class="fill" id="gfill"></div></div>
+      <p class="note" id="gNote">它还没替你记住什么</p>
+    </div>
+    <div class="scroll" id="learnList"></div>
+  </section>
+
+  <!-- ④ 家人 -->
+  <section class="page" id="page-family">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>家里人</h2>
+      <button class="act" id="addFamBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <div class="scroll" id="famList"></div>
+    <!-- 米粒的实体卡入口。2026-11-07：它原来钉在 .page 底部（flex 尾），
+         于是「还没有家里人」的空态卡在上面、这一格钉在页面最下，
+         中间空出一大片灰 —— 看着像两个不相干的块中间有个洞。
+         注意**不能挪进 #famList**：renderFam() 用 innerHTML 整块重写，
+         挪进去会被清掉（试过一次，入口直接消失）。
+         正确做法是留在外面，但让 .page 不再把它顶到底（见 CSS 的 justify）。 -->
+    <button class="entryrow" id="cardEntry">
+      <span class="eic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="3"/><path d="M2.5 10h19"/></svg></span>
+      <span class="etx"><span class="t1">米粒的实体卡</span><span class="t2">贴一下手机，米粒就出来</span></span>
+      <span class="ego"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+    </button>
+  </section>
+
+  <!-- ⑥ 常用：不用每次说一遍，点一下就行 -->
+  <!-- 打电话（2026-11-09 菲尔特：「不应是输入，而应该直接出现之前预填写或
+       通讯录的联系人，进一步点击选择」）
+       主视图＝家里人 + 通讯录的大名单，点一下名字就拨。
+       数字键盘退到二级，只有名单里没有的人才会用到，老人一辈子不用学 11 位号码。 -->
+  <section class="page" id="page-dialer">
+    <div class="nav"><button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button><h2>打电话</h2><span class="navsp"></span></div>
+    <div class="scroll" id="dialPeopleScroll">
+      <p class="hintline" style="margin:0 2px 12px">点一下名字，就直接打过去。</p>
+      <div class="peoplelist" id="dialPeople"></div>
+      <button class="act-btn ghost" id="dialManualBtn" style="margin-top:14px">名单里没有？手动输号码</button>
+    </div>
+    <!-- 二级：手动数字键盘，默认不出现 -->
+    <div class="dialwrap" id="dialManualWrap" hidden>
+      <div class="dialnum" id="dialNum">&nbsp;</div>
+      <div class="dialpad" id="dialPad"></div>
+      <div class="dialacts">
+        <button class="dialdel" id="dialDel" aria-label="删除">⌫</button>
+        <button class="dialcall" id="dialCall">拨号</button>
+      </div>
+      <button class="act-btn ghost" id="dialBackBtn" style="margin-top:10px">回到名单</button>
+    </div>
+  </section>
+
+  <section class="page" id="page-hub">
+    <div class="nav">
+      <h2>常用</h2>
+      <span class="navsp"></span>
+    </div>
+    <p class="hintline" style="margin:0 2px 10px">点一下就办，不用说话。</p>
+    <!-- Omi 那道橘黄圆圈。它整套界面的骨架就是这一条：
+         一个圆 + 一段路径 + 一行大字 + 右上一个状态胶囊。
+         老人进这一页，先知道「今天还剩几件事」，再往下找图标。 -->
+    <div class="taskbar" id="hubTaskBar">
+      <span class="tbno" id="hubTaskNo">0</span>
+      <div class="tbmain">
+        <span class="tbpath" id="hubTaskPath">今天 · 米粒替你记着</span>
+        <span class="tbtitle" id="hubTaskTitle">今天没什么要紧事</span>
+      </div>
+      <span class="tbst" id="hubTaskSt">清闲</span>
+    </div>
+    <div class="scroll">
+      <div class="hubgrid" id="hubGrid"></div>
+      <div id="partnerWall" hidden></div>
+      <!-- 2026-11-06 晚：底部那句「找不到要用的…」删掉。
+           老人已经在用这一页了，再给他一段说明只会多一行字要看。 -->
+    </div>
+  </section>
+
+
+  <!-- ⑦ 实体卡（周边） -->
+  <section class="page" id="page-card">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>米粒的卡</h2>
+      <span class="navsp"></span>
+    </div>
+    <div class="scroll">
+      <!-- 卡片本体：CSS 画的，跟真卡同版式 -->
+      <div class="nfcwrap">
+        <div class="nfccard">
+          <div class="nfcshine"></div>
+          <div class="nfcrow">
+            <span class="nfclogo">米粒</span>
+            <svg class="nfcwave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+              <path d="M6 9a7 7 0 0 1 0 6M10 6.5a11 11 0 0 1 0 11M14 4a15 15 0 0 1 0 16"/>
+            </svg>
+          </div>
+          <div class="nfcchick"><img id="nfcChick" src="assets/chick-icon.png" alt="米粒"></div>
+          <div class="nfcbot">
+            <span class="nfcurl">mili.bio/<b>me</b></span>
+            <span class="nfcchip">NFC</span>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="ch">贴一下，米粒就跟着你走</h3>
+      <p class="cp">把卡贴在手机背面，「叮」一下——不用装 App，不用找图标，米粒就在你面前了。</p>
+
+      <div class="nfcsteps">
+        <div class="nfcstep"><b>1</b><span>手机背面贴一下</span></div>
+        <div class="nfcstep"><b>2</b><span>屏幕自己亮起来</span></div>
+        <div class="nfcstep"><b>3</b><span>米粒已经在等你了</span></div>
+      </div>
+
+      <p class="sec">怎么做的</p>
+      <div class="spec">
+        <div class="specrow"><span>芯片</span><b>NTAG213 / 215</b></div>
+        <div class="specrow"><span>容量</span><b>144 / 504 字节</b></div>
+        <div class="specrow"><span>写入</span><b>1 条 NDEF URI 记录</b></div>
+        <div class="specrow"><span>成本</span><b>约 1.2 元 / 张（100 张起）</b></div>
+      </div>
+      <p class="cp small">不用写 App。手机读到 URL 就会拉起米粒的网页版，老人家那台老手机也能用。</p>
+
+      <button class="act-btn" style="margin-top:20px" onclick="window.__nfcHow()">看看怎么贴</button>
+    </div>
+  </section>
+
+  <!-- ⑦ 家人端 -->
+  <section class="page" id="page-famhome">    <div class="nav"><span class="navsp"></span><h2>家人端</h2><span class="navsp"></span></div>
+    <div class="scroll">
+      <p class="cp small" id="famWho" style="margin-top:2px">替爸妈管着呢。药由你填，闹钟由你定——一个时段只提醒一次，不会催着多吃。</p>
+
+      <!-- 老人今天怎么样：家属打开这一页，三十秒内要能判断「要不要紧」 -->
+      <div id="famOverview"></div>
+
+      <p class="sec">药箱 <span id="famMedCap" class="secx"></span></p>
+      <div id="famMedList"></div>
+
+      <!-- 血压血糖：家属最想看的其实不是数字，是「有没有超标」。
+           所以先给一句结论，数字退到第二行。 -->
+      <p class="sec">血压血糖</p>
+      <div id="famVitalBox"></div>
+      <div class="panel" style="margin-top:14px">
+        <p class="sec" style="margin:0 0 10px">添加一种药</p>
+        <button class="act-btn ghost" id="famShoot" style="width:100%;margin:0 0 12px">📷 拍药盒，自动读药名和用量</button>
+        <div id="famShootOut" class="cp small" style="margin:0 0 10px"></div>
+        <input class="field" id="fmWho" maxlength="8" placeholder="平时叫什么（降压药）">
+        <input class="field" id="fmFull" maxlength="20" placeholder="盒子上写的名字">
+        <input class="field" id="fmDose" maxlength="16" placeholder="一次吃几片（一次一片）">
+        <div style="display:flex;gap:10px">
+          <input class="field" id="fmH" type="number" min="0" max="23" placeholder="时(8)" style="flex:1">
+          <input class="field" id="fmM" type="number" min="0" max="59" placeholder="分(0)" style="flex:1">
+        </div>
+        <input class="field" id="fmNote" maxlength="30" placeholder="注意什么（温水送服）">
+        <button class="act-btn" id="famSaveMed" style="width:100%;margin-top:12px">存进药箱，设好闹钟</button>
+        <p class="cp small" id="famPushOut" style="margin:10px 2px 0"></p>
+      </div>
+
+      <p class="sec">挂号</p>
+      <button class="act-btn" id="famRegister" style="width:100%">去医院挂号 <span id="famRegVia" style="opacity:.6"></span></button>
+
+      <!-- 扫码付款的家人侧：不是让家属付钱，是让家属看到老人付过什么 -->
+      <p class="sec">老人付过的账</p>
+      <div id="famPayList"></div>
+
+      <p class="sec">最近办的事</p>
+      <div id="famDidList"></div>
+      <div style="height:20px"></div>
+    </div>
+  </section>
+  <!-- ⑤ 药箱 -->
+  <section class="page" id="page-med">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>药箱</h2>
+      <button class="act" id="addMedBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <p class="hintline" style="margin:0 2px 10px">这些是家里人替你填的。你问哪颗，它就答哪颗。</p>
+    <div class="scroll" id="medList"></div>
+  </section>
+
+  <!-- ⑧ 我的：身份、登录、退出、切换端 -->
+  <section class="page" id="page-me">
+    <div class="nav"><span class="navsp"></span><h2>我的</h2><span class="navsp"></span></div>
+    <div class="scroll">
+
+      <!-- 2026-11-06 二次重做。菲尔特：「我的那个界面不能这样做，做成那种产品的样子，
+           只是拿给家人用。」
+           上一版是「老人折叠版」—— 一张身份卡、两颗按钮、下面一大片空白，
+           翻到底只有一个「家里人看的地方」的小灰字。那不是产品，是骨架。
+           现在按产品来：谁在用、老人今天怎么样、体征、用药、今天办的事，
+           一路读下去；账号和配对归到「设置」那一组，不跟日常信息抢地方。
+           DOM id 一个没删 —— 家人端页（page-famhome）仍用原来那套。 -->
+
+      <!-- ① 这张卡回答「这台手机现在是谁在用」 -->
+      <div class="panel mewho">
+        <div class="mecard">
+          <div class="meavatar" id="meAvatar">米</div>
+          <div class="metx">
+            <b id="meWho">还没连上家里人</b>
+            <span id="meRoleLine">这台手机还没绑定</span>
+          </div>
+          <span class="mebadge" id="meRoleTag">老人端</span>
+        </div>
+        <div class="merow" hidden><span class="ml">现在用哪一端</span><span class="mr">老人端</span></div>
+        <div class="segbar" id="roleSeg" hidden>
+          <button data-role="elder" class="on">老人端</button>
+          <button data-role="family">家人端</button>
+          <button data-role="guest">访客</button>
+        </div>
+      </div>
+
+      <!-- 大字模式：老人桌面的适老设置 —— 觉得字小，一按全部再大一号。 -->
+      <div class="panel mebig-panel">
+        <button class="mebig" id="bigFontBtn">大字模式：关</button>
+      </div>
+
+      <!-- ② 老人今天怎么样 —— 家人打开这一页三秒内要知道「要不要打电话」。
+           数据跟家人端同一个来源（mili_elder_card），不另造一套。 -->
+      <p class="sec">老人今天怎么样 <span class="secx" id="meTodayAt"></span></p>
+      <div id="meToday"></div>
+
+      <!-- ③ 体征：只放最近一次，超标的才变红 -->
+      <p class="sec">血压血糖</p>
+      <div id="meVital"></div>
+
+      <!-- ④ 用药 -->
+      <p class="sec">正在吃的药 <span class="secx" id="meMedCap"></span></p>
+      <div id="meMeds"></div>
+
+      <!-- ⑤ 今天办过的事 -->
+      <p class="sec">最近办的事</p>
+      <div id="meActs"></div>
+
+      <!-- ⑥ 配对码：家里人操作完之后，老人只需要看这一块 -->
+      <div class="panel mecode" id="myCodeWrap" hidden>
+        <div id="qrBox"></div>
+        <div id="myCodeNum">—</div>
+        <p class="cp small" id="myCodeTip">把这 6 个数念给家里人。</p>
+      </div>
+      <p class="cp small" id="pairOut" style="margin:0 2px 10px"></p>
+
+      <div class="panel" id="peersBox" hidden>
+        <p class="cp small" style="margin:0 0 8px">已经连上的</p>
+        <div id="peerList"></div>
+      </div>
+
+      <!-- ⑦ 家里人帮我弄：这一下仍然留在页面上，老人找不到人时按它 -->
+      <div class="mehelp">
+        <button class="act-btn mebig" id="meHelpBtn">家里人帮我弄</button>
+        <p class="cp small memini" id="meHelpTip">按一下出 6 个数字，念给家里人听。</p>
+      </div>
+
+      <!-- ⑧ 设置：账号、配对、手环、权限、家里人名单。
+           日常信息在上面，这些收在最后，一屏只露一组。 -->
+      <button class="mefoldbtn" id="meMoreBtn">设置 · 账号与配对</button>
+      <div id="meMore" hidden>
+
+        <p class="sec">账号</p>
+        <div class="panel" id="loginBox">
+          <p class="cp small" id="loginHint" style="margin:0 0 12px">家里人在这一格替老人登录一次，之后开机就是登录态，不用再输。</p>
+          <div class="segbar" id="accRoleSeg" style="margin-bottom:12px">
+            <button data-accrole="elder" class="on">我是老人</button>
+            <button data-accrole="fam">我是家人</button>
+          </div>
+          <input class="field" id="phoneIn" inputmode="numeric" maxlength="11" placeholder="手机号">
+          <input class="field" id="pwdIn" type="password" maxlength="24" autocomplete="new-password" placeholder="密码，至少 6 位" style="margin-top:10px">
+          <input class="field" id="nameIn" maxlength="12" placeholder="怎么称呼（比如 王奶奶）" style="margin-top:10px">
+          <div style="display:flex;gap:10px;margin-top:12px">
+            <button class="act-btn" id="doLoginBtn" style="flex:1;margin:0">登录</button>
+            <button class="act-btn ghost" id="doRegBtn" style="flex:1;margin:0">注册</button>
+          </div>
+          <p class="cp small" id="loginErr" style="margin:10px 2px 0;color:var(--danger)"></p>
+        </div>
+        <div class="panel" id="logoutBox" hidden>
+          <div class="merow"><span class="ml">已登录</span><span class="mr" id="mePhone">—</span></div>
+          <div class="merow"><span class="ml">这一端</span><span class="mr" id="meAccRole">—</span></div>
+          <button class="act-btn ghost" id="logoutBtn" style="width:100%;margin-top:12px">退出登录</button>
+        </div>
+
+        <p class="sec">和家里人连上</p>
+        <div class="panel" id="pairBox">
+          <p class="cp small" id="pairHint" style="margin:0 0 12px">各自登好以后，一端出码、另一端填码，就通了。</p>
+          <div style="display:flex;gap:10px">
+            <button class="act-btn" id="pairNewBtn" style="flex:1;margin:0">出个码</button>
+            <button class="act-btn ghost" id="pairScanBtn" style="flex:1;margin:0">扫对方的码</button>
+          </div>
+          <div id="pairInWrap" hidden style="margin-top:14px">
+            <div style="display:flex;gap:10px">
+              <input class="field" id="pairIn" inputmode="numeric" maxlength="6" placeholder="对方的 6 位码" style="flex:1">
+              <button class="act-btn" id="pairBtn" style="width:92px;margin:0">连上</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="sec">家里人</p>
+        <div class="panel">
+          <div class="merow" style="border-top:0"><span class="ml">常联系的人</span><span class="mr" id="meFamN">0 位</span></div>
+          <button class="act-btn ghost" id="meFamBtn" style="width:100%;margin-top:12px">看看都有谁</button>
+          <p class="cp small" style="margin:10px 2px 0">名字和电话都存在这台手机上，不上传。</p>
+        </div>
+
+        <p class="sec">手环</p>
+        <div class="panel" id="bandBox">
+          <div class="merow" style="border-top:0"><span class="ml">手环在报心率</span><span class="mr" id="bandTag">没开</span></div>
+          <div class="bandbig" id="bandBig" hidden>
+            <span class="bpmn" id="bandBpm">—</span><span class="bpmu">次/分</span>
+          </div>
+          <p class="cp small" id="bandHint" style="margin:10px 2px 0">要读手环，先在手环上打开「设置 → 心率广播」。</p>
+          <button class="act-btn ghost" id="bandBtn" style="width:100%;margin-top:12px">打开手环心率</button>
+        </div>
+
+        <p class="sec">权限</p>
+        <div class="panel">
+          <div class="merow"><span class="ml">天气按我的位置报</span><span class="mr" id="locTag">没开</span></div>
+          <button class="act-btn ghost" id="locBtn" style="width:100%;margin-top:12px">打开定位（只为报准天气）</button>
+        </div>
+
+      </div>
+
+      <!-- 这一页底下不再放那句「家里的事，跟米粒说一声就能办」——
+           老人本来就不常来，来了也不该靠一句安慰话收场。
+           现在这里收着一颗去家人端的按钮，家里人在这台手机上看完整控制台。 -->
+      <button class="act-btn ghost mefamgo" id="meFamGoBtn">打开家人控制台</button>
+
+      <div style="height:20px"></div>
+    </div>
+  </section>
+
+  <!-- ⑨ 血压血糖：老人端只看一个数 + 一句话 -->
+  <section class="page" id="page-vital">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>血压血糖</h2>
+      <span class="navsp"></span>
+    </div>
+    <div class="scroll">
+      <!-- 血压：一个大数字，一句话结论 -->
+      <div class="vitalcard">
+        <div class="vitalhd">
+          <span class="vitalnm">血压</span>
+          <span class="vitaltag" id="vBpTag">还没量</span>
+        </div>
+        <div class="vitalbig" id="vBpBig">
+          <b id="vBpSys">—</b><span class="sep">/</span><b id="vBpDia">—</b><i>mmHg</i>
+        </div>
+        <p class="vitalsay" id="vBpSay">今天还没量。量了就点下面的加号。</p>
+        <div class="vtrend" id="vBpTrend"></div>
+      </div>
+
+      <!-- 血糖 -->
+      <div class="vitalcard">
+        <div class="vitalhd">
+          <span class="vitalnm">血糖</span>
+          <span class="vitaltag" id="vGluTag">还没量</span>
+        </div>
+        <div class="vitalbig mid" id="vGluBig">
+          <b id="vGluVal">—</b><i>mmol/L</i>
+        </div>
+        <p class="vitalsay" id="vGluSay">今天还没量。</p>
+        <div class="vtrend" id="vGluTrend"></div>
+      </div>
+
+      <button class="act-btn" id="vitalAddBtn" style="width:100%;margin-top:16px">量好了，记一笔</button>
+      <button class="act-btn ghost" id="vitalTellBtn" style="width:100%;margin-top:10px">把这几次发给家里人</button>
+      <p class="cp small" id="vitalTellOut" style="margin:12px 2px 0">连着三次超标，米粒自己会告诉家里人，不用你点。</p>
+      <div style="height:20px"></div>
+    </div>
+  </section>
+
+  <!-- ⑩ 付钱 / 收钱（2026-11-09 菲尔特：「收款码和付款码功能都加上吧，
+       主打付款码和微信扫一扫」）
+       两颗主按钮并排：商家扫我（付款码）／我扫商家（扫一扫）。
+       收款码是次要入口：孩子要给你转钱时才用。
+       三条路都只负责把老人送到微信那一页，米粒不碰钱、不插中间相机页。 -->
+  <section class="page" id="page-pay">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>付钱 · 收钱</h2>
+      <span class="navsp"></span>
+    </div>
+    <div class="scroll">
+      <div id="payIdle">
+        <p class="hintline" style="margin:2px 2px 14px">钱的事都在微信里办，米粒只把您送到那一页。</p>
+        <div class="paymain">
+          <button class="paybig" id="payCodeBtn" type="button">
+            <span class="payico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h1"/></svg></span>
+            <b>给商家扫我</b>
+            <small>打开微信付款码</small>
+          </button>
+          <button class="paybig" id="scanGoBtn" type="button">
+            <span class="payico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5A1.5 1.5 0 0 1 18.5 20H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M3 12h18"/></svg></span>
+            <b>我扫商家</b>
+            <small>微信扫一扫</small>
+          </button>
+        </div>
+        <button class="act-btn ghost" id="receiveCodeBtn" style="margin-top:14px">别人给我钱 · 打开收款码</button>
+        <div class="payvoice" style="margin-top:14px;border-radius:16px;background:#F1F0F8;padding:12px 14px;font-size:14px;line-height:1.7;color:#1B1D2E">
+          直接跟米粒说就行：<b>「付十二块五」</b>、<b>「我扫商家」</b>、<b>「别人给我钱」</b>。<br>
+          不知道多少钱，米粒会问您，不用去问商家。
+        </div>
+        <p class="cp small" style="margin:16px 2px 0">米粒不碰钱。最后那一下，永远是您自己点。</p>
+      </div>
+
+      <!-- 扫到了：金额大字 + 确认 -->
+      <div id="payResult" hidden>
+        <div class="paycard">
+          <p class="payto" id="payTo">扫到的收款码</p>
+          <div class="payamt"><i>¥</i><b id="payAmt">0.00</b></div>
+          <p class="paynote" id="payNote">核对一下金额，对就点下面。</p>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <button class="act-btn" id="payOkBtn" style="flex:1;margin:0">对，就付这些</button>
+          <button class="act-btn ghost" id="payNoBtn" style="flex:1;margin:0">不对，重扫</button>
+        </div>
+        <div class="paycard" style="margin-top:16px">
+          <div class="paystep"><span class="pn">1</span><span class="pt">你点「对，就付这些」</span></div>
+          <div class="paystep"><span class="pn">2</span><span class="pt">跳到微信或支付宝，再输一次密码</span></div>
+          <div class="paystep" style="border-top:0"><span class="pn">3</span><span class="pt">付完了回来，米粒记一笔</span></div>
+        </div>
+        <p class="cp small" style="margin:14px 2px 0">米粒不碰你的钱。它只负责把码认出来、把金额念给你听。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ⑪ 挂号：科室大按钮，不用下拉框 -->
+  <section class="page" id="page-reg">
+    <div class="nav">
+      <button class="back" data-back><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>挂号</h2>
+      <span class="navsp"></span>
+    </div>
+    <div class="scroll">
+      <div class="regsteps" id="regSteps">
+        <div class="rs on"><i></i><b>哪里不舒服</b></div>
+        <div class="rs"><i></i><b>哪个医院</b></div>
+        <div class="rs"><i></i><b>哪天去</b></div>
+      </div>
+
+      <!-- 第 1 步：哪儿不舒服 -->
+      <div id="regS1">
+        <!-- 老人来挂号，十有八九是「不知道自己该挂哪科」。
+           所以先给他一条不用选的路：开口说一句，米粒替他挑。
+           这颗黑胶囊是整页唯一的重心，十二个科室退成下面的备选。 -->
+        <button class="reghero" id="regSayBtn">
+          <span class="rh-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v3"/></svg></span>
+          <span class="rh-tx"><b>说不清楚，我直接说</b><i>哪儿难受说一句，我替你挑科</i></span>
+        </button>
+        <p class="hintline" style="margin:var(--s5) 2px var(--s2)">或者自己挑一个。</p>
+        <div class="deptgrid" id="deptGrid"></div>
+      </div>
+
+      <!-- 第 2 步：哪个医院 -->
+      <div id="regS2" hidden>
+        <p class="hintline" style="margin:16px 2px 0" id="regDeptLine">科室：内科</p>
+        <div class="deptgrid" id="hospGrid"></div>
+        <button class="act-btn ghost" data-reg-back="1" style="width:100%;margin-top:16px">回去换个科室</button>
+      </div>
+
+      <!-- 第 3 步：确认 -->
+      <div id="regS3" hidden>
+        <div class="paycard" style="margin-top:16px;text-align:left">
+          <p class="payto" style="margin:0 0 10px">要挂的号</p>
+          <div class="paystep" style="border-top:0;padding-top:0"><span class="pn">科</span><span class="pt" id="regOutDept">—</span></div>
+          <div class="paystep"><span class="pn">院</span><span class="pt" id="regOutHosp">—</span></div>
+          <div class="paystep"><span class="pn">时</span><span class="pt" id="regOutWhen">—</span></div>
+        </div>
+        <!-- 挂号这一步米粒替不了：占号要身份证号、要医院那边的排班，赛会项目拿不到。
+             所以默认给的是「让家里人替我挂」——这条真能落地，直接进家人端。
+             自己上网挂放在第二行，点之前先说明白要去浏览器。 -->
+        <p class="cp small" style="margin:16px 2px 0">这一步米粒替不了你 —— 占号要用你的身份证号。让家里人来弄最稳。</p>
+        <button class="act-btn" id="regFamBtn" style="width:100%;margin-top:16px">让家里人替我挂</button>
+        <button class="act-btn ghost" id="regGoBtn" style="width:100%;margin-top:10px">我自己上挂号网挂</button>
+        <button class="act-btn ghost" data-reg-back="2" style="width:100%;margin-top:10px">再改改</button>
+        <p class="rcpt" id="regOut"></p>
+      </div>
+      <div style="height:20px"></div>
+    </div>
+  </section>
+
+  <!-- 连续对话那条字幕（cvLine）已删。
+       2026-11-06：它浮在常用页列表中间，正好压住「CCTV 直播」那张卡；
+       而且首页已有 holdBtn、其他页有通话浮卡，屏幕上不需要第二个说话提示。
+       它的 DOM 在 app.js 里是带空值判断的，删掉不会报错。 -->
+
+  <!-- 底栏（2026-11-06 菲尔特：「底部那个栏有点冗余」）
+       原来五个格子：家 / 常用 / 办了 / 学的 / 我的。
+       老人一天真正会用到的只有「家」。剩下四个里，「常用」是快捷入口的备份，
+       「办了」「学的」是他根本不会主动翻的记录 —— 那是给家人端和演示看的。
+       砍到三个，字号和图标反而能放大一号。
+       「办了」「学的」没有删，挪进了「我的」页顶部两行，演示时一样进得去。 -->
+  <!-- 底部导航 tab 已永久删除（2026-11-10 菲尔特明确要求，别再加回来）。
+       首页底部只留「紧急呼叫 / 说话」两颗工具键。 -->
+
+
+  <!-- 记一笔：血压 / 血糖。
+       原来是 confirm + 两个 prompt —— 三个系统弹框连环弹，
+       老人看着像手机出错，系统键盘又小又难按，还得自己找小数点。
+       改成底部弹层：两个大按钮选量的是什么，再给大号数字框。 -->
+  <div id="vitalSheet" hidden>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sh-head">
+        <div>
+          <h3 id="vsTitle">这次量的是什么？</h3>
+          <p id="vsSub">点一下，我给你记上。</p>
+        </div>
+        <button class="xbtn" id="vsClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+
+      <div class="vs-pick" id="vsPick">
+        <button class="vs-big" data-vs-kind="bp"><b>血压</b><i>高压 / 低压</i></button>
+        <button class="vs-big" data-vs-kind="glu"><b>血糖</b><i>一个数</i></button>
+      </div>
+
+      <div id="vsForm" hidden>
+        <div class="vs-row" id="vsBpRow">
+          <div class="vs-cell" id="vsSys" data-cell="sys"><em>高压</em><b>—</b></div>
+          <div class="vs-cell" id="vsDia" data-cell="dia"><em>低压</em><b>—</b></div>
+        </div>
+        <div class="vs-row" id="vsGluRow" hidden>
+          <div class="vs-cell" id="vsVal" data-cell="val"><em>血糖</em><b>—</b></div>
+        </div>
+
+        <!-- 自制数字键盘，不用系统输入法。
+             系统键盘会把这个弹层顶掉一半（WebView 是固定高度，adjustResize 管不到），
+             而且老人的输入法各不一样，有的还没有数字行。自己画 12 个大键最省事：
+             血压输满三位自动跳到低压，输完直接点「记下了」。 -->
+        <div class="vs-pad" id="vsPad">
+          <button type="button" data-vs-k="1">1</button>
+          <button type="button" data-vs-k="2">2</button>
+          <button type="button" data-vs-k="3">3</button>
+          <button type="button" data-vs-k="4">4</button>
+          <button type="button" data-vs-k="5">5</button>
+          <button type="button" data-vs-k="6">6</button>
+          <button type="button" data-vs-k="7">7</button>
+          <button type="button" data-vs-k="8">8</button>
+          <button type="button" data-vs-k="9">9</button>
+          <button type="button" data-vs-k="dot" id="vsDot">.</button>
+          <button type="button" data-vs-k="0">0</button>
+          <button type="button" data-vs-k="del" class="vs-del">删</button>
+        </div>
+
+        <button class="vs-ok" id="vsOk">记下了</button>
+        <button class="vs-back" id="vsBack">换一个</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手输金额：跟「记一笔」同一个大数字键盘，老人只用学一次 -->
+  <div id="paySheet" hidden>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sh-head">
+        <div>
+          <h3>多少钱？</h3>
+          <p>按商家说的数按。按完再核一遍。</p>
+        </div>
+        <button class="xbtn" id="psClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="vs-row">
+        <div class="vs-cell on" id="psAmt" data-cell="amt"><em>金额（元）</em><b>—</b></div>
+      </div>
+      <div class="vs-pad" id="psPad">
+        <button type="button" data-ps-k="1">1</button>
+        <button type="button" data-ps-k="2">2</button>
+        <button type="button" data-ps-k="3">3</button>
+        <button type="button" data-ps-k="4">4</button>
+        <button type="button" data-ps-k="5">5</button>
+        <button type="button" data-ps-k="6">6</button>
+        <button type="button" data-ps-k="7">7</button>
+        <button type="button" data-ps-k="8">8</button>
+        <button type="button" data-ps-k="9">9</button>
+        <button type="button" data-ps-k="dot">.</button>
+        <button type="button" data-ps-k="0">0</button>
+        <button type="button" data-ps-k="del" class="vs-del">删</button>
+      </div>
+      <button class="vs-ok" id="psOk">就是这个数</button>
+    </div>
+  </div>
+
+  <!-- 哪儿不舒服：说不清就点。
+       原来这一步走的是系统 prompt() —— 一个英文按键、灰色小框的原生对话框，
+       老人不会用，也不敢按。现在换成自己画的大字弹层，六个常见的部位/感觉，
+       点一下就替他归到科室，归完还念一遍让他确认。 -->
+  <div id="saySheet" hidden>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sh-head">
+        <div>
+          <h3>哪儿不舒服？</h3>
+          <p>说不出来就点一个，我替你归到科室。</p>
+        </div>
+        <button class="xbtn" id="sayClose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="saygrid" id="sayGrid">
+        <button data-say="头晕、血压高" data-say-dept="内科"><b>头晕</b><i>血压高、犯迷糊</i></button>
+        <button data-say="胸口闷、心慌" data-say-dept="心内科"><b>胸口闷</b><i>心慌、喘不上气</i></button>
+        <button data-say="腰疼、腿疼" data-say-dept="骨科"><b>腰腿疼</b><i>关节疼、走不动</i></button>
+        <button data-say="眼睛看不清" data-say-dept="眼科"><b>看不清</b><i>眼睛红、发花</i></button>
+        <button data-say="胃不舒服、吃不下" data-say-dept="内科"><b>胃口不好</b><i>胃胀、吃不下</i></button>
+        <button data-say="说话不清楚、嘴有点歪" data-say-dept="神经内科"><b>说话不清</b><i>嘴歪、手脚发麻</i></button>
+      </div>
+      <p class="saytip">实在说不清，就按「内科」先排着，到了医院再改。</p>
+    </div>
+  </div>
+
+  <!-- 说话 sheet -->
+  <div id="listen" hidden>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sh-head">
+        <div>
+          <h3>我在听</h3>
+          <p id="liveText">说完松手</p>
+        </div>
+        <button class="xbtn" id="cancelBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="chips" id="chips"></div>
+      <button class="cancel" id="cancelBtn2">不说了</button>
+    </div>
+  </div>
+
+  <!-- 正在查 -->
+  <div id="srch" hidden>
+    <div class="srchbox">
+      <div class="srchring"></div>
+      <p class="srchh">正在查</p>
+      <p class="srchq" id="srchQ"></p>
+    </div>
+  </div>
+
+  <!-- 动作层 -->
+  <div id="action" hidden><div class="act-in" id="actIn"></div></div>
+
+  <!-- 引导（首次打开） -->
+  <!-- 角色门：第一屏。老人用老人界面，家人替爸妈管药 -->
+  <div id="roleGate" hidden>
+    <div class="gate-body">
+      <div class="gate-emoji"><img src="assets/chick-icon.png" alt=""></div>
+      <h2 class="gate-h">这部手机，<br>谁在用？</h2>
+      <button class="gate-btn" id="gateElder"><b>我是老人</b><i>先注册或登录，再做一遍引导</i></button>
+      <button class="gate-btn" id="gateFamily"><b>我是家人</b><i>填老人手机上的同步码</i></button>
+    </div>
+  </div>
+  <!-- 2026-11-10 菲尔特：首启引导串成一条线，每屏一个动作，不写假状态。 -->
+  <style>
+    .onb-btn{display:inline-block;background:#5B4DF0;color:#fff;border:0;border-radius:16px;
+      padding:14px 18px;font-size:16px;font-weight:700;font-family:inherit;cursor:pointer}
+    .onb-btn.ghost{background:#fff;color:#5B4DF0;border:1px solid #E6E7F5}
+    .onb-note{background:#F4F5FF;border-radius:14px;padding:12px 14px;font-size:14px;
+      color:#1B1D2E;line-height:1.6;margin:12px 0}
+    .onb-chips{display:flex;flex-wrap:wrap;gap:9px;margin:12px 0}
+    .onb-chip{border:1px solid #E6E7F5;background:#fff;color:#1B1D2E;border-radius:14px;
+      padding:10px 14px;font-size:15px;font-family:inherit;cursor:pointer}
+    .onb-chip.on{background:#5B4DF0;color:#fff;border-color:#5B4DF0}
+    .onb-permrow{display:flex;align-items:center;gap:10px;background:#fff;border-radius:16px;
+      padding:12px 14px;margin-bottom:9px;font-size:15px}
+    .onb-permrow .nm{flex:1;color:#1B1D2E}
+    .onb-permrow .tag{font-size:13px;padding:5px 9px;border-radius:10px;white-space:nowrap}
+    .onb-permrow .tag.ok{background:#E6F6EE;color:#1E7A50}
+    .onb-permrow .tag.no{background:#FFE9EA;color:#B4262D}
+    .onb-permrow.go{border-color:#5B4DF0;box-shadow:0 0 0 2px rgba(91,77,240,.12)}
+    .onb-skip{background:transparent;border:0;color:#6B6E86;font-size:14px;
+      font-family:inherit;padding:8px 4px;cursor:pointer}
+  </style>
+  <div id="onboard" hidden>
+    <svg class="onb-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 5.8a5 5 0 0 0-7.1 0L12 7.5l-1.7-1.7a5 5 0 0 0-7.1 7.1L12 21l8.8-8.1a5 5 0 0 0 0-7.1z"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.6 3.1-6.2 7-6.2s7 2.6 7 6.2"/></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></symbol>
+      <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 7.5h2.6L8 5.6h8l1.4 1.9H20v11H4z"/><circle cx="12" cy="13" r="3.3"/></symbol>
+      <symbol id="i-dev" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 18h6"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a12 12 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2.2 2A17 17 0 0 1 3 6.2 2 2 0 0 1 5 4z"/></symbol>
+      <symbol id="i-fall" viewBox="0 0 24 24"><circle cx="7" cy="4" r="2"/><path d="M7 8l3 4 3 1 3 5M10 12l-3 5M4 21h16"/></symbol>
+      <symbol id="i-pill" viewBox="0 0 24 24"><rect x="2.5" y="8.5" width="19" height="7" rx="3.5" transform="rotate(-40 12 12)"/><path d="M8.5 8.5l7 7"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-5"/></symbol>
+      <symbol id="i-press" viewBox="0 0 24 24"><path d="M4 12h4l2-5 3 10 2-5h5"/></symbol>
+      <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3s6 6.6 6 10a6 6 0 0 1-12 0c0-3.4 6-10 6-10z"/></symbol>
+      <symbol id="i-band" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="3"/><path d="M10 4v3M14 4v3M10 17v3M14 17v3"/></symbol>
+    </svg>
+    <div class="onb-top">
+      <div class="onb-badge"><svg><use href="#i-spark"></use></svg></div>
+      <div class="onb-toptext"><b id="onbStepTitle">第 1 步</b><span>共 9 步 · 一次配好</span></div>
+      <div class="onb-bar"><i id="onbBar"></i></div>
+    </div>
+    <div class="onb-body">
+      <!-- 1 -->
+      <div class="onb-step on" data-step="1">
+        <div class="onb-headicon"><svg><use href="#i-heart"></use></svg></div>
+        <h2 class="onb-h">一个小小的东西，<br>会替你办事。</h2>
+        <p class="onb-p">你不用刻意教它。你用它，它就在学你。</p>
+        <div class="onb-card">
+          <div class="onb-feat"><svg><use href="#i-spark"></use></svg><div><b>你常问的，它记着</b><span>不用重复交代第二遍</span></div></div>
+          <div class="onb-feat"><svg><use href="#i-phone"></use></svg><div><b>出事了，它替你叫人</b><span>摔倒或按紧急呼叫，直接拨下面的号码</span></div></div>
+          <div class="onb-feat"><svg><use href="#i-shield"></use></svg><div><b>开关都在你手里</b><span>想关哪项，随时关</span></div></div>
+        </div>
+        <div class="onb-card onb-safety">
+          <div class="onb-safetyline"><svg><use href="#i-phone"></use></svg><b>紧急呼叫联系人电话号码</b></div>
+          <input id="onbSosPhone" class="onb-input" type="tel" inputmode="numeric" placeholder="例如 13800000000">
+          <div class="onb-safetyline" style="margin-top:16px"><svg><use href="#i-fall"></use></svg><b>摔倒检测</b>
+            <button id="onbFallSw" class="onb-switch" type="button" aria-label="摔倒检测开关"></button></div>
+          <p id="onbFallSub" class="onb-sub">开着：手机检测到摔倒，会自动打给上面这个号码</p>
+        </div>
+      </div>
+      <!-- 2 -->
+      <div class="onb-step" data-step="2">
+        <div class="onb-headicon"><svg><use href="#i-user"></use></svg></div>
+        <h2 class="onb-h">我该怎么叫你？</h2>
+        <p class="onb-p">它叫你的时候会用这个名字，家人端也显示它。</p>
+        <div class="onb-card"><input class="field onb-field" id="nameMe" maxlength="8" placeholder="比如：老张、奶奶、妈"></div>
+        <div class="onb-tip"><svg><use href="#i-check"></use></svg>不想写也行，先跳过，以后在设置里补。</div>
+      </div>
+      <!-- 3 -->
+      <div class="onb-step" data-step="3">
+        <div class="onb-headicon"><svg><use href="#i-spark"></use></svg></div>
+        <h2 class="onb-h">它叫什么？</h2>
+        <p class="onb-p">你可以随时改。就叫它米粒也行。</p>
+        <input class="field" id="namePet" maxlength="8" placeholder="米粒" value="米粒">
+      </div>
+      <!-- 4 · 拍药盒：拍照 / 相册两条路，识别完直接进药箱 -->
+      <div class="onb-step" data-step="4">
+        <div class="onb-headicon"><svg><use href="#i-pill"></use></svg></div>
+        <h2 class="onb-h">先拍一盒常吃的药</h2>
+        <p class="onb-p">把药盒放进框里拍一张，它自己认药名和吃法，不用打字。</p>
+        <div style="display:flex;gap:10px;margin:14px 0">
+          <button class="onb-btn" id="onbMedShot">拍照</button>
+          <button class="onb-btn ghost" id="onbMedPick">从相册选</button>
+        </div>
+        <img id="onbMedPreview" class="onb-preview" alt="刚拍的药盒" style="display:none">
+        <div id="onbMedMsg" class="onb-note">还没拍。点「拍照」会打开相机取景；拍完请核对药名再决定加不加。</div>
+        <div class="onb-card onb-medcard">
+          <div class="onb-safetyline"><b>已经加进药箱的药</b></div>
+          <div id="onbMedList" class="onb-medlist"></div>
+          <div class="onb-medadd">
+            <input id="onbMedName" class="onb-input" type="text" placeholder="手填药名，比如 氯雷他定片">
+            <button class="onb-btn" id="onbMedAdd" type="button">加进去</button>
+          </div>
+          <p class="onb-sub">认错了不要紧：下面每一行都能改名字、删掉。识别结果必须您亲手确认才入库。</p>
+        </div>
+      </div>
+
+      <!-- 5 · 设备：参考家人端「设备」页的白卡分组 -->
+      <div class="onb-step" data-step="5">
+        <div class="onb-headicon"><svg><use href="#i-dev"></use></svg></div>
+        <h2 class="onb-h">家里还有哪些设备？</h2>
+        <p class="onb-p">有的点一下，接上以后一起看。没有就直接继续。</p>
+        <div class="onb-card">
+          <div class="onb-cap"><b>连接硬件设备</b><span>选上就记在这台手机上</span></div>
+          <div id="onbDev" class="onb-devlist"></div>
+        </div>
+        <div class="onb-tip"><svg><use href="#i-check"></use></svg>没有设备也能直接下一步，不影响用。</div>
+      </div>
+
+      <!-- 6 · 权限一个一个开，读系统真实状态 -->
+      <div class="onb-step" data-step="6">
+        <div class="onb-headicon"><svg><use href="#i-shield"></use></svg></div>
+        <h2 class="onb-h">一个一个，把开关打开</h2>
+        <p class="onb-p">点「去打开」，开完回来这一行自己变绿，接着开下一个。开关得你亲手按，它不代点。</p>
+        <div id="onbPerm" class="onb-permlist"></div>
+        <div id="onbPermDone" class="onb-note">正在看这台手机开了哪些…</div>
+      </div>
+
+      <!-- 7 · 桌面 4/6 + 工具 + 底部按钮 -->
+      <div class="onb-step" data-step="7">
+        <div class="onb-headicon"><svg><use href="#i-grid"></use></svg></div>
+        <h2 class="onb-h">首页放几个格子？</h2>
+        <div id="onbGrid" class="onb-chips"></div>
+        <p class="onb-p" style="margin-top:12px">再挑要放上去的功能</p>
+        <div id="onbApps" class="onb-chips"></div>
+        <div id="onbAppTip" class="onb-sub">选满就不能再加了，这里会告诉你。</div>
+        <p class="onb-p" style="margin-top:12px">底下常驻的按钮</p>
+        <div id="onbDock" class="onb-chips"></div>
+      </div>
+
+      <!-- 8 · 录声纹：一个键，点开始 / 自己点结束 -->
+      <div class="onb-step" data-step="8">
+        <div class="onb-headicon"><svg><use href="#i-mic"></use></svg></div>
+        <h2 class="onb-h">记住你的声音</h2>
+        <p class="onb-p">点一下开始，照着亮起来那句慢慢念；念完自己再点一下结束，不掐时间。</p>
+        <div id="onbVpSent" class="onb-vpsent"></div>
+        <button class="onb-btn onb-vpbtn" id="onbVp">● 点一下，开始念第 1 句</button>
+        <div id="onbVpMsg" class="onb-note">■ 还没开始 · 点上面的键开始，念完自己点结束（最长 12 秒）。</div>
+      </div>
+
+      <!-- 9 · 生成同步码：引导最后一屏，让家人拿自己手机填 -->
+      <div class="onb-step" data-step="9">
+        <div class="onb-headicon"><svg><use href="#i-link"></use></svg></div>
+        <h2 class="onb-h">让家里人也能帮上忙</h2>
+        <p class="onb-p">家里人用自己的手机打开米粒，选「我是家人」，填这 6 位数字。</p>
+        <div id="onbCode" style="font-size:34px;font-weight:700;letter-spacing:10px;color:#5B4DF0;background:#F4F5FF;border-radius:20px;padding:20px;text-align:center;margin:16px 0">正在取同步码…</div>
+        <p class="onb-p" id="onbCodeTip">这个码一直有效，改配置也不用换。</p>
+      </div>
+    </div>
+
+    <div class="onb-foot">
+      <div class="dots"><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="onb-navrow">
+        <button class="onb-prev" id="onbPrev" hidden>‹ 上一步</button>
+        <button class="onb-skip" id="onbSkip">这一步先跳过</button>
+      </div>
+      <button class="talk" id="onbNext">开始</button>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"./vendor/three/three.module.js",
+  "three/addons/":"./vendor/three/addons/"
+}}
+</script>
+<script src="assets/vendor/hls.min.js"></script>
+<script src="evolve.js"></script>
+<!-- 智能体内核。顺序不能乱：memo 与 tools 都是独立的 IIFE，只挂 window 上的全局；
+     agent 在 init() 之后才用到它们，但它自己也在 createClient 时才读，所以其实
+     三者先后都行 —— 只是按依赖方向排，读起来不别扭。
+     ★ 这三个文件之前一直没被引用过：server/ 里有、index.html 里没有。
+       结果 wireAgent() 第一行 `if (!window.MILI_AGENT) return` 永远命中，
+       内核从来没接线，页面上跑的还是老正则 —— 这就是「什么都做不了」的根。 -->
+<script src="agent-memo.js"></script>
+<script src="agent-tools.js"></script>
+<script src="agent.js"></script>
+<script type="module" src="app.js"></script>
+<!-- 全屏电视层：放 body 直属，逃出 #phone 的 transform ——
+     横屏转屏后 fixed 定位跟着真视口走，不会被手机壳框住。 -->
+<div id="tvfull" hidden>
+  <video id="tvfullV" playsinline webkit-playsinline preload="none"
+         poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
+  <div id="tvPrev">‹</div>
+  <div id="tvNext">›</div>
+  <div id="tvfullX">✕ 退出</div>
+  <div id="tvfullT"></div>
+</div>
+</body>
+</html>

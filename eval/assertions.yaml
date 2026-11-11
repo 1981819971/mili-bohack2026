@@ -1,0 +1,10 @@
+# 米粒 held-out 断言门禁（promptfoo 独立断言模式）
+# 从项目根执行：
+#   node eval/make-outputs.mjs
+#   npx promptfoo eval --assertions eval/assertions.yaml --model-outputs eval/outputs.json
+# 判分引擎是 promptfoo；assert.js 只定义「什么算过」，不在项目里另写一套评分器。
+- type: is-json
+  metric: format
+- type: javascript
+  value: file://eval/assert.js
+  metric: heldout

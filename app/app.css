@@ -1,0 +1,3845 @@
+/* ============================================================================
+   米粒 · 界面样式 v4（2026-11-06 全站重写）
+   ----------------------------------------------------------------------------
+   所有颜色/间距/字号/圆角一律取 design-tokens.css 的变量，本文件不写字面值。
+   保留全部 117 个 DOM id 契约与 app.js 里动态生成的 class，只换视觉。
+
+   页面骨架统一成三段：
+     .nav   —— 页头（返回 + 标题 + 一个动作）
+     .body  —— 内容区（可滚动，唯一滚动容器）
+     .dock  —— 底部固定区（首页的说话条 / 其他页留空）
+
+   一屏只允许「一个重点」：首页是小鸡，内页是第一张卡。
+   ========================================================================== */
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;
+  background:var(--bg-2);
+  color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  font-size:var(--t-body);
+  line-height:var(--lh-body)}
+body{display:grid;place-items:center}
+
+/* ============================================================================
+   手机框
+   ========================================================================== */
+#phone{position:relative;width:430px;height:932px;max-height:100vh;
+  background:var(--bg);
+  border-radius:44px;overflow:hidden;
+  box-shadow:0 24px 64px rgba(33,28,20,.18), 0 0 0 1px rgba(33,28,20,.06);
+  display:flex;flex-direction:column}
+
+@media (max-width:470px){
+  #phone{width:100vw;height:100vh;height:100dvh;border-radius:0;box-shadow:none}
+}
+
+#statusbar{display:none}
+
+/* ============================================================================
+   页面容器
+   ----------------------------------------------------------------------------
+   底部留 96px 给 tab 栏。滚动只发生在 .body / .scroll 里，
+   页面本身不滚 —— 不然顶部标题会跟着一起走，老人会以为点错了。
+   ========================================================================== */
+.page{position:absolute;inset:0 0 96px 0;
+  padding:0 var(--s4);
+  display:flex;flex-direction:column;min-height:0;
+  background:var(--bg);
+  opacity:0;pointer-events:none;visibility:hidden;transform:translateY(18px) scale(.985);
+  transition:opacity .26s ease,transform .36s cubic-bezier(.22,.9,.28,1),visibility 0s linear .36s}
+.page.on{opacity:1;pointer-events:auto;visibility:visible;transform:none;
+  transition:opacity .3s ease,transform .42s cubic-bezier(.16,1,.3,1),visibility 0s}
+
+/* ============================================================================
+   页头
+   ----------------------------------------------------------------------------
+   三栏：返回 60×60 / 标题居中 / 动作 60×60。
+   返回做成实心圆钮 —— 老人手指按不到 38px 的目标，规范要求 ≥60dp。
+   ========================================================================== */
+.nav{flex:none;height:72px;display:flex;align-items:center;
+  position:relative;margin:0 calc(var(--s1) * -1) var(--s2)}
+.nav .back{width:var(--tap);height:var(--tap);flex:none;
+  border:0;border-radius:var(--r-pill);background:var(--card);
+  display:grid;place-items:center;cursor:pointer;color:var(--ink);padding:0;
+  box-shadow:var(--sh-card);
+  transition:transform .12s ease,background .12s ease}
+.nav .back svg{width:26px;height:26px}
+.nav .back:active{transform:scale(.94);background:var(--bg-3)}
+.nav h2{position:absolute;left:72px;right:72px;text-align:center;margin:0;
+  font-size:var(--t-h2);font-weight:700;letter-spacing:-.02em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.nav .act{margin-left:auto;width:var(--tap);height:var(--tap);flex:none;
+  border:0;border-radius:var(--r-pill);background:var(--card);
+  display:grid;place-items:center;cursor:pointer;color:var(--ink);
+  box-shadow:var(--sh-card)}
+.nav .act svg{width:26px;height:26px}
+.nav .act:active{transform:scale(.94);background:var(--bg-3)}
+.navsp{width:var(--tap);flex:none}
+
+/* ============================================================================
+   首页大标题
+   ----------------------------------------------------------------------------
+   一屏只有这一处 34px。它下面所有字都 ≤22px —— 层级靠字号差拉开，不靠颜色。
+   ========================================================================== */
+.hero{flex:none;padding:var(--s3) var(--s1) var(--s4)}
+.hero h1{margin:0;font-size:var(--t-h1);line-height:1.1;font-weight:800;
+  letter-spacing:-.04em;color:var(--ink)}
+.hero .cap{margin:var(--s2) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-body)}
+
+/* ============================================================================
+   分区标题
+   ----------------------------------------------------------------------------
+   比正文大 4px、颜色比正文淡 —— 这样它像「标签」而不是「内容」，
+   眼睛会自动跳过它去找下面的卡。原来它跟正文一样黑，反而成了干扰。
+   ========================================================================== */
+.sec{flex:none;margin:var(--s5) var(--s1) var(--s3);
+  font-size:var(--t-label);font-weight:700;color:var(--ink-3);
+  letter-spacing:.04em}
+.secx{margin-left:var(--s2);font-size:var(--t-label);font-weight:500;
+  /* 🚨 2026-11-07：原来是 --ink-4（#9A9AA6），对灰底只有 2.49:1 ——
+     写的是「3 种」「2 件」这种计数，读不清就等于没写。
+     --ink-4 按 token 自己的规定「只许做图标/描边，禁止做文字」。
+     换成 --ink-3（4.50:1），刚好过线，仍然比主标题轻。 */
+  color:var(--ink-3);letter-spacing:0}
+
+/* ============================================================================
+   米粒卡：视频形象 + 它说的话
+   ----------------------------------------------------------------------------
+   2026-11-06 晚：3D canvas 形象退役，换成菲尔特做的两段视频（待机/唱歌）。
+   首屏不再是一大只鸡 —— 头像 104px 圆角方块，气泡跟在下面，
+   像一张「它在跟你说话」的卡，不像一个宠物养成游戏。
+   ========================================================================== */
+.petcard{position:relative;flex:1 1 auto;min-height:260px;max-height:none;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:var(--s3);padding:var(--s4);
+  border-radius:var(--r-card);overflow:hidden;
+  background:var(--card);box-shadow:var(--sh-card)}
+.petcard::after{content:"";position:absolute;inset:0;border-radius:var(--r-card);
+  pointer-events:none;
+  box-shadow:inset 0 0 0 1px rgba(40,42,90,.028)}
+/* 视频形象：mp4 没有透明通道，素材底色本来就是奶油色，
+   正好融进白卡 —— 圆角方块裁切，不装「悬浮无背景」的假精致。 */
+.petava{position:relative;flex:none;width:104px;height:104px;
+  border-radius:var(--r-inner);overflow:hidden;background:var(--card-2)}
+.petava video{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;display:block}
+.petava #petSingV{opacity:0;transition:opacity .18s ease}
+.petava.singing #petSingV{opacity:1}
+
+/* 卡片里的状态胶囊 */
+.badge{position:absolute;left:var(--s4);top:var(--s4);z-index:3;
+  padding:6px 14px;border-radius:var(--r-pill);
+  background:rgba(33,28,20,.72);backdrop-filter:blur(10px);
+  font-size:var(--t-cap);font-weight:600;color:#fff;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+
+/* ============================================================================
+   它说的话
+   ----------------------------------------------------------------------------
+   白卡 + 黑字。这是全站「内容」的标准长相 —— 只有一张卡，
+   不嵌套、不加色块、不加边框。左上一个小尖角指回小鸡。
+   ========================================================================== */
+.bubble{position:relative;flex:none;margin-top:var(--s3);
+  padding:var(--s4) var(--s4);
+  border-radius:var(--r-card);
+  background:var(--card);
+  font-size:var(--t-body-l);line-height:1.55;color:var(--ink);font-weight:500;
+  box-shadow:var(--sh-card);
+  animation:up .22s cubic-bezier(.22,.8,.3,1)}
+.bubble::before{content:"";position:absolute;left:var(--s5);top:-5px;
+  width:10px;height:10px;background:var(--card);transform:rotate(45deg);
+  border-top-left-radius:2px}
+@keyframes up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.recall{display:block;margin-top:var(--s3);padding-top:var(--s3);
+  border-top:1px solid var(--line);
+  font-size:var(--t-body);line-height:var(--lh-body);color:var(--ink-3)}
+.recall b{display:block;font-size:var(--t-body);color:var(--ink);font-weight:700;
+  margin-bottom:var(--s1)}
+
+/* ============================================================================
+   首页四个常用
+   ----------------------------------------------------------------------------
+   四等分。图标在上、字在下 —— 老人一眼看到「能干什么」。
+   注意：这是四张独立卡，不是一张卡里切四格。M3 里卡片不许嵌套。
+   ========================================================================== */
+.quickgrid{flex:none;display:grid;grid-template-columns:repeat(4,1fr);
+  gap:var(--s2);margin-top:var(--s3)}
+.qcard{display:flex;flex-direction:column;align-items:center;gap:var(--s2);
+  min-height:96px;padding:var(--s3) var(--s1);
+  border:0;border-radius:var(--r-card);cursor:pointer;
+  background:var(--card);box-shadow:var(--sh-card);font-family:inherit;
+  transition:transform .12s ease}
+.qcard:active{transform:scale(.96)}
+.qcard .qic{width:44px;height:44px;border-radius:var(--r-inner);
+  display:grid;place-items:center;background:var(--bg-2);color:var(--ink-2)}
+.qcard .qic svg{width:24px;height:24px}
+.qcard b{font-size:var(--t-body);font-weight:600;color:var(--ink);
+  letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:100%}
+
+/* ============================================================================
+   底部输入区
+   ========================================================================== */
+.dock{flex:none;padding:var(--s2) 0 var(--s3);position:relative}
+
+/* 语音条：黑胶囊。
+   11-03 定的主按钮就是黑胶囊，这里沿用 —— 全站只有一个实心深块。
+   原来那条是深色 composer + 橘黄高亮，两个色块抢焦点。 */
+.composer{display:flex;align-items:center;gap:var(--s1);height:64px;
+  padding:0 var(--s2);border-radius:var(--r-pill);background:var(--btn);
+  box-shadow:var(--sh-lift)}
+
+.cbtn{width:52px;height:52px;flex:none;border:0;background:none;color:var(--ink-4);
+  display:grid;place-items:center;border-radius:var(--r-pill);cursor:pointer;
+  transition:background .14s ease,transform .12s ease}
+.cbtn svg{width:24px;height:24px}
+.cbtn:active{background:rgba(255,255,255,.14);transform:scale(.94)}
+
+/* 说话：一整条都能按。老人手指抖也按得中。 */
+.chold{flex:1;height:52px;border:0;border-radius:var(--r-pill);background:transparent;
+  font-size:var(--t-body-l);font-weight:600;color:#fff;cursor:pointer;
+  letter-spacing:.01em;transition:background .14s ease,transform .1s ease}
+.chold:active,.chold.rec{background:var(--accent);color:#fff;transform:scale(.985)}
+
+/* 打字条 */
+.typebar{display:flex;align-items:center;gap:var(--s2);height:64px}
+.typebar input{flex:1;height:60px;border:0;border-radius:var(--r-pill);
+  padding:0 var(--s5);font-size:var(--t-body);
+  background:var(--card);color:var(--ink);
+  box-shadow:var(--sh-card);outline:none;font-family:inherit}
+.typebar input::placeholder{color:var(--ink-4)}
+.typebar button{width:60px;height:60px;flex:none;border:0;border-radius:var(--r-pill);
+  background:var(--btn);color:#fff;display:flex;align-items:center;justify-content:center;
+  transition:transform .12s ease}
+.typebar button svg{width:24px;height:24px}
+.typebar button:active{transform:scale(.94)}
+.typebar #kbBack{background:var(--btn-2);color:var(--ink-2)}
+
+/* 加号浮层 */
+.plussheet{position:absolute;right:0;bottom:80px;z-index:24;
+  display:flex;gap:var(--s1);padding:var(--s2);border-radius:var(--r-card);
+  background:var(--card);box-shadow:var(--sh-lift);
+  animation:up .16s cubic-bezier(.22,.8,.3,1)}
+.plussheet button{width:84px;border:0;background:none;padding:var(--s3) var(--s1);
+  border-radius:var(--r-inner);
+  display:flex;flex-direction:column;align-items:center;gap:var(--s2);
+  font-size:var(--t-cap);color:var(--ink-2);cursor:pointer;font-family:inherit}
+.plussheet button:active{background:var(--bg-2)}
+.plussheet .pic{width:44px;height:44px;border-radius:var(--r-inner);
+  background:var(--bg-2);display:grid;place-items:center;color:var(--ink-2)}
+.plussheet .pic svg{width:24px;height:24px}
+
+/* ============================================================================
+   按钮
+   ----------------------------------------------------------------------------
+   主按钮：黑胶囊（唯一实心深块）。
+   次按钮：浅灰实底（不是描边 —— 描边在灰底上等于没有）。
+   全站禁止第三种按钮长相。
+   ========================================================================== */
+.talk{position:relative;width:100%;height:64px;border:0;border-radius:var(--r-pill);
+  background:var(--btn);color:var(--btn-ink);
+  font-size:var(--t-body-l);font-weight:700;letter-spacing:.01em;
+  cursor:pointer;font-family:inherit;
+  transition:transform .12s ease,background .12s ease}
+.talk:active{transform:scale(.985);background:#000}
+
+/* 次按钮：白底 + 一圈描边。
+   🚨 2026-11-07：原来这里是「浅灰实底 #F0F0F4」，注释还辩解
+   「描边在灰底上几乎看不见」。可 #F0F0F4 对页面底 #F2F2F5 只有 1.02:1 ——
+   比描边更看不见。全站 14 处 .ghost 在灰底页上全是「隐形按钮」，
+   只剩一行字浮着，老人根本不知道那里能按。
+   现在：白底（灰底上立得住）+ 描边（白卡里立得住），两种底都成立。 */
+.ghost{width:100%;height:var(--tap);border:1px solid var(--btn-2-line);
+  border-radius:var(--r-pill);
+  background:var(--btn-2);color:var(--btn-2-ink);
+  font-size:var(--t-body);font-weight:600;cursor:pointer;font-family:inherit}
+.ghost:active{background:var(--bg-3);transform:scale(.985)}
+
+.act-btn{width:100%;height:64px;border:0;border-radius:var(--r-pill);
+  background:var(--btn);color:var(--btn-ink);
+  font-size:var(--t-body-l);font-weight:700;cursor:pointer;font-family:inherit;
+  transition:transform .12s ease}
+.act-btn:active{transform:scale(.985)}
+/* .act-btn.ghost 比 .ghost 后写，会把上面那条覆盖掉 —— 描边必须在这里再来一次，
+   否则「隐形按钮」在这个组合下照样复发（vital 页那颗就是。 */
+.act-btn.ghost{background:var(--btn-2);color:var(--btn-2-ink);
+  border:1px solid var(--btn-2-line);margin-top:var(--s2)}
+.act-btn.main{background:var(--accent);color:#fff}
+
+/* ============================================================================
+   列表与卡片
+   ========================================================================== */
+/* .scroll 滚到底时最后一行要紧贴底边 —— 但绝不能贴着切。
+   预留 = 16（自身留白）+ 24（视线余量）；再靠 .page 的 96px 底边托住 tab 栏。
+   原来只留 16px，截图里规格表最后一行永远被切掉半截。 */
+/* 滚动区。
+   🚨 2026-11-07：加底部渐隐（scroll edge fade）。
+   起因是量出来的四个真切边：「常用」页第六张卡被底边硬切 23px、
+   「挂号」页妇科格被切 21px、「米粒的卡」页规格表被切 76px、
+   家人端「药箱」标题被切 13px。
+   列表比一屏长是正常的 —— 但**硬切**看起来像坏了：老人看到半行字被截断，
+   第一反应是「这软件没装好」，不是「下面还有」。
+   渐隐把「硬切」变成「淡出」，明确暗示「还能往下」。这是 iOS / Material
+   处理列表溢出的通用做法，不是我们的发明。
+   滚到底时由 JS 摘掉这层（那时不该再暗示「还有」）。
+   渐隐高度取 44（不是 28）：28 只够盖住一行字的一半，卡片边缘还是硬的；
+   44 能盖住一张卡的下沿加阴影，看得出是「淡出去」。 */
+.scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+  gap:var(--s3);
+  /* 🚨 2026-11-06 P0：原来是 calc(16+24)=40px，可底栏 #tabs 高 96px 是
+     position:absolute 浮在内容上的 —— 「我的」页滚到底，
+     「打开家人控制台」那颗按钮下半截被压在栏后面。
+     现在 = 底栏 96 + 呼吸 24 + 安全区。 */
+  padding-bottom:calc(96px + var(--s5) + env(safe-area-inset-bottom, 0px));
+  overscroll-behavior:contain}
+/* 🚨 2026-11-07 修掉一个隐蔽到量出来才看得见的缺陷：**flex 压扁**。
+   .scroll 是 display:flex + flex-direction:column —— 主轴是**垂直**方向。
+   子项默认 flex:0 1 auto，也就是 flex-shrink:1。内容比一屏长时
+   （me 页 scrollHeight 1325 > 容器 756、card 页 1021 > 756、
+   famhome 页 1926 > 756），浏览器就按 shrink 比例把子项**沿高度压扁**。
+   关键在 min-height:auto 的下限是**内容高度**，不是我们声明的 height ——
+   所以 height:60px 的按钮压到「一行字 20px + 边框 2px = 28px」，
+   height:64px 的黑胶囊压到同样 28px，一律失效。
+   实测被压的：
+     me      .act-btn.ghost.mefamgo  28 ← 60  (矮 32)
+     card    .act-btn                28 ← 64  (矮 36)
+     famhome .act-btn                28 ← 64  (矮 36)
+   这不是审美问题 —— 28px 的点击区，老人手指按不到，
+   连 60dp 的适老硬规范一半都不到。而且它**只在这几页出现**，
+   因为只有那几页内容溢出了：换个数据量就复发，属于定时炸弹。
+   修法：所有直接子项 flex:none（不伸不缩，高度就是声明的那个）。
+   不能把 .scroll 改成 display:block 来绕 —— 那样 gap 就没了，
+   卡片会连成一片。 */
+.scroll>*{flex:none}
+.scroll.fade{
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 44px),
+    rgba(0,0,0,.55) calc(100% - 20px),transparent 100%);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 44px),
+    rgba(0,0,0,.55) calc(100% - 20px),transparent 100%)}
+.scroll::-webkit-scrollbar{width:0}
+
+/* .panel 是全站唯一的卡。圆角 20、白底、一套阴影。
+   任何「分区」都不许再套一张 panel —— 那会变成卡里卡。 */
+.panel{background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);padding:var(--s4);text-align:left}
+
+/* 分组列表：一张卡里多行，行间用一条线分隔 */
+.group{background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);overflow:hidden}
+.row{display:flex;align-items:center;gap:var(--s3);padding:var(--s4);
+  min-height:var(--tap);position:relative;
+  background:transparent;border:0;width:100%;text-align:left;
+  cursor:pointer;font-family:inherit}
+.row+.row::before{content:"";position:absolute;left:60px;right:0;top:0;
+  height:1px;background:var(--line)}
+.row .ic{flex:none;width:40px;height:40px;border-radius:var(--r-inner);
+  display:grid;place-items:center;background:var(--bg-2);color:var(--ink-2)}
+.row .ic svg{width:22px;height:22px}
+.row .tx{flex:1;min-width:0}
+.row .t1{display:block;font-size:var(--t-body-l);line-height:var(--lh-tight);
+  color:var(--ink);font-weight:600}
+.row .t2{display:block;margin-top:var(--s1);font-size:var(--t-body);
+  color:var(--ink-3);line-height:var(--lh-tight)}
+.row .rt{flex:none;font-size:var(--t-body);color:var(--ink-3);
+  display:flex;align-items:center;gap:var(--s1)}
+.row .rt svg{width:20px;height:20px}
+
+/* 空状态：不是「一句居中灰字 + 一大片空」。
+   🚨 2026-11-07：原来这里是 flex:1 + justify-content:center ——
+   一屏灰底中间一个 44px 半透明图标 + 两行灰字，上下各留一大片空白。
+   「办过的事」「它替你记着的」「家里人」「药箱」四页全长这样，
+   菲尔特说「像骨架不像产品」，这四页就是最典型的一屏。
+   问题不在文案，在**它不是一个块面**：字飘在灰底上，眼睛找不到「这里有东西」。
+   产品级空态要交代三件事：现在是什么状态、为什么、下一步在哪按。
+   所以改成靠上的白卡 —— 图标进一块灰底方块、标题加粗、说明一行、
+   下面一颗真按钮（去能办这件事的地方）。不留悬空。 */
+.empty{flex:none;display:flex;flex-direction:column;align-items:flex-start;
+  gap:var(--s3);margin-top:var(--s1);padding:var(--s5);
+  background:var(--card);border-radius:var(--r-card);box-shadow:var(--sh-card)}
+.empty .eic{flex:none;width:52px;height:52px;border-radius:var(--r-inner);
+  background:var(--bg-2);color:var(--ink-2);display:grid;place-items:center}
+.empty .eic svg{width:26px;height:26px;opacity:1}
+.empty .etitle{margin:0;font-size:var(--t-h3);font-weight:700;color:var(--ink);
+  letter-spacing:-.01em;line-height:var(--lh-tight)}
+.empty p{margin:0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-body);text-align:left}
+/* 空态里那颗按钮：跟全站主按钮同一套（黑胶囊），
+   但缩成「就地可点」的尺寸，不跟页面主按钮抢。 */
+.empty .eact{width:100%;height:var(--tap);margin-top:var(--s1);
+  border:0;border-radius:var(--r-pill);background:var(--btn);color:var(--btn-ink);
+  font-family:inherit;font-size:var(--t-body-l);font-weight:700;cursor:pointer;
+  transition:transform .12s ease}
+.empty .eact:active{transform:scale(.985);background:#000}
+
+/* 记录卡 */
+.cardrow{display:flex;gap:var(--s3);align-items:flex-start;padding:var(--s4);
+  background:var(--card);border-radius:var(--r-card);box-shadow:var(--sh-card)}
+.cardrow .ic{flex:none;width:40px;height:40px;border-radius:var(--r-inner);
+  display:grid;place-items:center;background:var(--bg-2);color:var(--ink-2)}
+.cardrow .ic svg{width:20px;height:20px}
+.cardrow .tx{flex:1;min-width:0}
+.cardrow .t1{display:block;font-size:var(--t-body-l);line-height:var(--lh-tight);font-weight:600}
+.cardrow .t2{display:block;margin-top:var(--s1);font-size:var(--t-body);color:var(--ink-3)}
+.cardrow .tm{flex:none;font-size:var(--t-cap);color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+
+/* ============================================================================
+   成长进度
+   ========================================================================== */
+.prog{padding:var(--s4);background:var(--card);
+  border-radius:var(--r-card);box-shadow:var(--sh-card)}
+.prog .top{display:flex;align-items:baseline;justify-content:space-between;
+  margin-bottom:var(--s3)}
+.prog .top i{font-style:normal;font-size:var(--t-body);color:var(--ink-3)}
+.prog .top b{font-size:var(--t-h2);font-weight:800;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:6px;background:var(--bg-3);overflow:hidden}
+.bar .fill{height:100%;width:0;border-radius:6px;background:var(--ink);
+  transition:width .8s cubic-bezier(.22,.8,.3,1)}
+/* 0 条时那条灰轨道是空的 —— 画着它等于说「这里有进度」，可进度是零。
+   产品里没进度的进度条不该占位：它只让人以为「还没加载出来」。
+   class 由 applyForm() 挂（不用 :has，旧 WebView 不一定支持）。 */
+.bar.zero{display:none}
+.prog .note{margin:var(--s3) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-body)}
+
+/* ============================================================================
+   底部导航
+   ----------------------------------------------------------------------------
+   三个格子。图标 28、字 16 —— 格子少了就该放大，不然等于白减。
+   选中态用「图标变黑 + 字加粗」，不用底色块 —— 底色块在灰底上会糊成一片。
+   ========================================================================== */
+#tabs{position:absolute;left:0;right:0;bottom:0;height:96px;z-index:6;
+  display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:start;
+  padding:var(--s2) var(--s2) 0;
+  background:rgba(242,242,245,.92);
+  backdrop-filter:blur(24px);
+  border-top:1px solid var(--line)}
+.tab{border:0;background:none;display:flex;flex-direction:column;align-items:center;
+  gap:var(--s1);padding:var(--s2) 0 var(--s1);cursor:pointer;
+  border-radius:var(--r-inner);transition:background .18s ease;font-family:inherit}
+.tab svg{width:28px;height:28px;color:var(--ink-4);
+  transition:color .18s ease,transform .18s ease}
+/* 🚨 P1：适老规范 tab 文字 ≥18px（原来 16px，经缩放实测只有 13.3px） */
+.tab span{font-size:18px;color:var(--ink-3);letter-spacing:.01em;
+  transition:color .18s ease}
+.tab.on svg{color:var(--ink);transform:translateY(-1px)}
+.tab.on span{color:var(--ink);font-weight:700}
+
+/* ============================================================================
+   弹层
+   ========================================================================== */
+#listen{position:absolute;inset:0;z-index:40;display:flex;align-items:flex-end;
+  background:rgba(33,28,20,.36);animation:fi .2s ease}
+@keyframes fi{from{opacity:0}to{opacity:1}}
+.sheet{width:100%;background:var(--bg);border-radius:28px 28px 0 0;
+  padding:var(--s2) var(--s4) var(--s5);
+  animation:slideup .26s cubic-bezier(.22,.8,.3,1)}
+@keyframes slideup{from{transform:translateY(100%)}to{transform:none}}
+.grab{width:36px;height:4px;border-radius:4px;background:var(--line-2);
+  margin:0 auto var(--s4)}
+.sh-head{display:flex;align-items:flex-start;justify-content:space-between;
+  margin-bottom:var(--s1)}
+.sh-head h3{margin:0;font-size:var(--t-h3);font-weight:700;letter-spacing:-.02em}
+.sh-head p{margin:var(--s1) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-body)}
+.xbtn{flex:none;width:52px;height:52px;border-radius:var(--r-pill);border:0;
+  background:var(--bg-3);color:var(--ink-2);cursor:pointer;
+  display:grid;place-items:center;margin-top:-2px}
+.xbtn svg{width:22px;height:22px}
+.xbtn:active{background:var(--line-2)}
+
+.wave{display:flex;gap:4px;height:26px;align-items:center;justify-content:center;
+  margin:var(--s4) 0}
+.wave i{width:4px;border-radius:3px;background:var(--ink);
+  animation:wv 1.15s ease-in-out infinite}
+.wave i:nth-child(1){height:10px}
+.wave i:nth-child(2){height:17px;animation-delay:.1s}
+.wave i:nth-child(3){height:26px;animation-delay:.2s}
+.wave i:nth-child(4){height:16px;animation-delay:.3s}
+.wave i:nth-child(5){height:11px;animation-delay:.4s}
+@keyframes wv{0%,100%{transform:scaleY(.4);opacity:.3}50%{transform:scaleY(1);opacity:1}}
+
+.chips{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2)}
+.chips button{width:100%;min-height:var(--tap);padding:var(--s3);
+  border-radius:var(--r-inner);border:0;background:var(--card);
+  font-size:var(--t-body);color:var(--ink);cursor:pointer;text-align:left;
+  box-shadow:var(--sh-card);transition:transform .12s ease;font-family:inherit}
+.chips button:active{transform:scale(.985);background:var(--bg-2)}
+.cancel{width:100%;margin-top:var(--s2);border:0;background:none;
+  color:var(--ink-3);font-size:var(--t-body);padding:var(--s4);
+  cursor:pointer;font-family:inherit}
+
+/* ============================================================================
+   动作全屏
+   ========================================================================== */
+#action{position:absolute;inset:0;z-index:50;background:var(--bg);overflow-y:auto;
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:var(--s5) 0;animation:fi .18s ease}
+#action::-webkit-scrollbar{width:0}
+.act-in{width:100%;padding:0 var(--s4);text-align:center;margin:auto 0;
+  flex:0 0 auto;animation:up .24s cubic-bezier(.22,.8,.3,1)}
+.act-h{font-size:var(--t-h3);font-weight:800;margin:0 0 var(--s2);
+  line-height:var(--lh-tight);letter-spacing:-.02em}
+.act-head{position:relative;display:flex;align-items:center;
+  justify-content:center;margin:0 0 var(--s2)}
+.act-head .act-h{margin:0}
+.act-head .xbtn{position:absolute;right:-6px;top:-8px}
+.act-p{font-size:var(--t-body);color:var(--ink-3);line-height:1.65;
+  margin:0 0 var(--s5)}
+
+/* 通话中头像 */
+.calling{display:flex;flex-direction:column;align-items:center;gap:var(--s3);
+  margin-bottom:var(--s5)}
+.call-ava{width:104px;height:104px;border-radius:50%;display:grid;place-items:center;
+  font-size:36px;color:#fff;
+  background:var(--btn);
+  animation:ping 2.1s ease-out infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(33,28,20,.10)}
+  70%{box-shadow:0 0 0 20px rgba(33,28,20,0)}
+  100%{box-shadow:0 0 0 0 rgba(33,28,20,0)}}
+.call-name{font-size:var(--t-h2);font-weight:800;letter-spacing:-.02em}
+.call-st{font-size:var(--t-body);color:var(--ink-3);letter-spacing:.04em}
+
+/* 天气卡 */
+.wtemp{font-size:56px;font-weight:300;letter-spacing:-.04em;line-height:1;
+  font-variant-numeric:tabular-nums}
+.wcity{font-size:var(--t-body);color:var(--ink-3);margin:var(--s2) 0 var(--s4);
+  letter-spacing:.02em}
+.wrow{display:flex;gap:var(--s5);font-size:var(--t-body);color:var(--ink-3)}
+.wrow b{display:block;font-size:var(--t-body-l);color:var(--ink);
+  margin-top:var(--s1);font-weight:700}
+.wtip{margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line);
+  font-size:var(--t-body);line-height:var(--lh-body);color:var(--ink-2)}
+
+/* ============================================================================
+   引导
+   ========================================================================== */
+#onboard{position:absolute;inset:0;z-index:60;background:var(--bg);
+  display:flex;flex-direction:column;padding:0 var(--s5)}
+.onb-body{flex:1;display:flex;flex-direction:column;justify-content:center;
+  gap:var(--s4)}
+.onb-step{display:none;flex-direction:column;gap:var(--s4)}
+.onb-step.on{display:flex;animation:up .3s cubic-bezier(.22,.8,.3,1)}
+.onb-emoji{font-size:60px;line-height:1;margin-bottom:var(--s1)}
+.onb-h{margin:0;font-size:var(--t-h1);font-weight:800;line-height:1.2;
+  letter-spacing:-.035em}
+.onb-p{margin:0;font-size:var(--t-body);color:var(--ink-3);line-height:1.65}
+
+.field{width:100%;height:64px;border:0;border-radius:var(--r-inner);
+  background:var(--card);padding:0 var(--s4);
+  font-size:var(--t-body);color:var(--ink);box-shadow:var(--sh-card);
+  outline:none;font-family:inherit}
+.field::placeholder{color:var(--ink-4)}
+.field:focus{box-shadow:var(--sh-card),inset 0 0 0 2px var(--ink)}
+
+.perm{display:flex;align-items:center;gap:var(--s3);padding:var(--s4);
+  min-height:var(--tap);background:var(--card);border-radius:var(--r-inner);
+  box-shadow:var(--sh-card);cursor:pointer;border:0;width:100%;
+  text-align:left;font-family:inherit}
+.perm .ic{flex:none;width:44px;height:44px;border-radius:var(--r-inner);
+  background:var(--bg-2);display:grid;place-items:center;color:var(--ink-2)}
+.perm .ic svg{width:22px;height:22px}
+.perm .tx{flex:1;min-width:0}
+.perm .t1{display:block;font-size:var(--t-body-l);font-weight:600}
+.perm .t2{display:block;margin-top:var(--s1);font-size:var(--t-body);
+  color:var(--ink-3);line-height:var(--lh-tight)}
+.perm .sw{flex:none;width:52px;height:32px;border-radius:16px;
+  background:var(--line-2);position:relative;transition:background .2s ease}
+.perm .sw::after{content:"";position:absolute;left:3px;top:3px;
+  width:26px;height:26px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(33,28,20,.24);transition:transform .2s ease}
+.perm.on .sw{background:var(--ink)}
+.perm.on .sw::after{transform:translateX(20px)}
+
+.onb-foot{flex:none;padding:var(--s4) 0 var(--s5);display:flex;
+  flex-direction:column;gap:var(--s3)}
+.dots{display:flex;gap:6px;justify-content:center;margin-bottom:var(--s1)}
+.dots i{width:6px;height:6px;border-radius:50%;background:var(--line-2);
+  transition:all .2s ease}
+.dots i.on{background:var(--ink);width:18px;border-radius:4px}
+
+/* 首次空态提示 */
+.hintline{flex:none;margin:var(--s3) var(--s1) 0;font-size:var(--t-body);
+  color:var(--ink-3);line-height:var(--lh-body)}
+
+/* ============================================================================
+   首页药盒入口
+   ----------------------------------------------------------------------------
+   这是首页唯一带暖色的块：药是每天必须知道的一件事。
+   暖色只出现在那颗小图标上，块本身还是白卡 —— 不拿整块去抢。
+   ========================================================================== */
+.medrow{flex:none;display:flex;align-items:center;gap:var(--s3);
+  margin-top:var(--s3);padding:var(--s4);min-height:var(--tap);
+  border:0;width:100%;text-align:left;cursor:pointer;
+  background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);font-family:inherit;transition:transform .12s ease}
+.medrow:active{transform:scale(.985)}
+/* 药丸图标原来用暖橘（--accent-soft / --accent-deep）。
+   可首页唯一的暖色必须留给小鸡 —— 这块橘色面积虽小，却是整屏唯一的高饱和，
+   眼睛会先被它拽走，然后才看见小鸡。那不是「重点」，那是干扰。
+   所以退成灰阶，跟「常用」页那排图标同一套。 */
+.medrow .mico{flex:none;width:48px;height:48px;border-radius:var(--r-inner);
+  display:grid;place-items:center;
+  background:var(--bg-2);color:var(--ink-2)}
+.medrow .mico svg{width:24px;height:24px}
+.medrow .mtx{flex:1;min-width:0}
+.medrow .t1{display:block;font-size:var(--t-body-l);font-weight:600;color:var(--ink)}
+.medrow .t2{display:block;margin-top:var(--s1);font-size:var(--t-body);
+  color:var(--ink-3);line-height:var(--lh-tight);
+  white-space:normal;overflow:visible;text-overflow:clip}
+.medrow .mgo{flex:none;color:var(--ink-4)}
+.medrow .mgo svg{width:22px;height:22px}
+
+/* ============================================================================
+   药卡
+   ========================================================================== */
+.medcard{background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);padding:var(--s4);cursor:pointer}
+.medcard .mh{display:flex;align-items:baseline;gap:var(--s2)}
+.medcard .mn{font-size:var(--t-h3);font-weight:800;letter-spacing:-.02em}
+.medcard .mtag{font-size:var(--t-body);color:var(--ink-2);
+  background:var(--bg-2);padding:5px 12px;border-radius:var(--r-pill)}
+/* 🚨 2026-11-07：mtag 原来是 --t-cap（14px）。
+   可它写的不是附注，是**用量**：「一次一片」「一次一片，一天两次」。
+   老人吃药看的就是这一行 —— 剂量是全页最不能小看的字，
+   偏偏它被降成了全页最小的一档。现在回到正文档 18px。
+   字号一提，胶囊内边距跟着加 1px，否则字贴边。 */
+.medcard .mf{margin:var(--s2) 0 0;font-size:var(--t-body);color:var(--ink-3)}
+.medcard .mw{margin:var(--s3) 0 0;font-size:var(--t-body-l);color:var(--ink);
+  line-height:var(--lh-body)}
+.medcard .mnote{margin:var(--s2) 0 0;font-size:var(--t-body);
+  color:var(--ink-2);line-height:var(--lh-body)}
+.medcard .mlast{margin:var(--s3) 0 0;padding-top:var(--s3);
+  border-top:1px solid var(--line);font-size:var(--t-cap);color:var(--ink-3)}
+
+/* 药大字卡：老人问「这颗是什么」时全屏给的答案。
+   用深底反白 —— 这一屏只讲一件事，可以给最强对比。 */
+.medshow{text-align:center;padding:var(--s6) var(--s5);background:var(--btn);
+  border-radius:var(--r-card);box-shadow:var(--sh-lift)}
+.ms-who{display:block;font-size:var(--t-body);color:var(--dusk);letter-spacing:.06em}
+.ms-main{margin:var(--s3) 0 0;font-size:var(--t-h1);font-weight:800;
+  line-height:1.24;letter-spacing:-.03em;color:#fff}
+.ms-full{margin:var(--s4) 0 0;font-size:var(--t-body);color:var(--dusk)}
+.ms-note{margin:var(--s4) 0 0;padding-top:var(--s4);
+  border-top:1px solid rgba(255,255,255,.16);
+  font-size:var(--t-body-l);line-height:var(--lh-body);color:#EDEDF2}
+
+/* ============================================================================
+   正在查
+   ========================================================================== */
+#srch{position:absolute;inset:0;z-index:45;display:flex;
+  align-items:center;justify-content:center;
+  background:rgba(242,242,245,.92);backdrop-filter:blur(16px);
+  animation:fi .18s ease}
+.srchbox{text-align:center;padding:0 var(--s6)}
+.srchring{width:48px;height:48px;margin:0 auto var(--s4);border-radius:50%;
+  border:3px solid var(--line-2);border-top-color:var(--ink);
+  animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.srchh{margin:0;font-size:var(--t-body-l);font-weight:700}
+.srchq{margin:var(--s2) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-body)}
+
+/* 查回来的结果 */
+.sr-q{margin:0;font-size:var(--t-cap);color:var(--ink-3);letter-spacing:.02em}
+.sr-t{margin:var(--s3) 0 0;font-size:var(--t-body);line-height:var(--lh-tight);
+  font-weight:700;color:var(--ink-2)}
+.sr-a{margin:var(--s2) 0 0;font-size:var(--t-h3);line-height:1.5;
+  font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.sr-s{margin:var(--s4) 0 0;font-size:var(--t-cap);color:var(--ink-3)}
+.sr-more{margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:var(--s3)}
+.sr-more p{margin:0;font-size:var(--t-body);line-height:var(--lh-body);
+  color:var(--ink-2)}
+.sr-more b{display:block;font-size:var(--t-body);color:var(--ink);
+  font-weight:700;margin-bottom:2px}
+
+/* ============================================================================
+   视频播放器
+   ========================================================================== */
+.vwrap{position:relative;width:100%;border-radius:var(--r-inner);overflow:hidden;
+  background:#0E0E12;aspect-ratio:760/402;
+  box-shadow:var(--sh-card)}
+.vplayer{width:100%;height:100%;display:block;object-fit:cover;background:#0E0E12}
+.vbig{position:absolute;inset:0;margin:auto;width:84px;height:84px;border:0;
+  border-radius:50%;background:rgba(255,255,255,.94);color:var(--ink);
+  display:grid;place-items:center;cursor:pointer;
+  box-shadow:0 8px 26px rgba(0,0,0,.4);
+  transition:transform .16s ease,opacity .16s ease}
+.vbig svg{width:36px;height:36px;margin-left:3px}
+.vbig:active{transform:scale(.93)}
+.vbig.again svg{display:none}
+.vbig.again::after{content:"";width:32px;height:32px;
+  border:2.6px solid var(--ink);border-right-color:transparent;border-radius:50%}
+.vbar{padding:var(--s3) var(--s1) 0}
+.vtitle{margin:0;font-size:var(--t-body-l);font-weight:700;letter-spacing:-.01em}
+.vsub{margin:var(--s1) 0 0;font-size:var(--t-body);color:var(--ink-3)}
+
+.vfail{padding:var(--s5) var(--s4);text-align:center;
+  border-radius:var(--r-inner);background:var(--card)}
+.vfh{margin:0;font-size:var(--t-body-l);font-weight:700}
+.vfp{margin:var(--s2) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-body)}
+
+.vtrack{position:absolute;left:0;right:0;bottom:0;height:4px;
+  background:rgba(255,255,255,.26)}
+.vtrack i{display:block;height:100%;width:0;background:var(--ink);
+  transition:width .2s linear}
+
+/* 「演示」角标 */
+.demoflag{display:inline-block;font-size:var(--t-cap);font-weight:700;
+  color:var(--ink-2);background:var(--bg-3);border-radius:var(--r-pill);
+  padding:4px 12px;letter-spacing:.02em}
+.demobadge{display:inline-block;margin-top:var(--s2);padding:6px 14px;
+  border:0;border-radius:var(--r-pill);background:var(--btn);color:#fff;
+  font-size:var(--t-cap);font-family:inherit;letter-spacing:.06em;cursor:pointer}
+
+/* ============================================================================
+   学会的每一条
+   ========================================================================== */
+.sec-hint{font-weight:400;color:var(--ink-3);font-size:var(--t-cap)}
+.learnrow{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s4);
+  background:var(--card);border-radius:var(--r-inner);
+  margin-bottom:var(--s3);box-shadow:var(--sh-card)}
+.learnrow .ic{flex:none;width:28px;height:28px;margin-top:2px;color:var(--ink-2)}
+.learnrow .ic svg{width:28px;height:28px}
+.learnrow .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--s1)}
+.learnrow .t1{font-size:var(--t-body-l);font-weight:700;color:var(--ink);
+  line-height:var(--lh-tight);letter-spacing:-.01em}
+.learnrow .t2{font-size:var(--t-body);color:var(--ink-2);line-height:var(--lh-body)}
+.learnrow .acts{display:flex;align-items:center;gap:var(--s3);
+  flex-wrap:wrap;margin-top:var(--s2)}
+.learnrow .t3{font-size:var(--t-cap);color:var(--ink-3);line-height:1.4;
+  flex:1;min-width:0}
+.spd{flex:none;font-size:var(--t-cap);font-weight:700;color:var(--btn-ink);
+  background:var(--btn);border-radius:var(--r-pill);padding:4px 11px;
+  white-space:nowrap}
+.del{flex:none;min-width:72px;height:48px;padding:0 var(--s4);border:0;
+  border-radius:var(--r-inner);background:var(--bg-2);color:var(--ink-2);
+  font-size:var(--t-body);font-weight:600;cursor:pointer;font-family:inherit}
+.del:active{background:var(--bg-3);transform:scale(.96)}
+
+/* 上一次办事的步骤（只在演示版出现） */
+.runbox{background:var(--card);border-radius:var(--r-inner);
+  padding:var(--s4);margin-bottom:var(--s4);box-shadow:var(--sh-card)}
+.runhd{display:flex;align-items:baseline;justify-content:space-between;
+  gap:var(--s2);font-size:var(--t-body);font-weight:700;color:var(--ink)}
+.runmeta{flex:none;font-size:var(--t-cap);font-weight:700;color:var(--ink-3);
+  white-space:nowrap}
+.runq{font-size:var(--t-body);color:var(--ink-2);margin:var(--s2) 0 var(--s3);
+  line-height:var(--lh-tight)}
+.runstep{display:flex;align-items:flex-start;gap:var(--s2);padding:var(--s2) 0}
+.runstep+.runstep{border-top:1px solid var(--line)}
+.runstep .rn{flex:none;width:24px;height:24px;border-radius:50%;
+  font-size:12px;font-weight:700;display:flex;align-items:center;
+  justify-content:center;margin-top:2px;background:var(--bg-2);color:var(--ink-2)}
+.runstep.ok .rn{background:var(--btn);color:var(--btn-ink)}
+.runstep.bad .rn{background:var(--danger-soft);color:var(--danger-deep)}
+.runstep .rt{flex:none;min-width:78px;font-size:var(--t-body);font-weight:700;
+  color:var(--ink);line-height:var(--lh-tight)}
+.runstep.bad .rt{color:var(--danger-deep)}
+.runstep .rw{flex:1;min-width:0;font-size:var(--t-cap);color:var(--ink-3);
+  line-height:1.45}
+
+/* ============================================================================
+   首页氛围层（已随 3D canvas 一起退役，2026-11-06）
+   ========================================================================== */
+
+/* 飘标签 */
+.tags{position:absolute;inset:0;z-index:4;pointer-events:none}
+.tag{position:absolute;display:inline-block;max-width:56%;
+  padding:6px 13px;border-radius:var(--r-pill);
+  background:rgba(33,28,20,.06);font-size:var(--t-cap);line-height:1.35;
+  color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  animation:tagFloat 6.5s ease-in-out infinite}
+.tag.a{left:var(--s3);top:60px;animation-delay:0s}
+.tag.b{right:var(--s3);top:104px;animation-delay:-2.1s}
+.tag.c{left:var(--s5);bottom:104px;animation-delay:-4.2s}
+@keyframes tagFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+/* ============================================================================
+   实体卡（周边）
+   ========================================================================== */
+/* 实体卡入口。
+   2026-11-07：它原来钉在 .page 底部 —— 空态卡在上面、这一格钉在页面最下，
+   中间空出一大片灰，看着像两个不相干的块中间有个洞。
+   而且它自带 margin:0 16px，叠在 .page 的 16px 内边距上，比上面的卡窄一圈。
+   现在宽度回到 100%、外边距归零，并靠 #page-family 的 flex 规则
+   让它紧跟内容（见下面那条 .scroll{flex:0 1 auto}）。 */
+.entryrow{display:flex;align-items:center;gap:var(--s3);
+  width:100%;margin:0;flex:none;
+  padding:var(--s4);min-height:var(--tap);border:0;
+  border-radius:var(--r-card);background:var(--card);
+  box-shadow:var(--sh-card);text-align:left;cursor:pointer;font-family:inherit}
+/* 「家里人」页：内容短时让入口紧跟着空态卡，不留悬空；
+   内容长时（家里人多了）scroll 自动被压缩并滚动，入口仍在可视区内。
+   flex:0 1 auto 就是这个意思 —— 不长占空间，但允许被压。 */
+#page-family .scroll{flex:0 1 auto}
+#page-family .entryrow{margin-top:var(--s3)}
+.entryrow .eic{flex:none;width:28px;height:28px;color:var(--ink-2)}
+.entryrow .eic svg{width:28px;height:28px}
+.entryrow .etx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.entryrow .t1{font-size:var(--t-body-l);font-weight:700;color:var(--ink)}
+.entryrow .t2{font-size:var(--t-body);color:var(--ink-3)}
+.entryrow .ego{flex:none;width:22px;height:22px;color:var(--ink-4)}
+.entryrow .ego svg{width:22px;height:22px}
+
+.nfcwrap{padding:var(--s2) 0 var(--s5);display:flex;justify-content:center}
+.nfccard{position:relative;width:100%;max-width:340px;aspect-ratio:1.62;
+  border-radius:var(--r-card);overflow:hidden;
+  background:linear-gradient(146deg,#23252B 0%,#33363E 52%,#1B1D23 100%);
+  box-shadow:0 16px 38px rgba(20,18,14,.24),
+             inset 0 0 0 1px rgba(255,255,255,.09)}
+.nfcshine{position:absolute;inset:-40% -60% auto auto;width:150%;height:150%;
+  background:linear-gradient(104deg,rgba(255,255,255,0) 42%,
+    rgba(255,255,255,.10) 50%,rgba(255,255,255,0) 58%);
+  transform:rotate(6deg);pointer-events:none}
+.nfcrow{position:absolute;left:var(--s4);right:var(--s4);top:var(--s3);
+  display:flex;align-items:center;justify-content:space-between}
+.nfclogo{font-size:var(--t-body);font-weight:700;color:#fff;letter-spacing:.06em}
+.nfcwave{width:24px;height:24px;color:rgba(255,255,255,.6)}
+.nfcchick{position:absolute;left:0;right:0;bottom:28px;
+  display:flex;justify-content:center}
+.nfcchick img{width:120px;height:120px;object-fit:contain;
+  filter:drop-shadow(0 8px 16px rgba(0,0,0,.42))}
+.nfcbot{position:absolute;left:var(--s4);right:var(--s4);bottom:var(--s3);
+  display:flex;align-items:center;justify-content:space-between}
+.nfcurl{font-size:var(--t-cap);color:rgba(255,255,255,.62);letter-spacing:.03em}
+.nfcurl b{color:#fff;font-weight:600}
+.nfcchip{font-size:11px;font-weight:700;letter-spacing:.1em;
+  color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.26);
+  border-radius:5px;padding:2px 6px}
+
+.ch{font-size:var(--t-h3);font-weight:800;margin:0 var(--s1) var(--s2);
+  letter-spacing:-.01em}
+.cp{font-size:var(--t-body);line-height:1.68;color:var(--ink-2);
+  margin:0 var(--s1) var(--s4)}
+.cp.small{font-size:var(--t-body);color:var(--ink-3);margin-bottom:0}
+
+/* 结果回执：白卡 + 左边一道墨。空着不占位。 */
+.rcpt{font-size:var(--t-body);line-height:var(--lh-body);color:var(--ink);
+  background:var(--card);border-radius:var(--r-inner);
+  padding:var(--s4);margin:var(--s4) var(--s1) 0;
+  border-left:4px solid var(--ink);box-shadow:var(--sh-card)}
+.rcpt:empty{display:none}
+.rcpt.bad{border-left-color:var(--danger)}
+
+.nfcsteps{display:flex;flex-direction:column;gap:var(--s3);margin-bottom:var(--s5)}
+.nfcstep{display:flex;align-items:center;gap:var(--s3)}
+.nfcstep b{flex:none;width:30px;height:30px;border-radius:50%;
+  background:var(--ink);color:#fff;font-size:var(--t-cap);font-weight:700;
+  display:grid;place-items:center}
+.nfcstep span{font-size:var(--t-body);color:var(--ink-2)}
+
+.spec{background:var(--card);border-radius:var(--r-inner);
+  padding:var(--s1) var(--s4);margin-bottom:var(--s4);box-shadow:var(--sh-card)}
+.specrow{display:flex;align-items:center;justify-content:space-between;
+  padding:var(--s3) 0;border-bottom:1px solid var(--line)}
+.specrow:last-child{border-bottom:0}
+.specrow span{font-size:var(--t-body);color:var(--ink-3)}
+.specrow b{font-size:var(--t-body);color:var(--ink);font-weight:700}
+
+/* ============================================================================
+   常用页
+   ----------------------------------------------------------------------------
+   九宫格改一列大卡：18px 标题在三米外看不清，九个格子挤一屏手指要瞄着点。
+   现在每行 92px、图标 52、标题 22 —— 一屏四行半，闭着眼也能按。
+   ========================================================================== */
+/* 「常用」页：一屏九张同款白卡 = 一片白茫茫，眼睛没有落点。
+   这是菲尔特说「找不到重点」最典型的一屏。
+   两处改动：
+   ① 任务条反色 —— 它是这一页唯一的动态信息（今天还剩几件），
+      理应是整屏唯一的重心；白卡群退成背景，不再跟它抢。
+   ② 卡间距从 12 拉到 16 —— 白卡连成一片时，间隔是唯一的呼吸。 */
+.hubgrid{display:flex;flex-direction:column;gap:var(--s4);padding-bottom:var(--s3)}
+
+/* 任务条：今天还剩几件事 —— 全页唯一的重心，反色承载。
+   🚨 P0 修复：两行字曾被 flex 压扁（92px 压到 67px）叠成一团，禁止再压缩。 */
+.taskbar{flex:none;min-height:88px;display:flex;align-items:center;gap:var(--s3);
+  margin:0 var(--s1) var(--s5);padding:var(--s4);
+  background:var(--btn);border-radius:var(--r-card);box-shadow:var(--sh-lift)}
+.tbno{flex:none;width:52px;height:52px;border-radius:50%;
+  background:rgba(255,255,255,.14);color:#fff;
+  font-size:var(--t-h2);font-weight:800;
+  display:grid;place-items:center}
+.tbmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+/* 🚨 2026-11-07：tbpath / tbst 原来都是 --t-cap（14px）。
+   tbpath 写「想到什么随时跟我说」——那是**教老人怎么用**的一句话；
+   tbst 写「在听」「办完了」——是这件事现在的状态。两个都不是附注。
+   黑底上 14px 的字比白底上同样 14px 更费眼，因为反色关系笔画会糊。
+   提到正文档 18px。对比度实测 var(--dusk) 对黑底 7.80:1，够。 */
+.tbpath{font-size:var(--t-body);color:var(--dusk);letter-spacing:.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tbtitle{font-size:var(--t-body-l);font-weight:700;color:#fff;
+  letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tbst{flex:none;font-size:var(--t-body);font-weight:700;padding:6px 13px;
+  border-radius:var(--r-pill);background:rgba(255,255,255,.14);color:#fff}
+/* 「清闲」和「办完了」不再染色 —— 这一页只有一个重点，
+   状态胶囊只需要读得清，不需要发光。
+   🚨 calm 原来用 --ink-4（#9A9AA6），对黑底 6.59:1 —— 过了线，但它是
+   「在听」这种表示**正在工作**的状态，不该是全页最暗的一行。
+   提到 var(--dusk-bright)（9.34:1），读得清，又不抢白字的标题。 */
+.tbst.done{background:rgba(255,255,255,.14);color:#fff}
+.tbst.calm{background:rgba(255,255,255,.10);color:var(--dusk-bright)}
+
+.hubcard{display:flex;flex-direction:row;align-items:center;gap:var(--s4);
+  width:100%;min-height:92px;padding:0 var(--s4);
+  border:0;border-radius:var(--r-card);background:var(--card);
+  box-shadow:var(--sh-card);text-align:left;cursor:pointer;
+  transition:transform .12s ease;font-family:inherit}
+.hubcard:active{transform:scale(.985);background:var(--card-2)}
+.hubcard .hic{flex:none;width:52px;height:52px;border-radius:var(--r-inner);
+  display:grid;place-items:center;background:var(--bg-2);color:var(--ink-2)}
+.hubcard .hic svg{width:28px;height:28px}
+.hubcard .hct{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hubcard b{font-size:var(--t-h3);font-weight:700;color:var(--ink);
+  letter-spacing:-.01em;line-height:var(--lh-tight)}
+.hubcard i{font-style:normal;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-tight)}
+.hubcard.wide{grid-column:1/-1}
+.hubcard.wide .hic{margin-bottom:0}
+/* 深色卡：全站只允许一张，就是「最常用那个」。
+   它靠反色跳出来，不需要再加橘黄。 */
+.hubcard.wide.dark{background:var(--btn);box-shadow:var(--sh-lift)}
+.hubcard.wide.dark .hic{background:rgba(255,255,255,.13);color:#fff}
+.hubcard.wide.dark b{color:#fff}
+.hubcard.wide.dark i{color:var(--dusk)}
+.hubnote{margin:var(--s2) var(--s1) var(--s3);font-size:var(--t-cap);
+  color:var(--ink-3);line-height:var(--lh-body);text-align:center}
+
+/* 切台 / 选 App */
+.chgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);
+  margin-top:var(--s4)}
+.chbtn{height:56px;border:0;border-radius:var(--r-inner);background:var(--card);
+  color:var(--ink-2);font-size:var(--t-body);font-weight:600;cursor:pointer;
+  box-shadow:var(--sh-card);font-family:inherit;
+  transition:background .15s ease,transform .1s ease}
+.chbtn:active{background:var(--bg-3);transform:scale(.97)}
+.applist{display:flex;flex-direction:column;gap:var(--s2);margin-top:var(--s4)}
+.applist .act-btn{background:var(--card);color:var(--ink);box-shadow:var(--sh-card)}
+.applist .act-btn:active{background:var(--bg-2)}
+
+/* ============================================================================
+   角色门
+   ========================================================================== */
+/* 🚨 2026-11-06 P0：全局兜底 —— 任何图片不许超出容器。
+   角色门那张 1536px 的 chick-icon.png 就是因为没这条撑爆了首屏（渲染 1119px）。 */
+img,video{max-width:100%}
+
+#roleGate{position:fixed;inset:0;z-index:60;background:var(--bg);
+  display:grid;place-items:center;padding:0 var(--s5)}
+.gate-body{width:100%;max-width:420px}
+/* 🚨 P0 修复：原图 1536px，CSS 里没有任何尺寸约束，首启直接死局。
+   现在：固定 96px 圆角方块，居中。 */
+.gate-emoji{display:flex;justify-content:center;margin-bottom:var(--s3)}
+.gate-emoji img{width:96px;height:96px;border-radius:24px;object-fit:cover;flex:none}
+.gate-h{font-size:var(--t-h1);font-weight:800;text-align:center;
+  letter-spacing:-.03em;margin:0 0 var(--s5);color:var(--ink);line-height:1.2}
+.gate-btn{display:block;width:100%;padding:var(--s4) var(--s5);
+  margin:0 0 var(--s3);border:0;border-radius:var(--r-card);
+  background:var(--card);box-shadow:var(--sh-card);
+  text-align:left;cursor:pointer;font-family:inherit;
+  transition:transform .12s ease}
+.gate-btn:active{transform:scale(.985)}
+.gate-btn b{display:block;font-size:var(--t-body-l);color:var(--ink);font-weight:700}
+.gate-btn i{display:block;font-style:normal;font-size:var(--t-body);
+  color:var(--ink-3);margin-top:var(--s1)}
+/* 访客这一项要轻，但不能轻到看不见 —— 浅灰实底托住，不用描边 */
+.gate-btn.ghost{background:var(--btn-2);box-shadow:none}
+.gate-btn.ghost b{color:var(--ink-2)}
+
+/* ============================================================================
+   我的
+   ========================================================================== */
+.mepair{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3);
+  margin:var(--s2) 0 var(--s4)}
+.mepair-b{border:0;font-family:inherit;padding:var(--s4) var(--s2);
+  border-radius:var(--r-card);background:var(--card);color:var(--ink);
+  font-size:var(--t-body);font-weight:600;letter-spacing:.01em;
+  box-shadow:var(--sh-card);transition:transform .12s ease}
+.mepair-b:active{transform:scale(.97)}
+
+.mecard{display:flex;align-items:center;gap:var(--s4);padding:0 0 var(--s4)}
+.meavatar{flex:none;width:60px;height:60px;border-radius:var(--r-inner);
+  background:var(--ink);color:#fff;font-size:var(--t-h3);font-weight:800;
+  display:grid;place-items:center;letter-spacing:-.02em}
+.metx{flex:1;min-width:0}
+.metx b{display:block;font-size:var(--t-h3);font-weight:800;color:var(--ink);
+  letter-spacing:-.02em}
+.metx span{display:block;margin-top:var(--s1);font-size:var(--t-body);
+  color:var(--ink-3)}
+
+.merow{display:flex;align-items:center;justify-content:space-between;
+  padding:var(--s3) 0;border-top:1px solid var(--line)}
+.merow .ml{font-size:var(--t-body);color:var(--ink-2)}
+.merow .mr{font-size:var(--t-body);font-weight:700;color:var(--ink)}
+
+.segbar{display:flex;gap:var(--s1);margin-top:var(--s3);padding:var(--s1);
+  border-radius:var(--r-inner);background:var(--bg-2)}
+.segbar button{flex:1;height:52px;border:0;border-radius:10px;background:transparent;
+  font-size:var(--t-body);font-weight:600;color:var(--ink-3);cursor:pointer;
+  font-family:inherit;transition:background .16s ease,color .16s ease}
+.segbar button.on{background:var(--card);color:var(--ink);font-weight:700;
+  box-shadow:var(--sh-card)}
+
+/* 家人端：老人概况
+   左侧一道竖条表示状态 —— 墨=正常、暖=注意、红=出事、灰=还没数据。
+   这是全站唯一「用颜色+位置双重编码」的地方，因为家属要在三秒内判断。 */
+.famcard{position:relative;background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);padding:var(--s4) var(--s4) var(--s4) var(--s5);
+  margin:var(--s1) 0 var(--s4);overflow:hidden}
+.famcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;
+  background:var(--ink);border-radius:4px 0 0 4px}
+/* 状态条：4px 竖线，一眼看出「要不要紧」。
+   🚨 2026-11-07：.famcard.ok 原来没定义，于是走了 ::before 的默认
+   background:var(--ink) —— 纯黑。可「ok」的意思是**没事**，
+   没事却画一根全站最重的黑杠，视觉上像一道裂痕，
+   「我的」页那块「今天还没让米粒办事」就被划了这么一道。
+   没事应该是**没有存在感**的：用最浅的分隔色。
+   颜色只给「要出事」和「已经出事」——这也是适老规范那条
+   「颜色不得作为唯一区分手段」的反面：不重要的东西不该有色。 */
+.famcard.ok::before{background:var(--line)}
+.famcard.warn::before{background:var(--accent)}
+.famcard.bad::before{background:var(--danger)}
+.famcard.wait::before{background:var(--line-2)}
+
+.famhd{display:flex;align-items:center;gap:var(--s2)}
+.famnm{font-size:var(--t-h3);font-weight:800;color:var(--ink);letter-spacing:-.02em}
+.famtag{flex:none;margin-left:auto;padding:5px 11px;border-radius:var(--r-pill);
+  background:var(--bg-2);font-size:var(--t-cap);font-weight:700;color:var(--ink-2)}
+.famdot{flex:none;width:10px;height:10px;border-radius:50%;background:var(--ink)}
+.famcard.warn .famdot{background:var(--accent)}
+.famcard.bad .famdot{background:var(--danger)}
+.famcard.wait .famdot{background:var(--line-2)}
+
+.famline{margin:var(--s3) 0 0;font-size:var(--t-body-l);font-weight:700;
+  color:var(--ink);letter-spacing:-.01em;line-height:var(--lh-tight)}
+.famcard.warn .famline{color:var(--accent-deep)}
+.famcard.bad .famline{color:var(--danger-deep)}
+.famsub{margin:var(--s2) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-tight)}
+.famttl{margin:0;font-size:var(--t-body-l);font-weight:700;color:var(--ink)}
+.famcard.wait .famttl{color:var(--ink-2)}
+
+/* 最近办的事 */
+.factrow{display:flex;align-items:baseline;gap:var(--s3);padding:var(--s3) var(--s1);
+  border-bottom:1px solid var(--line)}
+.factrow:last-child{border-bottom:0}
+.fkind{flex:none;min-width:58px;padding:4px 9px;border-radius:8px;
+  background:var(--bg-2);font-size:var(--t-cap);font-weight:700;
+  color:var(--ink-2);text-align:center}
+.ftxt{flex:1;min-width:0;font-size:var(--t-body);color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fat{flex:none;font-size:var(--t-cap);color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+
+/* 手环心率 */
+.bandbig{display:flex;align-items:baseline;gap:var(--s2);
+  margin:var(--s4) 0 0;padding:var(--s4);border-radius:var(--r-inner);
+  background:var(--bg-2)}
+.bpmn{font-size:var(--t-num-s);font-weight:800;color:var(--ink);
+  letter-spacing:-.03em;line-height:1;font-variant-numeric:tabular-nums}
+.bpmu{font-size:var(--t-cap);font-weight:700;color:var(--ink-3)}
+.bandbig.warn .bpmn{color:var(--accent-deep)}
+.bandbig.bad .bpmn{color:var(--danger)}
+
+/* ============================================================================
+   体征读数：老人端只看一个大数字 + 一句话结论
+   ----------------------------------------------------------------------------
+   老人不认「收缩压 148」，但认「偏高」两个字。
+   所以：数字巨大、结论一句话、趋势留给家人端。
+   ========================================================================== */
+.vitalcard{flex:none;background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);padding:var(--s4) var(--s5) var(--s4);
+  margin-top:var(--s3);position:relative;overflow:hidden;
+  border:0;width:100%;text-align:left;font-family:inherit;cursor:pointer;
+  transition:transform .12s ease}
+.vitalcard:active{transform:scale(.99)}
+.vitalhd{display:flex;align-items:center;gap:var(--s2)}
+.vitalnm{font-size:var(--t-body);font-weight:700;color:var(--ink-3);
+  letter-spacing:.04em}
+/* 🚨 2026-11-07：vitaltag 原来 14px。它写的是「还没量」「今天偏高」——
+   是这一页对老人当前状态的**唯一判断**，不是角标。14px 太小，回到正文。 */
+.vitaltag{flex:none;margin-left:auto;padding:6px 13px;border-radius:var(--r-pill);
+  font-size:var(--t-body);font-weight:700;background:var(--bg-2);color:var(--ink-2)}
+.vitaltag.ok{background:var(--btn);color:var(--btn-ink)}
+.vitaltag.warn{background:var(--accent-soft);color:var(--accent-deep)}
+.vitaltag.bad{background:var(--danger-soft);color:var(--danger-deep)}
+
+.vitalbig{display:flex;align-items:baseline;gap:var(--s2);margin:var(--s4) 0 0}
+.vitalbig b{font-size:var(--t-num);font-weight:800;line-height:1;
+  letter-spacing:-.045em;font-variant-numeric:tabular-nums;color:var(--ink)}
+.vitalbig.mid b{font-size:var(--t-num-s)}
+.vitalbig i{font-style:normal;font-size:var(--t-cap);font-weight:700;
+  color:var(--ink-3)}
+.vitalbig .sep{font-size:var(--t-h2);color:var(--ink-4);margin:0 2px;
+  font-weight:400}
+.vitalbig.warn b{color:var(--accent-deep)}
+.vitalbig.bad b{color:var(--danger)}
+
+.vitalsay{margin:var(--s4) 0 0;font-size:var(--t-body-l);line-height:1.5;
+  color:var(--ink-2);font-weight:600}
+.vitalsub{margin:var(--s2) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-tight)}
+
+/* 趋势条：极简柱，不放坐标轴 —— 只看「往上还是往下」。
+   没有柱的时候必须整条消失：否则空着 48px 高的一条，
+   卡片中间就多出一块没有任何信息的白，老人会以为是没加载出来。 */
+.vtrend{display:flex;align-items:flex-end;gap:3px;height:48px;
+  margin:var(--s3) 0 0;padding:0 2px}
+.vtrend:empty{display:none}
+.vtrend i{flex:1;min-width:4px;border-radius:3px 3px 0 0;background:var(--bg-3);
+  transition:height .3s ease,background .3s ease}
+.vtrend i.hi{background:var(--accent)}
+.vtrend i.bad{background:var(--danger)}
+.vtrend i.now{background:var(--ink)}
+
+/* ============================================================================
+   扫码付款
+   ========================================================================== */
+.scanbox{flex:none;display:flex;flex-direction:column;align-items:center;
+  gap:var(--s3);margin-top:var(--s4);padding:var(--s6) var(--s5);
+  background:var(--btn);border-radius:var(--r-card);box-shadow:var(--sh-lift)}
+.scanring{width:104px;height:104px;border-radius:var(--r-inner);
+  display:grid;place-items:center;background:rgba(255,255,255,.13);color:#fff}
+.scanring svg{width:48px;height:48px}
+.scanring.pulse{animation:scanpulse 2.4s ease-in-out infinite}
+@keyframes scanpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.22)}
+  55%{box-shadow:0 0 0 18px rgba(255,255,255,0)}}
+.scant{font-size:var(--t-h2);font-weight:800;color:#fff;letter-spacing:-.02em}
+.scans{font-size:var(--t-body);color:var(--dusk);line-height:1.55;text-align:center}
+
+.paycard{background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);padding:var(--s5) var(--s4);text-align:center}
+.payto{font-size:var(--t-body);color:var(--ink-3);letter-spacing:.02em}
+.payamt{display:flex;align-items:baseline;justify-content:center;
+  gap:var(--s1);margin:var(--s3) 0 0}
+.payamt i{font-style:normal;font-size:var(--t-h2);font-weight:700;color:var(--ink)}
+.payamt b{font-size:56px;font-weight:800;letter-spacing:-.035em;line-height:1;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.paynote{margin:var(--s4) 0 0;font-size:var(--t-body);color:var(--ink-3);
+  line-height:var(--lh-body)}
+.paystep{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s3) 0;
+  border-top:1px solid var(--line);text-align:left}
+.paystep .pn{flex:none;width:28px;height:28px;border-radius:50%;
+  background:var(--ink);color:#fff;font-size:var(--t-cap);font-weight:800;
+  display:grid;place-items:center}
+.paystep .pt{flex:1;min-width:0;font-size:var(--t-body);color:var(--ink);
+  line-height:var(--lh-body)}
+
+/* ============================================================================
+   挂号
+   ========================================================================== */
+/* 挂号第一屏的重心：一颗黑胶囊，替老人省掉「该挂哪科」这个难题。
+   它必须比下面十二个科室加起来都显眼 —— 那才是这一屏真正要做的事。 */
+.reghero{display:flex;align-items:center;gap:var(--s4);width:100%;
+  margin:var(--s4) 0 0;padding:var(--s4);min-height:88px;
+  border:0;border-radius:var(--r-card);background:var(--btn);
+  box-shadow:var(--sh-lift);cursor:pointer;font-family:inherit;
+  text-align:left;transition:transform .12s ease}
+.reghero:active{transform:scale(.985)}
+.reghero .rh-ic{flex:none;width:52px;height:52px;border-radius:var(--r-inner);
+  display:grid;place-items:center;background:rgba(255,255,255,.13);color:#fff}
+.reghero .rh-ic svg{width:28px;height:28px}
+.reghero .rh-tx{display:flex;flex-direction:column;gap:3px;min-width:0}
+.reghero b{font-size:var(--t-h3);font-weight:700;color:#fff;
+  letter-spacing:-.01em;line-height:var(--lh-tight)}
+.reghero i{font-style:normal;font-size:var(--t-body);color:var(--dusk);
+  line-height:var(--lh-tight)}
+
+/* 科室格：等宽两列。它们只是备选，所以只留白底 + 一行字，
+   不做图标、不做描边，避免跟上面那颗黑胶囊抢。
+   🚨 2026-11-07：min-height 从 76 提到 88 —— 说明那行字从 14px 升到 18px，
+   两行文字（科名 20px + 说明 18px + 间距）实测要 84px，
+   76px 会把说明挤出格子。
+   🚨 2026-11-07（第二处）：说明升到 18px 后又冒出一个新问题 ——
+   grid 同一行的两格会被拉成同高。实测「内科」的说明
+   「头晕、血压、血糖、胃口不好」12 个字在 193px 宽的格里折成两行（50px），
+   同行的「外科」只有一行（25px），于是被拉成 112px，比下面一排的 88px
+   高出一截 —— 整片科室格子变成「高低不齐的砖墙」，一屏里三行三种高度。
+   修法不是把文案缩短（「胃口不好」是老人真会用的话，不能删），
+   而是**把每一格的最小高度都定成两行**：88 → 112（两行说明的实际高度）。
+   所有格子等高、等宽，网格才立得住。文案短的那格留白，比高低错落好看得多。 */
+.deptgrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3);
+  margin-top:0}
+.deptbtn{min-height:112px;border:0;border-radius:var(--r-inner);
+  background:var(--card);box-shadow:var(--sh-card);cursor:pointer;
+  font-family:inherit;text-align:left;padding:var(--s4);
+  transition:transform .12s ease}
+.deptbtn:active{transform:scale(.975)}
+.deptbtn b{display:block;font-size:var(--t-body-l);font-weight:700;color:var(--ink)}
+/* 🚨 2026-11-07：这一行原来是 --t-cap（14px），可它写的不是附注 ——
+   「头晕、血压、血糖、胃口不」「摔了、扭了、伤口」是**帮老人判断
+   该挂哪个科**的唯一线索。老人挂号卡就卡在这一步：他知道哪里难受，
+   但不知道这属于哪个科。这行字被降到 14px，等于把最关键的一句
+   做成了小字。现在回到正文档 18px，并且从 --ink-3 提到 --ink-2
+   （14px 配 --ink-3 只有 4.7:1，18px 才够）。 */
+.deptbtn i{display:block;font-style:normal;font-size:var(--t-body);
+  color:var(--ink-2);margin-top:var(--s1);line-height:1.4;
+  /* 🚨 2026-11-07：默认的中文换行是「任意字符都能断」，于是
+     「头晕、血压、血糖、胃口不好」被断成「头晕、血压、血 / 糖、胃口不好」——
+     **「血糖」被从中间劈开**。老人看到「血 / 糖」会先愣一下，
+     这一愣就是适老产品最不该有的成本。
+     keep-all 让中文只在标点/空格处断行。实测「头晕、血压、血糖、」占 138px，
+     格内可用 161px，放得下 —— 断点正好落在顿号后面，语义完整。 */
+  word-break:keep-all;overflow-wrap:break-word}
+.deptbtn.on{background:var(--btn);box-shadow:var(--sh-lift)}
+.deptbtn.on b{color:#fff}
+.deptbtn.on i{color:var(--dusk)}
+
+.regsteps{display:flex;align-items:center;gap:var(--s1);margin:var(--s4) 0 0;
+  padding:0 var(--s1)}
+.regsteps .rs{flex:1;display:flex;flex-direction:column;gap:var(--s1)}
+.regsteps .rs i{display:block;height:4px;border-radius:4px;background:var(--bg-3)}
+.regsteps .rs.on i{background:var(--ink)}
+/* 🚨 2026-11-07：未到的步骤原来用 --ink-4（#9A9AA6），对页面灰底
+   #F2F2F5 只有 **2.49:1** —— 远低于 4.5 底线。后果是「哪个医院」「哪天去」
+   两步几乎看不见，老人以为这个流程只有一步。
+   步骤指示的作用是**告诉人还剩几步**，看不见就等于没有。
+   换成 --ink-3（#6E6E7A，对灰底 4.50:1），刚好过线；当前步骤仍是纯黑，
+   靠明暗差区分，不靠彩色。 */
+.regsteps .rs b{font-size:var(--t-cap);font-weight:600;color:var(--ink-3);
+  text-align:center}
+.regsteps .rs.on b{color:var(--ink);font-weight:700}
+
+/* ============================================================================
+   记一笔弹层
+   ========================================================================== */
+#vitalSheet{position:absolute;inset:0;z-index:42;display:flex;
+  align-items:flex-end;background:rgba(33,28,20,.36);animation:fi .2s ease}
+
+.vs-pick{display:flex;flex-direction:column;gap:var(--s2);
+  margin:var(--s4) 0 var(--s1)}
+.vs-big{display:flex;align-items:baseline;gap:var(--s3);width:100%;
+  padding:var(--s5) var(--s4);border:0;border-radius:var(--r-inner);
+  background:var(--btn);color:#fff;cursor:pointer;text-align:left;
+  font-family:inherit;transition:transform .12s ease}
+.vs-big b{font-size:var(--t-h3);font-weight:800;letter-spacing:-.01em}
+.vs-big i{font-style:normal;font-size:var(--t-body);color:var(--dusk)}
+.vs-big:active{background:var(--accent);transform:scale(.98)}
+
+.vs-row{display:flex;gap:var(--s2);margin:var(--s4) 0 var(--s1)}
+.vs-cell{flex:1;min-width:0;display:flex;flex-direction:column;
+  align-items:center;gap:2px;padding:var(--s3) var(--s1);
+  border-radius:var(--r-inner);box-sizing:border-box;
+  border:2px solid var(--line-2);background:var(--card);cursor:pointer;
+  transition:border-color .15s ease,background .15s ease}
+.vs-cell em{font-style:normal;font-size:var(--t-body);color:var(--ink-3)}
+.vs-cell b{font-size:var(--t-num-s);font-weight:800;line-height:1.14;
+  color:var(--ink);letter-spacing:.01em;min-height:48px}
+.vs-cell.on{border-color:var(--ink);background:var(--card-2)}
+.vs-cell.on em{color:var(--ink)}
+
+/* 自制数字键盘：12 个大键。
+   不用系统输入法 —— 系统键盘会把这个弹层顶掉一半，而且老人输入法各不一样。 */
+.vs-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);
+  margin:var(--s4) 0 var(--s1)}
+.vs-pad button{height:64px;border:0;border-radius:var(--r-inner);
+  background:var(--card);color:var(--ink);font-family:inherit;
+  font-size:28px;font-weight:700;cursor:pointer;
+  box-shadow:var(--sh-card);transition:background .12s ease}
+.vs-pad button:active{background:var(--ink);color:#fff}
+.vs-pad .vs-del{font-size:var(--t-body-l);font-weight:600;color:var(--ink-3)}
+
+.vs-ok{width:100%;height:64px;border:0;border-radius:var(--r-pill);
+  background:var(--btn);color:#fff;font-family:inherit;
+  font-size:var(--t-body-l);font-weight:800;cursor:pointer;
+  margin-top:var(--s3);transition:transform .12s ease}
+.vs-ok:active{transform:scale(.985)}
+.vs-back{width:100%;height:56px;border:0;border-radius:var(--r-pill);
+  background:none;color:var(--ink-3);font-family:inherit;
+  font-size:var(--t-body);cursor:pointer;margin-top:var(--s1)}
+
+/* [hidden] 必须真的隐藏。
+   原来靠一条条手写补，漏一个就露馅 —— 血压弹层里那两行大按钮写的是
+   display:flex，把浏览器默认的 [hidden]→display:none 盖掉了。
+   一条全局规则管住所有。 */
+[hidden]{display:none !important}
+
+/* 首页那条告警比内页矮一档：内页是「专门来看数」，首页是「一眼扫过」。 */
+#vitalWarn .vitalbig{margin-top:var(--s2)}
+#vitalWarn .vitalbig b{font-size:var(--t-num-s)}
+#vitalWarn .vitalbig i{font-size:var(--t-cap)}
+#vitalWarn .vitalbig .sep{font-size:var(--t-h3)}
+#vitalWarn .vitalsay{margin-top:var(--s2);font-size:var(--t-body);font-weight:600}
+#vitalWarn .vitalsub{margin-top:var(--s1);font-size:var(--t-cap)}
+#vitalWarn .vitalnm{font-size:var(--t-cap)}
+#vitalWarn .vitaltag{padding:4px 10px;font-size:var(--t-cap)}
+
+#paySheet{position:absolute;inset:0;z-index:42;display:flex;
+  align-items:flex-end;background:rgba(33,28,20,.36);animation:fi .2s ease}
+
+/* 「哪儿不舒服」弹层 */
+#saySheet{position:absolute;inset:0;z-index:42;display:flex;
+  align-items:flex-end;background:rgba(33,28,20,.36);animation:fi .2s ease}
+.saygrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);
+  margin:var(--s4) 0 var(--s3)}
+.saygrid button{display:flex;flex-direction:column;gap:2px;
+  padding:var(--s4) var(--s3);border:0;border-radius:var(--r-inner);
+  background:var(--card);color:var(--ink);font-family:inherit;
+  text-align:left;cursor:pointer;box-shadow:var(--sh-card);
+  transition:background .12s ease,transform .12s ease}
+.saygrid button b{font-size:var(--t-body-l);font-weight:700;letter-spacing:-.01em;
+  line-height:var(--lh-tight)}
+.saygrid button i{font-style:normal;font-size:var(--t-cap);color:var(--ink-3);
+  line-height:1.35}
+.saygrid button:active{background:var(--bg-2);transform:scale(.98)}
+.saytip{font-size:var(--t-cap);color:var(--ink-3);margin:0 var(--s1) var(--s1);
+  line-height:1.5}
+
+/* ============================================================================
+   通话条
+   ----------------------------------------------------------------------------
+   只做三件事：告诉老人还在听、通了多久、怎么挂。
+   不做进度条、不做波形图 —— 老人看不懂波形，但他看得懂「04:25」在自己走。
+   红色在整页只出现这一次（挂断），所以它一定找得到。
+   ========================================================================== */
+.callbar{flex:none;margin:var(--s4) 0 var(--s5);padding:var(--s4) var(--s4) var(--s5);
+  border-radius:var(--r-card);background:var(--card);text-align:center;
+  box-shadow:var(--sh-lift)}
+.cbsub{margin:0;display:flex;align-items:center;justify-content:center;
+  gap:var(--s1);font-size:var(--t-body);line-height:var(--lh-tight);
+  font-weight:500;color:var(--ink-3);min-height:24px}
+.cbsub .cbname{font-weight:800;color:var(--accent-deep);letter-spacing:.02em}
+/* 时间戳是附注，14px 可以留 —— 但「附注」不等于「看不见」。
+   🚨 2026-11-07：原来用 --ink-4（#9A9AA6），对白卡只有 2.78:1。
+   老人要确认「这句是刚才说的还是昨天说的」，靠的就是这个时间。
+   换成 --ink-3（5.03:1 对白卡），仍是全屏最轻的一行，但读得出来。 */
+.cbtime{margin:var(--s1) 0 0;font-size:var(--t-cap);letter-spacing:.06em;
+  color:var(--ink-3);font-variant-numeric:tabular-nums}
+.cbrow{display:flex;align-items:center;justify-content:center;
+  gap:var(--s6);margin-top:var(--s4)}
+.cbr{position:relative;width:var(--tap);height:var(--tap);border:0;
+  border-radius:50%;flex:none;background:var(--bg-2);color:var(--ink-2);
+  display:grid;place-items:center;
+  transition:transform .12s,background .12s}
+.cbr svg{width:26px;height:26px}
+.cbr:active{transform:scale(.93);background:var(--bg-3)}
+/* 整页只有这一颗红。红=挂断，别处不出现红色。 */
+.cbr.hang{width:76px;height:76px;background:var(--danger);color:#fff;
+  box-shadow:0 8px 22px rgba(192,57,43,.32)}
+.cbr.hang:active{background:var(--danger-deep);transform:scale(.94)}
+.cbr.hang svg{width:32px;height:32px;transform:rotate(133deg)}
+.cbr.off{background:var(--bg-3);color:var(--ink-4)}
+.cbr.off::after{content:"";position:absolute;width:34px;height:2px;
+  background:var(--ink-3);transform:rotate(-45deg);border-radius:2px}
+
+/* ---- 通话中的收起/放大规则已上移到「首页」段（#phone.calling 级）----
+   这里只留呼吸动画。 */
+@keyframes cbBreath{0%,100%{box-shadow:var(--sh-card),0 0 0 0 rgba(33,28,20,.16)}
+  50%{box-shadow:var(--sh-card),0 0 0 8px rgba(33,28,20,0)}}
+.calling.listen .petcard{animation:cbBreath 2.6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.calling.listen .petcard{animation:none}}
+
+/* 首页那颗「点这儿，跟米粒说话」：按一下就开始，不是按住不放。 */
+.chold.callentry{flex:1;height:52px;border:0;border-radius:var(--r-pill);
+  background:rgba(255,255,255,.13);color:#fff;font-size:var(--t-body);
+  font-weight:600;letter-spacing:.01em;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
+.chold.callentry:active{background:rgba(255,255,255,.24);transform:scale(.985)}
+
+/* ============================================================================
+   首页（2026-11-06 深夜第五版：确定性优先）
+   ----------------------------------------------------------------------------
+   快捷入口退「常用」页（保持不动）。
+   告警卡 / 语音胶囊 / 打字条全部放开 —— 只由 JS 的 hidden 属性管：
+   告警超标才出现；composer 是底部唯一主按钮；打字模式点键盘才顶上来。
+   米粒卡收成一行：小鸡 120px + 气泡常驻，不再撑半屏空卡。
+   ========================================================================== */
+#page-home .quickgrid{display:none}
+#page-home .petcard{flex:none;min-height:0;flex-direction:row;align-items:center;
+  justify-content:flex-start;gap:var(--s4);padding:var(--s4)}
+#page-home .petava{width:120px;height:120px}
+#page-home .bubble{flex:1;min-width:0;margin-top:0;max-height:112px;overflow-y:auto}
+#page-home .bubble::before{display:none}
+
+/* 首页顶部：确定性区。时间、日期天气、问候。 */
+.homehead{flex:none;padding:var(--s3) var(--s2) 0}
+.hhtime{font-size:44px;font-weight:800;letter-spacing:-.02em;line-height:1;
+  color:var(--ink);font-variant-numeric:tabular-nums}
+.hhr{margin-top:4px;display:flex;gap:8px;align-items:center;
+  font-size:var(--t-body);color:var(--ink-3)}
+.hhr .hhsep{color:var(--ink-4)}
+.hhgreet{margin-top:2px;font-size:var(--t-body-l);font-weight:700;color:var(--ink)}
+
+/* ============ 桌面大图标（照老人桌面的思路） ============
+   大图标 + 大字标签，白卡圆角方块，一屏六个 —— 老人不学也会点。
+   首页内容可能比一屏高（桌面图标是主角），允许首页滚动，
+   其它页保持「不滚」的老规矩不变。 */
+#page-home{overflow-y:auto}
+.deskgrid{flex:none;display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);
+  padding:var(--s3) 0 0}
+.dicon{border:0;background:var(--card);border-radius:var(--r-card);
+  box-shadow:var(--sh-card);display:flex;flex-direction:column;align-items:center;
+  gap:6px;padding:var(--s3) 0;cursor:pointer;font-family:inherit;
+  transition:transform .12s ease}
+.dicon:active{transform:scale(.94)}
+.dicon .dic{width:42px;height:42px;display:grid;place-items:center;color:var(--ink-2)}
+.dicon .dic svg{width:28px;height:28px}
+.dicon b{font-size:var(--t-body);font-weight:600;color:var(--ink)}
+
+/* 家人快拨：桌面上最常打的人，头像+名字一颗卡（2026-11-07，学老人桌面的亲情联系人） */
+.famdial{flex:none;display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s2);
+  padding-top:var(--s3)}
+.famdial[hidden]{display:none}
+.famcard{border:0;background:var(--card);border-radius:var(--r-card);cursor:pointer;
+  font-family:inherit;box-shadow:var(--sh-card);display:flex;align-items:center;
+  gap:10px;padding:12px 12px;transition:transform .12s ease}
+.famcard:active{transform:scale(.94)}
+.famcard .famava{flex:none;width:44px;height:44px;border-radius:50%;display:grid;
+  place-items:center;background:#F4F5FF;color:var(--ink);font-weight:800;
+  font-size:20px}
+.famcard .famnm{font-size:var(--t-body);font-weight:700;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 拨号盘：大字键盘 —— 数字 64px，指头不用瞄 */
+.dialwrap{flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:var(--s3) var(--s4) var(--s5);gap:var(--s3);min-height:0}
+.dialnum{flex:none;width:100%;min-height:64px;display:flex;align-items:center;
+  justify-content:center;font-size:40px;font-weight:800;letter-spacing:.06em;
+  color:var(--ink);font-variant-numeric:tabular-nums;
+  background:var(--card);border-radius:var(--r-card);box-shadow:var(--sh-card);
+  padding:10px 14px;overflow:hidden;white-space:nowrap}
+.dialpad{flex:1;width:100%;min-height:0;display:grid;
+  grid-template-columns:repeat(3,1fr);gap:var(--s2)}
+.dkey{border:0;background:var(--card);border-radius:20px;cursor:pointer;
+  font-family:inherit;box-shadow:var(--sh-card);display:grid;place-items:center;
+  min-height:64px;transition:transform .1s ease}
+.dkey:active{transform:scale(.94);background:#F4F5FF}
+.dkey b{font-size:32px;font-weight:800;color:var(--ink)}
+.dialacts{flex:none;width:100%;display:flex;gap:var(--s2)}
+.dialdel{flex:none;width:84px;border:0;background:var(--card);cursor:pointer;
+  font-family:inherit;border-radius:var(--r-btn);box-shadow:var(--sh-card);
+  font-size:26px;color:var(--ink-2);min-height:64px}
+.dialdel:active{background:#F4F5FF}
+.dialcall{flex:1;border:0;background:var(--btn);color:var(--btn-ink);cursor:pointer;
+  font-family:inherit;border-radius:var(--r-btn);box-shadow:var(--sh-lift);
+  font-size:22px;font-weight:800;letter-spacing:.08em;min-height:64px}
+.dialcall:active{transform:scale(.98)}
+
+/* 大字模式开关（我的页）：一按全局放大一号 */
+.mebig-panel{margin-top:var(--s3)}
+.mebig{width:100%;border:0;background:var(--card);cursor:pointer;font-family:inherit;
+  border-radius:var(--r-card);box-shadow:var(--sh-card);padding:18px;
+  font-size:var(--t-body-l);font-weight:700;color:var(--ink);text-align:left}
+.mebig:active{background:#F4F5FF}
+
+/* 大字模式：全局 1.18 倍，tab 一起放大（zoom 连 fixed 一起缩放，比例一致不错位） */
+html.big .page,html.big #tabs{zoom:1.18}
+
+/* SOS：整屏唯一的红，贴着底部主按钮 —— 不用找，不用学，出事一按就有人来。 */
+.sosbtn{flex:none;display:flex;align-items:center;justify-content:center;gap:var(--s2);
+  margin-top:var(--s3);padding:14px;border:0;cursor:pointer;font-family:inherit;
+  border-radius:var(--r-card);background:#B3261E;color:#fff;
+  box-shadow:var(--sh-card);transition:transform .12s ease}
+.sosbtn:active{transform:scale(.98);background:#9A1F19}
+.sosbtn svg{width:24px;height:24px}
+.sosbtn b{font-size:var(--t-body-l);font-weight:800;letter-spacing:.04em}
+.sosbtn span{font-size:var(--t-body);opacity:.85}
+
+/* 吃药卡上的「吃过了」大按钮 —— 老人最常做的一次操作，就地给一颗。 */
+.mtake{flex:none;border:0;cursor:pointer;font-family:inherit;
+  padding:12px 18px;border-radius:var(--r-pill);
+  background:var(--btn);color:#fff;font-size:var(--t-body);font-weight:700;
+  transition:transform .12s ease}
+.mtake:active{transform:scale(.94)}
+
+/* ---- 通话中：选择器提到 #phone.calling 级 ——
+   上面 #page-home 的单行布局是 ID 级的，必须压得过它 ---- */
+.calling .quickgrid,
+.calling .medrow,
+.calling .homehead,
+.calling .composer,
+.calling .typebar,
+.calling #tabs{display:none}
+#phone.calling .page{bottom:0}
+/* 通话条要离底部手势条留一拳 —— 贴到最下面，老人点挂断容易压到系统手势条 */
+.calling #page-home{padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 10px)}
+#phone.calling .petcard{flex:1 1 auto;min-height:200px;max-height:none;
+  flex-direction:column;align-items:center;justify-content:center}
+/* 通话中：头像放大成主角（视频会跟着 object-fit 裁切，不变形） */
+#phone.calling .petava{width:min(56vw,260px);height:min(56vw,260px);border-radius:24px}
+#phone.calling .bubble{flex:none;margin-top:0}
+
+.sbbar{flex:none;margin-top:var(--s4);padding:var(--s5) var(--s5) var(--s5);
+  border-radius:var(--r-card);background:var(--card);text-align:center;
+  box-shadow:var(--sh-card)}
+.sbsub{margin:0;font-size:var(--t-h3);font-weight:700;letter-spacing:-.01em;
+  color:var(--ink)}
+.sbtip{margin:var(--s2) 0 0;font-size:var(--t-body);line-height:var(--lh-body);
+  color:var(--ink-3)}
+.sbbtn{margin-top:var(--s4);width:100%;border:0;border-radius:var(--r-pill);
+  padding:var(--s4);font-family:inherit;font-size:var(--t-body-l);
+  font-weight:700;letter-spacing:.01em;background:var(--btn);color:#fff;
+  transition:transform .12s ease}
+.sbbtn:active{transform:scale(.975);background:#000}
+
+/* 演示用的后门。做得这么小是有意的：老人不该看见「更多」两个字。 */
+.sbdots{position:absolute;right:var(--s3);top:var(--s2);z-index:9;
+  width:44px;height:44px;border:0;background:none;color:var(--ink-4);
+  opacity:.4;display:grid;place-items:center;border-radius:50%}
+.sbdots svg{width:22px;height:22px}
+.sbdots:active{opacity:.9;background:rgba(33,28,20,.05)}
+
+/* ============================================================================
+   字幕条（停用）
+   ----------------------------------------------------------------------------
+   截图里它浮在常用页列表中间，正好压住「CCTV 直播」那张卡。
+   状态现在由通话浮卡承担，屏幕上不需要第二个说话提示。
+   ========================================================================== */
+#cvLine{display:none !important}
+
+/* ---- 翻页时底栏要回来 ----
+   .calling 会把底栏藏掉（通话时屏幕上只该有挂断）。
+   但老人一旦翻到常用/我的，没有底栏就回不去了。 */
+#phone.calling.paging #tabs{display:grid}
+#phone.calling.paging .page{bottom:96px}
+
+/* ============================================================================
+   我的页
+   ----------------------------------------------------------------------------
+   按产品排：谁在用 → 老人今天怎么样 → 体征 → 用药 → 办的事 → 设置。
+   规矩：白卡、圆角 20、阴影几乎看不见；只有「超标」配暖色，别处不许彩色。
+   ========================================================================== */
+.mewho{padding:var(--s4) var(--s5)}
+.mewho .mecard{padding:0}
+.mebadge{flex:none;margin-left:auto;padding:6px 13px;border-radius:var(--r-pill);
+  background:var(--bg-2);color:var(--ink-2);
+  font-size:var(--t-cap);font-weight:700;letter-spacing:.02em}
+
+#meToday .famcard{margin:0}
+#meTodayAt{font-weight:500;color:var(--ink-3)}
+
+/* 体征：两列，数字大、单位小，超标才变色 */
+.mvitbox{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0;
+  overflow:hidden}
+.mvit{position:relative;padding:var(--s4);display:flex;flex-direction:column;
+  gap:var(--s1)}
+.mvit+.mvit{border-left:1px solid var(--line)}
+.mvt{font-size:var(--t-cap);color:var(--ink-3);font-weight:600;letter-spacing:.02em}
+.mvv{font-size:var(--t-h2);font-weight:800;color:var(--ink);
+  letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.14}
+.mvv i{font-style:normal;margin-left:5px;font-size:var(--t-cap);
+  font-weight:600;color:var(--ink-3);letter-spacing:0}
+.mvv.faint{font-size:var(--t-body-l);font-weight:700;color:var(--ink-3);
+  letter-spacing:0}
+.mva{font-size:var(--t-cap);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.mvit.warn .mvv{color:var(--accent-deep)}
+.mvit.bad .mvv{color:var(--danger)}
+/* 超标时给左侧一道细条，跟家人端那套卡一个语言 */
+.mvit.warn::before,.mvit.bad::before{content:"";position:absolute;
+  left:0;top:var(--s3);bottom:var(--s3);width:3px;border-radius:3px}
+.mvit.warn::before{background:var(--accent)}
+.mvit.bad::before{background:var(--danger)}
+
+/* 用药：一行一颗，药名粗、用量细 */
+.mmed{display:flex;align-items:baseline;gap:var(--s3);padding:var(--s3) 0}
+.mmed+.mmed{border-top:1px solid var(--line)}
+.mmed.first{padding-top:2px}
+.mmn{flex:none;font-size:var(--t-body-l);font-weight:700;color:var(--ink);
+  letter-spacing:-.01em}
+.mmd{font-size:var(--t-body);color:var(--ink-3);line-height:1.4}
+
+/* 办的事：种类、内容、时间三列，时间靠右 */
+.mact{display:flex;align-items:baseline;gap:var(--s2);padding:var(--s3) 0}
+.mact+.mact{border-top:1px solid var(--line)}
+.mact.first{padding-top:2px}
+.mak{flex:none;padding:3px 9px;border-radius:8px;background:var(--bg-2);
+  font-size:var(--t-cap);font-weight:700;color:var(--ink-2);letter-spacing:.02em}
+.mat{flex:1;min-width:0;font-size:var(--t-body);color:var(--ink-2);
+  line-height:1.45;overflow:visible;white-space:normal}
+.mad{flex:none;font-size:var(--t-cap);color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+
+/* 家里人帮我弄：这颗留在日常区，老人找不到人时按它 */
+.mehelp{margin:var(--s5) 0 var(--s1)}
+.mehelp .mebig{margin-top:0}
+.mebig{height:72px;border-radius:var(--r-pill);background:var(--btn);color:#fff;
+  font-size:var(--t-h3);font-weight:800;letter-spacing:.01em;
+  box-shadow:var(--sh-lift)}
+.memini{margin:var(--s3) var(--s1) 0;text-align:center;
+  font-size:var(--t-body);color:var(--ink-3);line-height:var(--lh-body)}
+
+/* 配对码：六个数字要比什么都显眼 */
+.mecode{padding:var(--s5) var(--s4);text-align:center}
+.mecode #qrBox{display:flex;justify-content:center;margin:2px 0 var(--s3)}
+.mecode #qrBox svg,.mecode #qrBox canvas{width:150px;height:150px}
+.mecode #myCodeNum{font-size:48px;font-weight:800;letter-spacing:.16em;
+  line-height:1.2;color:var(--ink);font-variant-numeric:tabular-nums}
+.mecode #myCodeTip{margin:var(--s3) var(--s1) 0;font-size:var(--t-body);
+  color:var(--ink-3)}
+
+/* 折叠设置：一条淡线 + 一行小字。它不该跟日常信息抢地方。 */
+.mefoldbtn{display:block;width:100%;margin:var(--s5) 0 var(--s1);
+  padding:var(--s4) 0;border:0;background:none;font-family:inherit;
+  font-size:var(--t-body);font-weight:600;color:var(--ink-3);
+  letter-spacing:.02em;position:relative}
+.mefoldbtn::before{content:"";position:absolute;left:16%;right:16%;top:0;
+  height:1px;background:var(--line)}
+.mefoldbtn:active{opacity:.6}
+
+.mefootnote{margin:var(--s6) 0 0;text-align:center;font-size:var(--t-body);
+  color:var(--ink-3);line-height:var(--lh-body);letter-spacing:.01em}
+
+/* 去家人控制台：次要动作 */
+.mefamgo{width:100%;margin:var(--s3) 0 0;height:60px;font-size:var(--t-body);
+  font-weight:700}
+
+/* 家人端面板（page-famhome）里那些 .panel 需要一点节奏，
+   否则一长串卡会糊成一片。 */
+#page-famhome .panel{margin-bottom:var(--s3)}
+#page-famhome .cp.small{margin-bottom:var(--s2)}
+
+/* ---- 日期分组标题（办了 / 学的两页）----
+   它长得跟 .sec 一样，但它是「内容的一部分」而不是分区标签 ——
+   所以字号回到正文档，别跟着 .sec 一起缩到 14。 */
+.dayhead{margin:var(--s5) var(--s1) var(--s2);
+  font-size:var(--t-body);font-weight:700;color:var(--ink);
+  letter-spacing:0}
+
+/* ---- 赛会伙伴墙（只在演示版出现）----
+   这页是给评委看的，不是给老人看的，所以字可以小、可以密。
+   但仍然用同一套 token —— 不另开一套配色。 */
+.plabel{margin:var(--s3) var(--s1) var(--s2);font-size:var(--t-cap);
+  font-weight:600;color:var(--ink-3);letter-spacing:.04em}
+.prow{display:flex;flex-wrap:wrap;gap:var(--s1);margin:0 var(--s1)}
+.pbadge{display:inline-block;padding:5px 11px;border-radius:var(--r-pill);
+  background:var(--card);box-shadow:var(--sh-card);
+  font-size:var(--t-cap);color:var(--ink-2);line-height:1.4}
+
+/* ---- 已连上的家人：断开那一小颗 ----
+   自带内联样式，这里只补触摸区高度 —— 13px 的字配 4px 内边距太小，
+   老人按不准，也容易误触到整行。 */
+.peerdel{min-height:44px;padding:0 var(--s2);border-radius:8px;
+  font-size:var(--t-cap);color:var(--ink-3);font-family:inherit}
+.peerdel:active{background:var(--danger-soft);color:var(--danger-deep)}
+
+/* ============================================================================
+   2026-11-06 晚 · 无障碍与适配补齐（P1 清单）
+   ----------------------------------------------------------------------------
+   ① 焦点可见：此前 :focus-visible 全站 0 处 —— 键盘/读屏用户根本
+      不知道焦点在哪。统一给 3px 暖橙描边（对白卡 3.2:1，UI 组件达标）。
+   ② 动效降级：37 处 transition 只有一处 reduced-motion。
+      这里给全局兜底；视频形象是「内容」不是动效，照放。
+   ③ 小屏（≤360px）：hubgrid/deptgrid 原样挤压，320px 必爆。
+      网格降为单列，大头像收一档。
+   ========================================================================== */
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px;
+  border-radius:var(--r-inner)}
+.vs-pad button:focus-visible,.vs-row button:focus-visible{outline-offset:1px}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.01ms !important}
+  .petava video{transition:none}
+}
+
+@media (max-width:360px){
+  /* deptgrid 保持两列：降单列会把挂号页拖成无尽长卷，
+     且 keep-all 断行已保证语义完整 —— 只收内边距。 */
+  .quickgrid{grid-template-columns:repeat(2,1fr)}
+  .petava{width:88px;height:88px}
+  .page{padding:0 var(--s3)}
+}
+
+/* ============================================================================
+   桌面 v6 · 老人端极简（2026-11-07 凌晨）
+   ----------------------------------------------------------------------------
+   病灶：上一版 page-home 一屏叠了 10 块 —— 时间/家人快拨/8 个大图标/
+   米粒卡/血压告警/吃药卡/快捷入口/SOS/输入条/打字条。每轮需求只加不删，
+   所以「找不到重点」。本版不改 app.js 任何原有逻辑，只做减法 + 重排：
+
+     一屏只留 4 块：顶卡 → 米粒 → 4 个图标 → 固定底栏。
+     其余全部收进「更多」抽屉，功能一个没丢，只是不在老人眼前。
+
+   参照菲尔特给的桌面截图：整屏一个主色、顶部一张亮色大卡、少量大块、
+   底部一条固定栏、中间大留白。形象沿用 chick-idle/sing.mp4，不换。
+
+   皮肤：默认蓝（照参考图）；?skin=cream 切回现行奶油底 + 唯一暖橙。
+   回滚：?ui=full 完全不加载本层，回到上一版首页（验收出问题一键退）。
+   ========================================================================== */
+html.desk6 #page-home{
+  --d-bg:#2C4A63; --d-top:#2185DC; --d-tile:#3A5F7E; --d-dock:#25557E;
+  --d-pet:#FFFFFF; --d-ink:#FFFFFF; --d-sub:#D9E7F4; --d-line:rgba(255,255,255,.18);
+  --d-warm:#5B4DF0; --d-red:#D93B32; --d-green:#5FCB8A;
+  position:relative; overflow:hidden; box-sizing:border-box;
+  display:flex; flex-direction:column; gap:12px;
+  height:100%; padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+  background:var(--d-bg); color:var(--d-ink);
+}
+html.skin-cream.desk6 #page-home{
+  --d-bg:#F4F5FF; --d-top:#1B1D2E; --d-tile:#FFFFFF; --d-dock:#EFE7D8;
+  --d-pet:#FFFFFF; --d-ink:#1B1D2E; --d-sub:#6B708C; --d-line:rgba(33,28,20,.12);
+}
+/* 首页不显示底部 tab：桌面不是 App 的一页，它本身就是桌面。 */
+html.desk6 #tabs{display:none}
+
+/* ① 顶卡：时间 + 日期农历 + 守护状态。参考图里那张亮色大卡。 */
+html.desk6 #page-home .homehead{
+  order:1; flex:none; display:grid; grid-template-columns:1fr auto;
+  align-items:start; gap:10px; padding:16px 18px; border:0;
+  border-radius:22px; background:var(--d-top);
+  box-shadow:0 6px 18px rgba(0,0,0,.12);
+}
+html.desk6 #page-home .hhtime{
+  font-size:58px; line-height:1; color:#fff; font-weight:800;
+  letter-spacing:-.02em; font-variant-numeric:tabular-nums;
+}
+html.skin-cream.desk6 #page-home .hhtime{color:#fff}
+html.desk6 #page-home .hhr{margin-top:8px; color:rgba(255,255,255,.92); font-size:19px; gap:8px}
+html.desk6 #page-home .hhr .hhsep{color:rgba(255,255,255,.55)}
+html.desk6 #page-home .hhgreet{margin-top:4px; font-size:19px; color:#fff; font-weight:700}
+html.desk6 #page-home .dlunar{font-size:16px; color:rgba(255,255,255,.82); margin-top:2px}
+html.desk6 #page-home .dtop-side{display:flex; flex-direction:column; align-items:flex-end; gap:10px}
+html.desk6 #page-home .dguard{
+  display:flex; align-items:center; gap:7px; padding:7px 13px;
+  border-radius:999px; background:rgba(255,255,255,.18);
+  color:#fff; font-size:15px; font-weight:700; white-space:nowrap;
+}
+html.skin-cream.desk6 #page-home .dguard{background:rgba(255,255,255,.16)}
+html.desk6 #page-home .dguard i{width:9px;height:9px;border-radius:50%;background:var(--d-green)}
+html.desk6 #page-home .dsset{
+  min-height:48px; padding:0 16px; border:0; border-radius:14px; cursor:pointer;
+  background:rgba(255,255,255,.18); color:#fff; font-size:17px; font-weight:700;
+  font-family:inherit; white-space:nowrap;
+}
+html.desk6 #page-home .dsset:active{transform:scale(.94)}
+
+/* ② 米粒核心区：唯一亮点，奶油白承托 mp4 的奶油底色（形象不换）。 */
+html.desk6 #page-home .petcard{
+  order:2; flex:1 1 auto; min-height:0; max-height:none;
+  flex-direction:column; align-items:center; justify-content:center; gap:8px;
+  padding:12px 16px; border-radius:26px; overflow:hidden;
+  /* 视频素材自带浅灰白底，卡就取同色，方块边界自然消失（形象不换）。 */
+  background:#F4F5F9; box-shadow:0 6px 18px rgba(0,0,0,.10);
+}
+html.desk6 #page-home .petcard::after{display:none}
+html.desk6 #page-home .petava{
+  width:min(48vw,206px); height:min(48vw,206px);
+  border-radius:24px; background:transparent; flex:none; overflow:visible;
+}
+html.desk6 #page-home .petava video{object-fit:cover; transform:scale(1.12)}
+/* 主提示是一句固定的话，不被 say() 的即时回话冲掉；回话缩成次要一行。 */
+html.desk6 #page-home .dhint{
+  flex:none; width:100%; text-align:center; color:#1B1D2E;
+  font-size:30px; font-weight:800; line-height:1.3; letter-spacing:.01em;
+}
+html.desk6 #page-home .bubble{
+  flex:none; width:100%; max-height:none; overflow:visible; margin:0;
+  padding:0; border:0; box-shadow:none; background:transparent;
+  text-align:center; color:#6B708C; font-size:19px; font-weight:600;
+  line-height:1.4;
+}
+html.desk6 #page-home .bubble::before{display:none}
+html.desk6 #page-home .bubble .recall{display:none}
+/* 聆听态：米粒换唱歌视频，文字变「我在听」，底下一圈声波。 */
+html.desk6 #page-home .petcard.d-listening .petava{transform:scale(1.06)}
+html.desk6 #page-home .petcard .dwave{
+  display:none; gap:7px; align-items:flex-end; height:22px; margin-top:2px;
+}
+html.desk6 #page-home .petcard.d-listening .dwave{display:flex}
+html.desk6 #page-home .dwave i{
+  width:6px; border-radius:3px; background:var(--d-warm);
+  animation:dwv .9s ease-in-out infinite alternate;
+}
+html.desk6 #page-home .dwave i:nth-child(1){height:8px;animation-delay:0s}
+html.desk6 #page-home .dwave i:nth-child(2){height:18px;animation-delay:.15s}
+html.desk6 #page-home .dwave i:nth-child(3){height:12px;animation-delay:.3s}
+html.desk6 #page-home .dwave i:nth-child(4){height:20px;animation-delay:.45s}
+html.desk6 #page-home .dwave i:nth-child(5){height:9px;animation-delay:.6s}
+@keyframes dwv{from{transform:scaleY(.5)}to{transform:scaleY(1.25)}}
+
+/* ③ 常用应用：2 列方格，只显 4 个。其余由 .d-hide 收起，不占屏。 */
+html.desk6 #page-home .deskgrid{
+  order:3; flex:none; grid-template-columns:repeat(2,1fr);
+  gap:12px; padding:0;
+}
+html.desk6 #page-home .dicon{
+  min-height:108px; border:0; border-radius:22px; box-shadow:none;
+  background:var(--d-tile); display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:8px; padding:12px 8px;
+  font-family:inherit; cursor:pointer; transition:transform .12s ease, background .2s ease;
+}
+html.skin-cream.desk6 #page-home .dicon{box-shadow:var(--sh-card)}
+html.desk6 #page-home .dicon:active{transform:scale(.95)}
+html.desk6 #page-home .dicon.d-hide{display:none}
+html.desk6 #page-home .dicon .dic{width:46px;height:46px;color:#fff;display:grid;place-items:center}
+html.desk6 #page-home .dicon .dic svg{width:34px;height:34px;stroke-width:1.8}
+html.desk6 #page-home .dicon b{font-size:21px;font-weight:700;color:#fff;line-height:1.2}
+html.skin-cream.desk6 #page-home .dicon .dic,
+html.skin-cream.desk6 #page-home .dicon b{color:#1B1D2E}
+/* 排序进化后，最常用那一颗给一个极轻的暖边，不铺色、不发光。 */
+html.desk6 #page-home .dicon.d-first{box-shadow:inset 0 0 0 2px rgba(232,131,58,.65)}
+
+/* ④ 固定底栏：紧急呼叫 / 说话 / 手电筒。参考图那条横栏。 */
+html.desk6 #page-home .ddock{
+  order:4; flex:none; display:grid; grid-template-columns:1fr 1.15fr 1fr;
+  gap:10px; padding:10px; border-radius:24px; background:var(--d-dock);
+}
+html.desk6 #page-home .ddock > button{
+  min-height:64px; border:0; border-radius:18px; cursor:pointer;
+  font-family:inherit; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:2px;
+  font-size:19px; font-weight:800; color:#fff; line-height:1.2;
+  transition:transform .1s ease, filter .2s ease;
+}
+html.desk6 #page-home .ddock > button:active{transform:scale(.95)}
+html.desk6 #page-home .ddock .dsos{background:var(--d-red); position:relative; overflow:hidden}
+html.desk6 #page-home .ddock .dtalk{background:var(--d-warm)}
+html.desk6 #page-home .ddock .dtorch{background:rgba(255,255,255,.14)}
+/* 奶油底上白字会糊成一片，手电筒这颗反成深底深字。 */
+html.skin-cream.desk6 #page-home .ddock .dtorch{background:#EEEBFF; color:#1B1D2E}
+html.desk6 #page-home .ddock svg{width:24px;height:24px}
+html.desk6 #page-home .ddock .dsos small{font-size:14px;font-weight:600;opacity:.9}
+html.desk6 #page-home .ddock .dhold{
+  position:absolute; left:0; bottom:0; height:4px; width:0;
+  background:#fff; opacity:.9; transition:width .1s linear;
+}
+html.desk6 #page-home .ddock .dsos.holding .dhold{width:100%; transition:width 3s linear}
+
+/* 血压/血糖告警：平时 hidden 不占位，出事时浮在顶卡下方，不被抽屉埋掉。 */
+html.desk6 #page-home .vitalcard{
+  position:absolute; z-index:40; left:14px; right:14px; top:150px;
+  box-shadow:0 12px 32px rgba(0,0,0,.28);
+}
+html.desk6 #page-home .vitalcard[hidden]{display:none}
+
+/* ============================================================================
+   设置：所有已实现的功能藏在这里，桌面一屏不占（2026-11-07）
+   ----------------------------------------------------------------------------
+   学的是老人桌面产品那套组织法：整页 + 竖色条分组 + 两列卡片 + 真开关。
+   但不照抄它的功能清单 —— 下面每一条都对应米粒里真跑得通的页面或状态，
+   没做出来的能力一格都不摆。桌面右上一个「设置 >」进来，家人/调试用。
+   ========================================================================== */
+html.desk6 #page-home .dsettings{
+  position:absolute; z-index:50; inset:0; display:none;
+  flex-direction:column; overflow-y:auto; overscroll-behavior:contain;
+  background:var(--d-pet); color:#1B1D2E;
+  padding:0 16px calc(32px + env(safe-area-inset-bottom));
+}
+html.desk6 #page-home .dsettings.open{display:flex}
+html.desk6 #page-home .dsnav{
+  position:sticky; top:0; z-index:2; flex:none;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 0 12px; background:var(--d-pet);
+  border-bottom:1px solid rgba(33,28,20,.08);
+}
+html.desk6 #page-home .dsnav b{font-size:24px; font-weight:800}
+html.desk6 #page-home .dsback{
+  min-width:64px; min-height:48px; border:0; border-radius:14px; cursor:pointer;
+  background:#EEEBFF; color:#1B1D2E; font-size:22px; font-family:inherit;
+}
+html.desk6 #page-home .dsnav span{font-size:15px; color:#6B708C}
+html.desk6 #page-home .dsgroup{
+  display:flex; align-items:center; gap:9px;
+  margin:22px 2px 10px; font-size:18px; font-weight:800; color:#3E4260;
+}
+html.desk6 #page-home .dsgroup i{width:4px;height:18px;border-radius:3px;background:var(--d-top)}
+html.desk6 #page-home .dsgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+html.desk6 #page-home .dscard{
+  min-height:100px; border:0; border-radius:18px; cursor:pointer;
+  background:#F4F5FF; color:#1B1D2E; font-family:inherit;
+  padding:14px; text-align:left; position:relative;
+  display:flex; flex-direction:column; justify-content:center; gap:4px;
+  transition:transform .1s ease, background .15s ease;
+}
+html.desk6 #page-home .dscard:active{transform:scale(.97); background:#EEEBFF}
+/* 开关/箭头只占标题那一行，说明文字可以占满整行，不再被挤成三行。 */
+html.desk6 #page-home .dscard .dst{font-size:19px; font-weight:800; line-height:1.25; padding-right:50px}
+html.desk6 #page-home .dscard .dss{font-size:14px; line-height:1.35; color:#6B708C; padding-right:0}
+html.desk6 #page-home .dscard .dsarrow{
+  position:absolute; right:14px; top:16px;
+  font-size:24px; color:#9A9FBA;
+}
+html.desk6 #page-home .dscard .dsw{
+  position:absolute; right:12px; top:16px;
+  width:50px; height:29px; border-radius:999px; background:#CFC7B7;
+  transition:background .18s ease; pointer-events:none;
+}
+html.desk6 #page-home .dscard .dsw::after{
+  content:""; position:absolute; top:3px; left:3px; width:23px; height:23px;
+  border-radius:50%; background:#fff; transition:transform .18s ease;
+  box-shadow:0 1px 3px rgba(0,0,0,.18);
+}
+html.desk6 #page-home .dscard.on .dsw{background:#4CAF7D}
+html.desk6 #page-home .dscard.on .dsw::after{transform:translateX(21px)}
+html.desk6 #page-home .dsdaily{
+  margin-top:12px; padding:12px; border-radius:18px; background:#F4F5FF;
+}
+html.desk6 #page-home .dsdaily > *{color:#1B1D2E}
+html.desk6 #page-home .dsdaily .famcard,
+html.desk6 #page-home .dsdaily .medrow,
+html.desk6 #page-home .dsdaily .composer,
+html.desk6 #page-home .dsdaily .typebar{background:#fff; color:#1B1D2E}
+html.desk6 #page-home .dsdaily #sosBtn{display:none}
+html.desk6 #page-home .dsnote{
+  margin:18px 2px 0; font-size:14px; line-height:1.5; color:#6B708C;
+}
+/* 从设置进了任意子页：右下角一颗「回桌面」，tab 藏了也不能没退路。 */
+html.desk6 .dback{display:none}
+html.desk6:has(.page.on:not(#page-home)) .dback{
+  display:flex; position:fixed; z-index:80; right:16px;
+  bottom:calc(18px + env(safe-area-inset-bottom));
+  align-items:center; justify-content:center; gap:6px;
+  min-height:56px; padding:0 20px; border:0; border-radius:999px;
+  background:var(--d-top, #2185DC); color:#fff; font-size:18px; font-weight:800;
+  font-family:inherit; box-shadow:0 8px 24px rgba(0,0,0,.28); cursor:pointer;
+}
+
+/* 长按 SOS 触发后的红色反馈层：不阻塞真实拨号，只给老人一个确定性回执。 */
+html.desk6 #page-home .dalarm{
+  position:absolute; z-index:60; inset:0; display:none;
+  flex-direction:column; align-items:center; justify-content:center; gap:18px;
+  background:rgba(190,45,38,.96); color:#fff; text-align:center; padding:28px;
+}
+html.desk6 #page-home .dalarm.open{display:flex}
+html.desk6 #page-home .dalarm b{font-size:36px;line-height:1.3}
+html.desk6 #page-home .dalarm span{font-size:21px;opacity:.95}
+html.desk6 #page-home .dalarm button{
+  margin-top:12px; min-height:64px; padding:0 36px; border:0;
+  border-radius:999px; background:#fff; color:#C62F35;
+  font-size:22px; font-weight:800; font-family:inherit; cursor:pointer;
+}
+
+/* 窄屏收紧：不留横向溢出，不缩字号底线。 */
+@media (max-width:360px){
+  html.desk6 #page-home{padding:10px 11px calc(10px + env(safe-area-inset-bottom));gap:10px}
+  html.desk6 #page-home .hhtime{font-size:50px}
+  html.desk6 #page-home .bubble{font-size:26px}
+  html.desk6 #page-home .dicon{min-height:96px}
+  html.desk6 #page-home .ddock > button{font-size:17px}
+}
+
+/* ============================================================================
+   桌面 v6.1 · 视觉收敛（2026-11-07 02:10）
+   ----------------------------------------------------------------------------
+   菲尔特「还是有点不好看」。回看 01 图，问题不是配色选错，是**一屏四种蓝**：
+   顶卡亮蓝 / 图标块蓝灰 / 底栏深蓝 / 米粒卡冷白，四块分量相当，眼睛没落点。
+   项目自己的 design-tokens.css 早就写了判据：「一屏同等分量的块 ≤1」。
+   所以这轮不换皮，只做减法：图标块退到背景、底栏压暗、米粒拿到唯一
+   一处暖光，让那只鸡成为整屏唯一的主角。
+   ========================================================================== */
+html.desk6 #page-home{--d-tile:rgba(255,255,255,.10); --d-dock:rgba(0,0,0,.16)}
+html.desk6 #page-home .dicon{background:var(--d-tile); box-shadow:none}
+html.desk6 #page-home .dicon.d-first{box-shadow:inset 0 0 0 2px rgba(232,131,58,.75)}
+html.desk6 #page-home .ddock{background:var(--d-dock)}
+/* 鸡脚下一团极淡的暖光：全屏唯一暖色，呼应米粒的暖黄，不铺色不发光。 */
+html.desk6 #page-home .petcard::before{
+  content:""; position:absolute; left:50%; top:46%;
+  width:min(72vw,300px); height:min(52vw,220px); transform:translate(-50%,-50%);
+  background:radial-gradient(ellipse at center, rgba(255,193,92,.30), rgba(255,193,92,0) 70%);
+  pointer-events:none; z-index:0;
+}
+html.desk6 #page-home .petava,
+html.desk6 #page-home .dhint,
+html.desk6 #page-home .bubble{position:relative; z-index:1}
+html.desk6 #page-home .petava{background:transparent; mix-blend-mode:normal}
+/* 图标文字改成老人说法后可能长一点，给足空间不折行 */
+html.desk6 #page-home .dicon b{white-space:nowrap; font-size:20px}
+
+/* ============================================================================
+   家人端 fam6 · 四 Tab（2026-11-07 02:10）
+   ----------------------------------------------------------------------------
+   规范要求：守护 / 规则进化 / 亲情陪伴 / 我的，底部 4 Tab。
+   做法：**不移动任何 DOM**，只给 .scroll 的子节点打 data-pane，按当前 Tab
+   显示/隐藏。app.js 的 renderFamHome / renderFamMeds / renderFamActs 等
+   仍然往原来的 id 里写，一个函数都不用改，也不会被 innerHTML 冲掉。
+   只摆真数据：不画「误报率下降幅度」「行为基线优化程度」这类静态假指标。
+   ========================================================================== */
+html.fam6 #page-famhome{
+  --f-bg:#F4F5FF; --f-card:#FFFFFF; --f-ink:#1B1D2E; --f-sub:#6B708C;
+  --f-line:#E9E9F5; --f-accent:#4A3CD8; --f-red:#E5484D; --f-green:#3F8F62;
+  background:var(--f-bg); color:var(--f-ink);
+  position:relative; display:none; flex-direction:column; overflow:hidden;
+}
+/* 🚨 必须只让 .on 的那页显示：ID 级 display:flex 会压过 .page{display:none}，
+   否则家人端一直挂在文档流里，把桌面首页挤塌（实测溢出 333px + 半屏白）。 */
+/* 量过：不铺满时 .scroll 从 y=466 起，上半屏整片空白。
+   钉死四边，让这一页跟其它全屏层一样从 0 开始。 */
+html.fam6 #page-famhome.on{
+  display:flex; position:absolute; left:0; right:0; top:0; bottom:0;
+  width:100%; height:100%;
+}
+html.fam6 #page-famhome > .nav{display:none}
+html.fam6 #page-famhome > .scroll{
+  flex:1; min-height:0; overflow-y:auto;
+  padding:0 16px calc(86px + env(safe-area-inset-bottom));
+}
+html.fam6 #page-famhome > .scroll > [data-pane]{display:none}
+html.fam6 #page-famhome.p-guard > .scroll > [data-pane="guard"],
+html.fam6 #page-famhome.p-rule  > .scroll > [data-pane="rule"],
+html.fam6 #page-famhome.p-care  > .scroll > [data-pane="care"],
+html.fam6 #page-famhome.p-me    > .scroll > [data-pane="me"]{display:block}
+/* 不要另写 div/button[data-pane]{display:block}：它会以更高特异性
+   压掉上面的隐藏规则，四个 Tab 就全叠在一起，切了等于没切。 */
+
+/* 顶部信息栏：老人 + 在线状态 + 真实学会条数 */
+html.fam6 #page-famhome .f6head{
+  position:sticky; top:0; z-index:3; background:var(--f-bg);
+  padding:16px 0 12px; border-bottom:1px solid var(--f-line);
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+}
+html.fam6 #page-famhome .f6head .who{font-size:24px; font-weight:800; line-height:1.2}
+html.fam6 #page-famhome .f6head .sub{font-size:15px; color:var(--f-sub); margin-top:3px}
+html.fam6 #page-famhome .f6pill{
+  flex:none; padding:8px 14px; border-radius:999px; background:#EAF3EC;
+  color:var(--f-green); font-size:15px; font-weight:700; white-space:nowrap;
+}
+html.fam6 #page-famhome .f6sec{
+  margin:22px 2px 10px; font-size:18px; font-weight:800; color:#3E4260;
+  display:flex; align-items:center; gap:9px;
+}
+html.fam6 #page-famhome .f6sec i{width:4px;height:18px;border-radius:3px;background:var(--f-accent)}
+html.fam6 #page-famhome .f6note{
+  margin:10px 2px 0; font-size:15px; line-height:1.55; color:var(--f-sub);
+}
+html.fam6 #page-famhome .f6card{
+  background:var(--f-card); border-radius:20px; padding:16px; margin-bottom:12px;
+  box-shadow:0 1px 2px rgba(33,28,20,.04), 0 6px 20px rgba(33,28,20,.05);
+}
+html.fam6 #page-famhome .f6row{
+  display:flex; align-items:center; justify-content:space-between;
+  min-height:60px; gap:12px; font-size:18px; font-weight:700;
+  border-bottom:1px solid var(--f-line);
+}
+html.fam6 #page-famhome .f6row:last-child{border-bottom:0}
+html.fam6 #page-famhome .f6row small{font-size:15px; font-weight:500; color:var(--f-sub)}
+html.fam6 #page-famhome .f6go{
+  width:100%; min-height:60px; margin-top:8px; border:0; border-radius:18px;
+  background:var(--f-card); color:var(--f-ink); font-family:inherit;
+  font-size:18px; font-weight:700; text-align:left; padding:0 18px;
+  display:flex; align-items:center; justify-content:space-between;
+  box-shadow:0 1px 2px rgba(33,28,20,.04); cursor:pointer;
+}
+html.fam6 #page-famhome .f6go span{color:var(--f-sub); font-size:22px}
+/* 底部 4 Tab：线性图标，唯一暖色只给当前项 */
+html.fam6 #page-famhome .f6tabs{
+  position:absolute; left:0; right:0; bottom:0; z-index:4;
+  display:grid; grid-template-columns:repeat(4,1fr);
+  background:var(--f-card); border-top:1px solid var(--f-line);
+  padding:8px 6px calc(8px + env(safe-area-inset-bottom));
+}
+html.fam6 #page-famhome .f6tabs button{
+  min-height:58px; border:0; background:transparent; cursor:pointer;
+  font-family:inherit; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:3px;
+  color:var(--f-sub); font-size:15px; font-weight:700;
+}
+html.fam6 #page-famhome .f6tabs button.on{color:var(--f-accent)}
+html.fam6 #page-famhome .f6tabs svg{width:24px;height:24px}
+html.fam6 #page-famhome .f6sos{
+  width:100%; min-height:64px; border:0; border-radius:20px; cursor:pointer;
+  background:var(--f-red); color:#fff; font-family:inherit;
+  font-size:21px; font-weight:800; margin-top:12px;
+}
+/* 「回桌面」仍由 desk6 的 :has 规则控制显示；但家人端要挪到右上角，
+   否则它压在底部第 4 个 Tab「我的」上面，那个 Tab 点不到。 */
+/* 必须比 desk6 的 :has 规则更具体，否则它里的 bottom:calc(...) 不会被覆盖，
+   top+bottom 同时有值 → 按钮被拉成一根从顶到底的蓝色竖柱。 */
+html.desk6.fam6:has(.page.on:not(#page-home)) .dback{
+  right:12px; top:12px; bottom:auto; min-height:44px; padding:0 14px;
+  font-size:15px; box-shadow:0 4px 14px rgba(0,0,0,.18);
+}
+
+/* ============================================================================
+   阿福紫白 v7（2026-11-07 08:55）· 全站去黄 + 家长端重做
+   ----------------------------------------------------------------------------
+   菲尔特：「不要再用屎黄色了（再也不要出现），我讨厌他」「我喜欢下面的设计和配色」。
+   样板＝蚂蚁阿福 15 张截图。GitHub 搜过 5 组，没有可直接套的阿福风 UI 轮子
+   （只有通用 UI skill / 图标库），所以用本地已有的 lucide 线性图标 + 纯 CSS
+   渐变复刻：零外部图、零积分、无版权风险。
+
+   色板：底 #F4F5FF / 顶光晕 #E7E3FF / 白卡 #FFFFFF / 唯一主色 #5B4DF0 /
+   字 #1B1D2E / 次字 #6B708C / 线 #E9E9F5。
+   这一层写在最后，同特异性后定义覆盖，旧暖色块保留但一律不再生效。
+   ========================================================================== */
+
+/* ---- 一、老人端桌面：结构不动，只换色 ---- */
+html.desk6 #page-home{
+  --d-bg:#F4F5FF; --d-top:#5B4DF0; --d-tile:#FFFFFF; --d-dock:#FFFFFF;
+  --d-pet:#FFFFFF; --d-ink:#1B1D2E; --d-sub:#6B708C;
+  --d-warm:#5B4DF0; --d-red:#E5484D; --d-green:#3F8F62;
+  background:linear-gradient(180deg,#E7E3FF 0%,#F4F5FF 310px);
+  color:#1B1D2E;
+}
+html.desk6 #page-home .homehead{
+  background:linear-gradient(135deg,#6C5CF5 0%,#5B4DF0 60%,#4A3CD8 100%);
+  box-shadow:0 8px 24px rgba(91,77,240,.22);
+}
+html.desk6 #page-home .dsset,
+html.desk6 #page-home .dguard{background:rgba(255,255,255,.20); color:#fff}
+html.desk6 #page-home .dguard i{background:#8FE3B4}
+html.desk6 #page-home .petcard{background:#FFFFFF; box-shadow:0 6px 22px rgba(40,42,90,.08)}
+html.desk6 #page-home .petcard::before{
+  background:radial-gradient(ellipse at center, rgba(91,77,240,.16), rgba(91,77,240,0) 70%);
+}
+html.desk6 #page-home .dhint{color:#1B1D2E}
+html.desk6 #page-home .bubble{color:#6B708C}
+html.desk6 #page-home .dicon{background:#FFFFFF; box-shadow:0 2px 10px rgba(40,42,90,.05)}
+html.desk6 #page-home .dicon .dic{color:#4A3CD8}
+html.desk6 #page-home .dicon b{color:#1B1D2E}
+html.desk6 #page-home .dicon.d-first{box-shadow:inset 0 0 0 2px rgba(91,77,240,.75)}
+html.desk6 #page-home .ddock{background:#FFFFFF; box-shadow:0 6px 22px rgba(40,42,90,.10)}
+html.desk6 #page-home .ddock .dtorch{background:#F0EFFF; color:#4A3CD8}
+html.desk6 #page-home .ddock .dsos{background:#E5484D}
+html.desk6 #page-home .ddock .dtalk{background:#5B4DF0}
+html.desk6 #page-home .dwave i{background:#5B4DF0}
+html.desk6 #page-home .dback{background:#5B4DF0}
+/* 设置页：以前是奶油底 + 米色卡，全部白化 */
+html.desk6 #page-home .dsettings{background:#F4F5FF; color:#1B1D2E}
+html.desk6 #page-home .dsnav{background:#F4F5FF; border-bottom:1px solid #E9E9F5}
+html.desk6 #page-home .dsnav span{color:#6B708C}
+html.desk6 #page-home .dsback{background:#EEEBFF; color:#4A3CD8}
+html.desk6 #page-home .dsgroup{color:#3E4260}
+html.desk6 #page-home .dscard{background:#FFFFFF; color:#1B1D2E; box-shadow:0 2px 10px rgba(40,42,90,.04)}
+html.desk6 #page-home .dscard:active{background:#EEEBFF}
+html.desk6 #page-home .dscard .dss{color:#6B708C}
+html.desk6 #page-home .dscard .dsarrow{color:#9A9FBA}
+html.desk6 #page-home .dscard .dsw{background:#D8D8EE}
+html.desk6 #page-home .dscard.on .dsw{background:#5B4DF0}
+html.desk6 #page-home .dsdaily{background:#FFFFFF}
+html.desk6 #page-home .dsdaily > *{color:#1B1D2E}
+html.desk6 #page-home .dsdaily .famcard,
+html.desk6 #page-home .dsdaily .medrow,
+html.desk6 #page-home .dsdaily .composer,
+html.desk6 #page-home .dsdaily .typebar{background:#FFFFFF; color:#1B1D2E}
+html.desk6 #page-home .dsnote{color:#6B708C}
+/* 旧的 cream 皮肤彻底作废：即便带参也不许再出现奶油底 */
+html.skin-cream.desk6 #page-home{--d-bg:#F4F5FF; --d-top:#4A3CD8; --d-tile:#FFFFFF; --d-dock:#FFFFFF; --d-pet:#FFFFFF}
+html.skin-cream.desk6 #page-home .hhtime,
+html.skin-cream.desk6 #page-home .dicon .dic,
+html.skin-cream.desk6 #page-home .dicon b{color:#1B1D2E}
+html.skin-cream.desk6 #page-home .ddock .dtorch{background:#EEEBFF; color:#4A3CD8}
+
+/* ---- 二、家长端：按阿福截图重做 ---- */
+html.fam6 #page-famhome{
+  --f-bg:#F4F5FF; --f-card:#FFFFFF; --f-ink:#1B1D2E; --f-sub:#6B708C;
+  --f-line:#E9E9F5; --f-accent:#5B4DF0; --f-red:#E5484D; --f-green:#3F8F62;
+  background:linear-gradient(180deg,#E7E3FF 0%,#F4F5FF 300px);
+  color:#1B1D2E;
+}
+/* 顶部：淡紫光晕 + 居中标题 + 右上白胶囊（阿福的「眼睛/设置」那颗） */
+html.fam6 #page-famhome .f6head{
+  background:transparent; border-bottom:0; padding:10px 2px 12px;
+  align-items:center;
+}
+html.fam6 #page-famhome .f6head .who{font-size:22px; color:#1B1D2E; text-align:center; flex:1}
+html.fam6 #page-famhome .f6head .sub{display:none}
+html.fam6 #page-famhome .f6pill{
+  background:#FFFFFF; color:#5B4DF0; font-size:14px; font-weight:700;
+  box-shadow:0 2px 10px rgba(40,42,90,.08); padding:8px 14px;
+}
+/* 阿福式资料条：头像 + 「点击添加信息」紫胶囊 + 圆形加号 */
+html.fam6 #page-famhome .f6profile{
+  display:flex; align-items:center; gap:10px; margin:2px 0 6px;
+}
+html.fam6 #page-famhome .f6avatar{
+  width:48px; height:48px; border-radius:50%; flex:none;
+  background:linear-gradient(135deg,#8B7BFF,#5B4DF0);
+  display:grid; place-items:center; color:#fff;
+  box-shadow:0 4px 14px rgba(91,77,240,.26);
+}
+html.fam6 #page-famhome .f6avatar svg{width:26px;height:26px}
+html.fam6 #page-famhome .f6add{
+  min-height:44px; padding:0 16px; border-radius:999px; border:0;
+  background:#5B4DF0; color:#fff; font-family:inherit;
+  font-size:16px; font-weight:700; cursor:pointer; white-space:nowrap;
+}
+html.fam6 #page-famhome .f6plus{
+  width:44px; height:44px; border-radius:50%; border:0; cursor:pointer;
+  background:#FFFFFF; color:#5B4DF0; font-size:26px; font-family:inherit;
+  box-shadow:0 2px 10px rgba(40,42,90,.08); flex:none;
+}
+/* 分区标题：紫色竖条 + 深蓝灰字（阿福健康档案那套） */
+html.fam6 #page-famhome .f6sec{color:#1B1D2E; font-size:17px; margin:18px 2px 10px}
+html.fam6 #page-famhome .f6sec i{background:#5B4DF0; width:4px; height:16px}
+html.fam6 #page-famhome .f6card{background:#FFFFFF; box-shadow:0 2px 12px rgba(40,42,90,.05)}
+html.fam6 #page-famhome .f6row{border-bottom:1px solid #E9E9F5; color:#1B1D2E}
+html.fam6 #page-famhome .f6row small{color:#6B708C}
+html.fam6 #page-famhome .f6go{
+  background:#FFFFFF; color:#1B1D2E; box-shadow:0 2px 10px rgba(40,42,90,.04);
+}
+html.fam6 #page-famhome .f6go span{color:#9A9FBA}
+html.fam6 #page-famhome .f6note{color:#6B708C}
+html.fam6 #page-famhome .f6sos{background:#5B4DF0}
+/* 底部 Tab：白色悬浮胶囊，圆角 28 + 柔阴影，选中项亮紫 */
+html.fam6 #page-famhome .f6tabs{
+  left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom));
+  border:0; border-radius:28px; background:#FFFFFF; padding:6px 4px;
+  box-shadow:0 8px 30px rgba(40,42,90,.16);
+}
+html.fam6 #page-famhome .f6tabs button{color:#8A90A8; min-height:54px}
+html.fam6 #page-famhome .f6tabs button.on{color:#5B4DF0}
+/* 内容给悬浮胶囊让出底部空间 */
+html.fam6 #page-famhome > .scroll{padding-bottom:calc(104px + env(safe-area-inset-bottom))}
+/* 「回桌面」也统一成紫色 */
+html.desk6.fam6:has(.page.on:not(#page-home)) .dback{background:#5B4DF0}
+/* 顶部两块现在挂在 #page-famhome 下（不在 .scroll 内），补齐左右留白 */
+html.fam6 #page-famhome > .f6head,
+html.fam6 #page-famhome > .f6profile{padding-left:16px; padding-right:16px; flex:none}
+html.fam6 #page-famhome > .f6head{position:static; padding-top:14px; padding-bottom:6px}
+html.fam6 #page-famhome > .f6profile{padding-top:2px; padding-bottom:10px}
+/* 阿福的顶栏是「左返回 / 右设置」：回桌面挪到左上，别跟右上「守护中」胶囊叠。 */
+html.desk6.fam6:has(.page.on:not(#page-home)) .dback{
+  left:12px; right:auto; top:10px; min-height:40px; padding:0 12px; font-size:14px;
+}
+
+/* ============================================================================
+   家长端 fam7 · 逐页排版复刻（2026-11-07 09:20）
+   ----------------------------------------------------------------------------
+   上一轮只换配色＝偷懒。这一层按阿福 15 张截图把**排版**逐页复刻：
+     我的 / 健康档案 / 我的药箱 / 添加设备 / 设备与应用 / 健康指标 /
+     个性化回答 / 头像和昵称
+   复刻的是信息结构：分组白卡列表、分段控件、两列卡片网格、左侧分类竖栏、
+   紫色渐变页头 + 大 Tab、底部悬浮胶囊导航、紫色主按钮、空态插画位。
+   数据全部从 S 真读（S.me / S.med / S.rules / S.did / S.fam），不编假数字。
+   ========================================================================== */
+#fam7{
+  position:fixed; inset:0; z-index:180; display:none;
+  background:linear-gradient(180deg,#E7E3FF 0%,#F4F5FF 320px);
+  color:#1B1D2E; font-family:inherit; overflow:hidden;
+}
+#fam7.on{display:flex; flex-direction:column}
+#fam7 *{box-sizing:border-box}
+#fam7 .f7body{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+  padding:0 16px calc(110px + env(safe-area-inset-bottom))}
+#fam7.sub .f7body{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+#fam7 .f7screen{display:none}
+#fam7 .f7screen.on{display:block}
+
+/* 2026-11-09 菲尔特：「顶部的守护和设备不应该能跟着下滑」。
+   原来 nav 在 .f7screen 里跟着 .f7body 一起滚，且渐变底是半透明的，
+   滚起来下面的字从顶栏透出来，看着像标题跟着跑。现在把 nav 抽到
+   .f7body 之外的独立固定层（见 app.js render()），这里只管样式。 */
+#fam7 > .f7top{
+  flex:none; position:relative; z-index:12; background:#F4F5FF;
+  padding:calc(10px + env(safe-area-inset-top)) 16px 8px;
+  box-shadow:0 1px 0 rgba(40,42,90,.06);
+}
+#fam7 > .f7top .f7nav{position:static; background:transparent; padding:6px 0 4px;
+  backdrop-filter:none; -webkit-backdrop-filter:none;}
+#fam7 .f7screen > .f7nav{display:none}
+#fam7 .f7body{padding-top:4px}
+
+/* 顶栏：左返回 / 居中标题 / 右白胶囊；「我的」页没有返回、标题靠左 */
+#fam7 .f7nav{
+  position:sticky; top:0; z-index:6; flex:none;
+  display:flex; align-items:center; justify-content:space-between;
+  gap:10px; padding:14px 16px 10px; background:transparent;
+}
+#fam7 .f7nav .back{
+  width:40px; height:40px; border:0; background:transparent; cursor:pointer;
+  color:#1B1D2E; font-size:28px; line-height:1; font-family:inherit;
+  display:grid; place-items:center; flex:none;
+}
+#fam7 .f7nav h2{
+  margin:0; font-size:19px; font-weight:700; letter-spacing:.01em;
+  flex:1; text-align:center; color:#1B1D2E;
+}
+#fam7 .f7nav.lead h2{text-align:left; font-size:28px; font-weight:800}
+#fam7 .f7nav .sp{width:40px; flex:none}
+#fam7 .f7tool{
+  display:flex; gap:6px; padding:5px 8px; border-radius:999px;
+  background:#FFFFFF; box-shadow:0 2px 10px rgba(40,42,90,.08);
+}
+#fam7 .f7tool button{
+  width:34px; height:34px; border:0; background:transparent; cursor:pointer;
+  color:#4A3CD8; display:grid; place-items:center; font-family:inherit;
+}
+#fam7 .f7tool svg{width:20px;height:20px}
+
+/* 顶部两个大 Tab（健康 / 设备），选中紫色下划线 */
+#fam7 .f7top{
+  display:flex; align-items:flex-end; gap:24px; padding:2px 18px 12px;
+}
+#fam7 .f7top button{
+  border:0; background:transparent; cursor:pointer; font-family:inherit;
+  font-size:22px; font-weight:700; color:#9A9FBA; padding:0 0 8px; position:relative;
+}
+#fam7 .f7top button.on{color:#1B1D2E; font-size:24px}
+#fam7 .f7top button.on::after{
+  content:""; position:absolute; left:50%; bottom:0; transform:translateX(-50%);
+  width:22px; height:4px; border-radius:3px; background:#5B4DF0;
+}
+/* 「点击添加信息」紫胶囊 + 圆形加号 */
+#fam7 .f7profile{display:flex; align-items:center; gap:10px; margin:2px 0 14px}
+#fam7 .f7add{
+  min-height:46px; padding:0 18px; border:0; border-radius:999px; cursor:pointer;
+  background:#5B4DF0; color:#fff; font-family:inherit; font-size:16px; font-weight:700;
+  box-shadow:0 4px 14px rgba(91,77,240,.22); white-space:nowrap;
+}
+#fam7 .f7add.avatar{padding:0 14px 0 5px; display:flex; align-items:center; gap:8px}
+#fam7 .f7add .av{
+  width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#8B7BFF,#5B4DF0);
+  display:grid; place-items:center; color:#fff; flex:none;
+}
+#fam7 .f7add .av svg{width:22px;height:22px}
+#fam7 .f7plus{
+  width:46px; height:46px; border-radius:50%; border:0; cursor:pointer; flex:none;
+  background:#FFFFFF; color:#5B4DF0; font-size:28px; font-family:inherit;
+  box-shadow:0 2px 10px rgba(40,42,90,.08);
+}
+
+/* 分组白卡列表（我的页） */
+#fam7 .f7card{
+  background:#FFFFFF; border-radius:20px; padding:4px 16px; margin-bottom:14px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05);
+}
+#fam7 .f7card.flush{padding:0}
+#fam7 .f7row{
+  display:flex; align-items:center; gap:12px; min-height:58px;
+  border-bottom:1px solid #E9E9F5; font-size:17px; font-weight:600;
+  color:#1B1D2E; cursor:pointer; background:transparent; border-left:0; border-right:0;
+  border-top:0; width:100%; max-width:100%; text-align:left; font-family:inherit; padding:0;
+  overflow:hidden;   /* 2026-11-09 22:22 菲尔特「药的排版有问题，都超出了」 */
+}
+#fam7 .f7row:last-child{border-bottom:0}
+#fam7 .f7row .ic{
+  width:24px; height:24px; flex:none; color:#4A3CD8; display:grid; place-items:center;
+}
+#fam7 .f7row .ic svg{width:22px;height:22px}
+/* 旧版 .val 是 flex:none：视觉模型偶尔返回整段说明书当「一次用量」，
+   那串字把整行撑出屏幕，药名反过来被压成 1~2 字宽、逐字竖排。
+   现在两头都给上限，超出的用省略号，行永远不许越过卡片。 */
+#fam7 .f7row .tx{flex:1 1 auto; min-width:0; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis}
+#fam7 .f7row .go{color:#9A9FBA; font-size:22px; flex:none}
+#fam7 .f7row .val{color:#6B708C; font-size:15px; font-weight:500;
+  flex:0 1 auto; min-width:0; max-width:42%; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis}
+#fam7 .f7row .f7medtime{flex:none; max-width:130px}
+#fam7 .f7cardhead{
+  display:flex; align-items:center; justify-content:space-between;
+  min-height:50px; font-size:17px; font-weight:700; color:#1B1D2E;
+}
+#fam7 .f7cardhead .more{font-size:14px; color:#9A9FBA; font-weight:500}
+/* 订单三小胶囊 */
+#fam7 .f7mini{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding:2px 0 16px}
+#fam7 .f7mini button{
+  min-height:52px; border:0; border-radius:14px; cursor:pointer; font-family:inherit;
+  background:#F4F5FF; color:#3E4260; font-size:15px; font-weight:600;
+  display:flex; align-items:center; justify-content:center; gap:7px;
+}
+#fam7 .f7mini svg{width:18px;height:18px;color:#5B4DF0}
+#fam7 .f7watermark{
+  text-align:center; color:#C6C8E0; font-size:14px; letter-spacing:.3em; padding:18px 0 4px;
+}
+
+/* 分区标题：紫竖条 + 标题 + 右侧「全部 ›」 */
+#fam7 .f7sec{
+  display:flex; align-items:center; gap:8px; margin:20px 2px 10px;
+  font-size:17px; font-weight:800; color:#1B1D2E;
+}
+#fam7 .f7sec i{width:4px;height:16px;border-radius:3px;background:#5B4DF0;flex:none}
+#fam7 .f7sec .all{margin-left:auto; font-size:14px; font-weight:500; color:#9A9FBA}
+
+/* 分段控件（病历夹 / 对话记忆 / 健康） */
+#fam7 .f7seg{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:4px; padding:5px;
+  background:#ECEBFF; border-radius:999px; margin:6px 0 16px;
+}
+#fam7 .f7seg button{
+  min-height:44px; border:0; border-radius:999px; cursor:pointer; font-family:inherit;
+  background:transparent; color:#6B708C; font-size:16px; font-weight:600;
+}
+#fam7 .f7seg button.on{background:#5B4DF0; color:#fff; box-shadow:0 3px 10px rgba(91,77,240,.24)}
+/* 空态白卡：标题 + 灰说明 + 淡紫按钮 */
+#fam7 .f7empty{
+  background:#FFFFFF; border-radius:20px; padding:20px; margin-bottom:14px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05);
+}
+#fam7 .f7empty b{display:block; font-size:17px; font-weight:700; margin-bottom:6px}
+#fam7 .f7empty p{margin:0 0 14px; font-size:14px; line-height:1.6; color:#6B708C}
+#fam7 .f7soft{
+  min-height:40px; padding:0 16px; border:0; border-radius:999px; cursor:pointer;
+  background:#EEEBFF; color:#4A3CD8; font-family:inherit; font-size:15px; font-weight:700;
+}
+/* 紫色开关 */
+#fam7 .f7switch{
+  width:52px; height:30px; border-radius:999px; background:#D8D8EE; flex:none;
+  position:relative; cursor:pointer; border:0; padding:0; transition:background .18s;
+}
+#fam7 .f7switch::after{
+  content:""; position:absolute; top:3px; left:3px; width:24px; height:24px;
+  border-radius:50%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,.16);
+  transition:transform .18s;
+}
+#fam7 .f7switch.on{background:#5B4DF0}
+#fam7 .f7switch.on::after{transform:translateX(22px)}
+
+/* 两列卡片网格（健康指标 / 健康资料） */
+#fam7 .f7grid2{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px}
+#fam7 .f7tile{
+  background:#FFFFFF; border-radius:20px; padding:14px; min-height:150px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05); position:relative; overflow:hidden;
+}
+#fam7 .f7tile h4{
+  margin:0 0 10px; font-size:16px; font-weight:700; display:flex; align-items:center; gap:7px;
+}
+#fam7 .f7tile h4 i{width:4px;height:14px;border-radius:3px;background:#5B4DF0;flex:none}
+#fam7 .f7tile h4.pink i{background:#F07BB0}
+#fam7 .f7tile h4.green i{background:#4CBF86}
+#fam7 .f7tile h4.red i{background:#E5484D}
+#fam7 .f7tile .tag{
+  position:absolute; right:12px; top:12px; font-size:12px; color:#9A9FBA;
+  background:#F4F5FF; padding:3px 8px; border-radius:8px;
+}
+#fam7 .f7tile .sub{font-size:14px; color:#6B708C; margin:0 0 10px}
+#fam7 .f7tile .bars{display:flex; align-items:flex-end; gap:6px; height:52px; margin:10px 0}
+#fam7 .f7tile .bars i{
+  flex:1; border-radius:6px; background:linear-gradient(180deg,#DCD7FF,#EEEBFF);
+}
+#fam7 .f7tile .rec{
+  width:100%; min-height:42px; border:0; border-radius:14px; cursor:pointer;
+  background:#F4F5FF; color:#4A3CD8; font-family:inherit; font-size:15px; font-weight:600;
+}
+#fam7 .f7tile .line{border-bottom:1px dashed #D8D8EE; margin:14px 0}
+
+/* 药箱页：紫色渐变页头 + 3D 药箱位 + 大 Tab */
+#fam7 .f7hero{
+  position:relative; margin:0 -16px 0; padding:22px 18px 0;
+  background:linear-gradient(135deg,#DED8FF 0%,#EDEAFF 48%,#F4F5FF 100%);
+  overflow:hidden;
+}
+#fam7 .f7hero::before{
+  content:""; position:absolute; right:-40px; top:-60px; width:220px; height:220px;
+  border-radius:50%; background:radial-gradient(circle,rgba(91,77,240,.14),transparent 70%);
+}
+#fam7 .f7hero .switch{
+  display:flex; justify-content:flex-end; align-items:center; gap:6px;
+  font-size:14px; color:#3E4260; margin-bottom:8px; position:relative;
+}
+#fam7 .f7hero h1{
+  margin:8px 0 10px; font-size:34px; font-weight:800; letter-spacing:.01em;
+  color:#1B1D2E; position:relative;
+}
+#fam7 .f7hero h1 em{font-style:normal; color:#5B4DF0}
+#fam7 .f7hero .sub{
+  display:inline-flex; align-items:center; gap:6px; padding:7px 14px;
+  border-radius:999px; background:rgba(255,255,255,.72); color:#4A3CD8;
+  font-size:14px; font-weight:600; position:relative; margin-bottom:18px;
+}
+#fam7 .f7hero .kit{
+  position:absolute; right:14px; top:56px; width:126px; height:126px;
+  object-fit:contain; pointer-events:none;
+}
+#fam7 .f7rowimg{width:28px;height:28px;object-fit:contain;flex:none}
+#fam7 .f7kitcss{
+  position:absolute; right:16px; top:62px; width:118px; height:96px; border-radius:18px;
+  background:linear-gradient(150deg,#FFFFFF 0%,#E6E1FF 55%,#B9AEFF 100%);
+  box-shadow:0 12px 26px rgba(91,77,240,.22), inset 0 2px 0 rgba(255,255,255,.9);
+  transform:rotate(-6deg); pointer-events:none;
+}
+#fam7 .f7kitcss::before{
+  content:""; position:absolute; left:50%; top:-14px; transform:translateX(-50%);
+  width:46px; height:18px; border-radius:10px 10px 0 0;
+  background:linear-gradient(180deg,#C9BEFF,#9C8CFA);
+}
+#fam7 .f7kitcss::after{
+  content:"+"; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:46px; height:46px; border-radius:12px; background:#5B4DF0; color:#fff;
+  font-size:34px; font-weight:700; line-height:44px; text-align:center;
+  box-shadow:0 4px 10px rgba(91,77,240,.3);
+}
+#fam7 .f7btab{display:grid; grid-template-columns:1fr 1fr; margin:0 -16px; position:relative}
+#fam7 .f7btab button{
+  min-height:58px; border:0; cursor:pointer; font-family:inherit; font-size:18px;
+  font-weight:600; color:#8A90A8; background:rgba(231,227,255,.55); position:relative;
+}
+#fam7 .f7btab button.on{
+  background:#FFFFFF; color:#1B1D2E; font-weight:800;
+  border-radius:22px 22px 0 0;
+}
+#fam7 .f7btab button.on::after{
+  content:""; position:absolute; left:50%; bottom:12px; transform:translateX(-50%);
+  width:26px; height:4px; border-radius:3px; background:#5B4DF0;
+}
+/* 药箱空态四宫格 + 步骤条 */
+#fam7 .f7blank{text-align:center; padding:38px 0 18px; color:#1B1D2E}
+#fam7 .f7blank .art{
+  width:96px; height:96px; margin:0 auto 16px; border-radius:26px;
+  background:linear-gradient(150deg,#EEEBFF,#DCD7FF); display:grid; place-items:center;
+  color:#8B7BFF; box-shadow:0 10px 24px rgba(91,77,240,.12);
+}
+#fam7 .f7blank .art svg{width:52px;height:52px}
+#fam7 .f7blank b{display:block; font-size:18px; margin-bottom:6px}
+#fam7 .f7blank small{font-size:14px; color:#9A9FBA}
+#fam7 .f7feat4{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:16px;
+  background:#F8F8FF; border-radius:20px; margin:18px 0 24px;
+}
+#fam7 .f7feat4 div{text-align:center; font-size:13px; color:#3E4260; font-weight:600}
+#fam7 .f7feat4 .ico{
+  width:44px; height:44px; margin:0 auto 8px; border-radius:14px;
+  background:#FFFFFF; color:#5B4DF0; display:grid; place-items:center;
+  box-shadow:0 2px 8px rgba(40,42,90,.06);
+}
+#fam7 .f7feat4 svg{width:24px;height:24px}
+#fam7 .f7steps{
+  display:flex; justify-content:center; gap:8px; font-size:13px;
+  color:#9A9FBA; margin-bottom:14px; flex-wrap:wrap;
+}
+#fam7 .f7cta{
+  position:absolute; left:16px; right:16px; bottom:calc(14px + env(safe-area-inset-bottom));
+  min-height:58px; border:0; border-radius:999px; cursor:pointer; font-family:inherit;
+  background:#5B4DF0; color:#fff; font-size:18px; font-weight:700;
+  box-shadow:0 8px 22px rgba(91,77,240,.28); z-index:5;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+}
+#fam7 .f7cta svg{width:22px;height:22px}
+/* 提示语原来 fixed 在 150px 处，正好浮在药品列表文字上（真机实拍叠字）。
+   改回文档流，跟着内容走，不再压任何一行。 */
+#fam7 .f7ctatip{
+  position:static; text-align:center; font-size:12px; color:#9A9FBA;
+  /* 下面 54px 的「拍药盒」条是 fixed：不给它留位置，这行小字就会
+     被按钮和列表末项夹在中间（真机实拍叠字）。 */
+  margin:10px 0 72px; pointer-events:none;
+}
+/* 药箱底部操作条：tab 胶囊高约 76px + 底距 10px，按钮抬高留 10px 呼吸，
+   不再跟胶囊边缘咬在一起。 */
+#fam7 .f7medbar{
+  position:fixed; left:16px; right:16px;
+  bottom:calc(96px + env(safe-area-inset-bottom));
+  display:flex; gap:10px; z-index:9;
+}
+/* 2026-11-09 真机实拍：药箱「拍药盒」里的相机 svg 没给尺寸，被 flex 撑成
+   185×185 的白色大圆环，还把四个字挤成两行。白圆环不是底层透出，就是它。
+   钉死图标尺寸，按钮立刻恢复一行。 */
+#fam7 .f7medbar button svg{width:22px;height:22px;flex:none !important}
+/* 家人端覆盖层出现时，老人端底部那一整条胶囊（相机/键盘/加号/按住说话）收掉。
+   2026-11-09 21:05 修真 bug：fam6 是常驻 class（真机实测 html.className
+   一直是 "desk6 fam6"），根本不是「家人端开着」的开关。上一版拿它做判据，
+   把 html.fam6 #page-home .petava 也 visibility:hidden —— 老人端首屏那只
+   大米粒整块消失，连四个底部输入按钮一起被藏了。真正的开关是 fam-on
+   （sync() 里 familyMode 才 toggle）。且 fam7 是 fixed 全覆盖，底层形象
+   不会透出来，压根不需要隐藏 petava。只收底部输入条。 */
+html.fam-on #camBtn, html.fam-on #kbBtn,
+html.fam-on #plusBtn, html.fam-on #holdBtn{display:none !important}
+html.fam-on #page-home .cbar{visibility:hidden}
+
+/* ---- 首页图标设置：可排序，不再一点击就整页重绘跳一下 ---- */
+.v9apps{display:flex;flex-wrap:wrap;gap:8px}
+.v9apps .v9app{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 8px 0 14px;
+  border-radius:19px;border:0;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.v9apps .v9app.on{background:#5B4DF0;color:#fff}
+.v9apps .v9app.off{background:#F1F0F8;color:#6B708C}
+.v9apps .v9app .no{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;
+  background:rgba(255,255,255,.28);font-size:11px;font-weight:800}
+.v9apps .v9app.off .no{display:none}
+.v9apps .mv{width:24px;height:24px;border:0;border-radius:50%;background:rgba(255,255,255,.22);
+  color:inherit;font-size:13px;line-height:1;cursor:pointer;padding:0;font-family:inherit}
+.v9apps .mv:disabled{opacity:.3;cursor:default}
+.v9apps .v9app.off .mv{display:none}
+.v9apphint{font-size:12px;color:#9A9FBA;line-height:1.6;margin:8px 2px 0}
+
+/* 添加设备：左侧分类竖栏 + 右侧白卡清单 */
+#fam7 .f7split{display:grid; grid-template-columns:96px 1fr; gap:10px; margin-top:4px}
+#fam7 .f7side{
+  background:rgba(255,255,255,.44); border-radius:0 20px 20px 0;
+  padding:8px 0; align-self:start;
+}
+#fam7 .f7side button{
+  width:100%; min-height:54px; border:0; cursor:pointer; font-family:inherit;
+  background:transparent; color:#8A90A8; font-size:15px; font-weight:600;
+  border-radius:0 18px 18px 0; padding:0 8px;
+}
+#fam7 .f7side button.on{
+  background:#FFFFFF; color:#1B1D2E; font-weight:800;
+  box-shadow:0 2px 10px rgba(40,42,90,.06);
+}
+#fam7 .f7devlist{
+  background:#FFFFFF; border-radius:20px; padding:16px 14px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05);
+  min-height:calc(100vh - 210px);
+}
+#fam7 .f7devlist .cap{font-size:13px; color:#9A9FBA; margin:2px 0 10px}
+#fam7 .f7dev{
+  display:flex; align-items:center; gap:10px; min-height:62px;
+  border-bottom:1px solid #F0F0FA; font-size:15px; font-weight:600; color:#1B1D2E;
+  background:transparent; border-left:0; border-right:0; border-top:0;
+  width:100%; text-align:left; cursor:pointer; font-family:inherit; padding:0;
+}
+#fam7 .f7dev .thumb{
+  width:34px; height:34px; border-radius:10px; flex:none;
+  background:#F4F5FF; color:#5B4DF0; display:grid; place-items:center;
+}
+#fam7 .f7dev .thumb svg{width:20px;height:20px}
+#fam7 .f7dev .nm{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#fam7 .f7dev .go{color:#9A9FBA; font-size:20px}
+#fam7 .f7devlist .dash{border:0; border-top:1px dashed #D8D8EE; margin:12px 0}
+#fam7 .f7devlist .more{text-align:center; font-size:13px; color:#9A9FBA; padding:12px 0}
+
+/* 设备与应用：授权 / 连接 两列小卡 */
+#fam7 .f7banner{
+  background:rgba(255,255,255,.55); border-radius:16px; padding:14px;
+  text-align:center; font-size:14px; color:#6B708C; margin-bottom:14px;
+}
+#fam7 .f7bigwhite{
+  background:#FFFFFF; border-radius:20px; padding:18px; position:relative;
+  box-shadow:0 2px 12px rgba(40,42,90,.05); margin-bottom:14px;
+}
+/* 2026-11-09 菲尔特：「旁边那个蓝色的东东不好看，删了」 */
+#fam7 .f7deco{display:none !important}
+#fam7 .f7bigwhite h3{padding-right:0}
+#fam7 .f7bigwhite h3{margin:0 0 4px; font-size:19px; font-weight:800}
+#fam7 .f7bigwhite p{margin:0 0 16px; font-size:14px; color:#6B708C}
+#fam7 .f7num{margin:20px 2px 10px; font-size:17px; font-weight:800; display:flex; justify-content:space-between}
+#fam7 .f7num em{font-style:normal; color:#5B4DF0; margin-right:6px}
+#fam7 .f7num .all{font-size:14px; font-weight:500; color:#9A9FBA}
+#fam7 .f7app2{display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:8px}
+#fam7 .f7app2 .a{
+  background:#F8F8FF; border-radius:16px; padding:12px; min-height:86px;
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+}
+#fam7 .f7app2 .a b{font-size:14px; font-weight:700; line-height:1.35}
+#fam7 .f7app2 .a small{display:block; color:#5B4DF0; font-size:13px; margin-top:6px}
+#fam7 .f7app2 .logo{
+  width:34px; height:34px; border-radius:50%; flex:none;
+  background:linear-gradient(135deg,#8B7BFF,#5B4DF0); color:#fff;
+  display:grid; place-items:center; font-size:13px; font-weight:800;
+}
+
+/* 头像和昵称页 */
+#fam7 .f7avatar{
+  width:112px; height:112px; border-radius:50%; margin:44px auto 16px;
+  background:#3E4260; color:#fff; display:grid; place-items:center; gap:4px;
+  align-content:center; font-size:13px;
+}
+#fam7 .f7avatar svg{width:38px;height:38px}
+#fam7 .f7afuid{text-align:center; font-size:15px; color:#9A9FBA; margin-bottom:26px}
+
+/* 底部白色悬浮胶囊 4 Tab */
+#fam7 .f7tabs{
+  position:absolute; left:12px; right:12px; bottom:calc(10px + env(safe-area-inset-bottom));
+  z-index:7; display:grid; grid-template-columns:repeat(4,1fr); gap:2px;
+  background:#FFFFFF; border-radius:999px; padding:6px 4px;
+  box-shadow:0 8px 30px rgba(40,42,90,.18);
+}
+/* 2026-11-09 菲尔特：「确保 tab 一致性」。原来进子页 tab 直接消失，
+   药箱、设备详情这些页面底部忽然空一块。现在所有页面一律保留同一条胶囊 tab，
+   子页也高亮它归属的主分区（由 render() 传 lastMain 决定）。 */
+#fam7.sub .f7tabs{display:grid}
+/* 药箱多了一条 54px 的操作条 + 76px 的 tab，两项都要留出滚动余量 */
+#fam7.sub .f7body{padding-bottom:calc(210px + env(safe-area-inset-bottom))}
+#fam7 .f7tabs button{
+  min-height:56px; border:0; background:transparent; cursor:pointer; font-family:inherit;
+  color:#9A9FBA; font-size:13px; font-weight:600;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  border-radius:999px;
+}
+#fam7 .f7tabs button.on{color:#5B4DF0; font-weight:800}
+#fam7 .f7tabs svg{width:23px;height:23px}
+#fam7 .f7badge{
+  position:absolute; top:4px; right:calc(50% - 22px); width:8px; height:8px;
+  border-radius:50%; background:#E5484D;
+}
+
+/* ============================================================================
+   家长端 v8 · 其余所有页面统一到同一套体系（2026-11-07 09:45）
+   ----------------------------------------------------------------------------
+   fam7 只覆盖 8 个页面；从里面点「我的药箱 / 挂号 / 血压血糖 / 办过的事」
+   会跳到原来的 page-med / page-reg / page-vital / page-did，视觉一下断回旧列表风。
+   这一层用作用域选择器把**家长端能到达的所有子页**统一：
+   淡紫光晕底、白卡圆角 20、紫色竖条分区标题、紫色胶囊主按钮、白底输入框、
+   柔阴影浮层，外加底部那颗全局悬浮胶囊导航（由 fam7 mini 态提供）。
+   不重写 DOM、不动 app.js 任何一个渲染函数；#page-home 是老人端桌面，排除。
+   ========================================================================== */
+html.fam6 .page:not(#page-home):not(#page-famhome){
+  background:linear-gradient(180deg,#E7E3FF 0%,#F4F5FF 300px);
+  color:#1B1D2E;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) > .scroll{
+  padding-bottom:calc(112px + env(safe-area-inset-bottom));
+}
+/* 顶栏：左返回 / 居中标题 / 右工具，都收进白色小圆角块 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .nav{
+  height:auto; min-height:58px; padding:12px 16px 8px; gap:10px;
+  background:transparent; border:0;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .nav h2{
+  position:static; flex:1; text-align:center; margin:0;
+  font-size:19px; font-weight:700; color:#1B1D2E;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .nav .back,
+html.fam6 .page:not(#page-home):not(#page-famhome) .nav .act{
+  width:42px; height:42px; flex:none; border-radius:14px;
+  background:#FFFFFF; color:#4A3CD8;
+  box-shadow:0 2px 10px rgba(40,42,90,.08);
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .navsp{width:42px; flex:none}
+/* 分区标题：紫色竖条 + 深蓝灰字 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .sec{
+  display:flex; align-items:center; gap:8px; margin:20px 2px 10px;
+  font-size:17px; font-weight:800; color:#1B1D2E; letter-spacing:0;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .sec::before{
+  content:""; width:4px; height:16px; border-radius:3px;
+  background:#5B4DF0; flex:none;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .secx{color:#9A9FBA; font-size:14px}
+/* 白卡统一：圆角 20 + 几乎看不见的紫灰阴影 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .panel,
+html.fam6 .page:not(#page-home):not(#page-famhome) .medcard,
+html.fam6 .page:not(#page-home):not(#page-famhome) .mact,
+html.fam6 .page:not(#page-home):not(#page-famhome) .entryrow,
+html.fam6 .page:not(#page-home):not(#page-famhome) .famcard,
+html.fam6 .page:not(#page-home):not(#page-famhome) .mecard,
+html.fam6 .page:not(#page-home):not(#page-famhome) .mebig-panel,
+html.fam6 .page:not(#page-home):not(#page-famhome) .mecode{
+  background:#FFFFFF; border-radius:20px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05);
+  border:0;
+}
+/* 主按钮紫胶囊 / 次按钮白底紫字 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .act-btn{
+  background:#5B4DF0; color:#FFFFFF; border:0; border-radius:999px;
+  min-height:56px; font-size:18px; font-weight:700;
+  box-shadow:0 6px 18px rgba(91,77,240,.20);
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .act-btn.ghost{
+  background:#FFFFFF; color:#4A3CD8;
+  box-shadow:0 2px 10px rgba(40,42,90,.06);
+}
+/* 输入框：白底 + 淡紫描边 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .field{
+  background:#FFFFFF; color:#1B1D2E; border:1px solid #D8D8EE;
+  border-radius:14px; min-height:54px; padding:0 14px;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .field::placeholder{color:#9A9FBA}
+/* 九宫格 / 拨号键：白卡而不是灰块 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .quickgrid > *,
+html.fam6 .page:not(#page-home):not(#page-famhome) .dkey,
+html.fam6 .page:not(#page-home):not(#page-famhome) .dialnum{
+  background:#FFFFFF; border-radius:18px; border:0;
+  box-shadow:0 2px 10px rgba(40,42,90,.05);
+}
+/* 分段控件 / 底部弹层 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .segbar{
+  background:#ECEBFF; border-radius:999px; padding:4px;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .segbar button{
+  border-radius:999px; color:#6B708C; background:transparent;
+}
+html.fam6 .page:not(#page-home):not(#page-famhome) .segbar button.on{
+  background:#5B4DF0; color:#fff;
+}
+html.fam6 .sheet{
+  background:#FFFFFF; border-radius:28px 28px 0 0;
+  box-shadow:0 -10px 34px rgba(40,42,90,.14);
+}
+html.fam6 .sheet .grab{background:#D8D8EE}
+
+/* fam7 mini：跳进子页时，全屏层收起、只留底部那颗悬浮胶囊导航，
+   点任意 Tab 先回家长端再切对应页，路线不断。 */
+#fam7.on.mini{background:transparent; pointer-events:none}
+#fam7.mini .f7body{display:none}
+#fam7.mini .f7tabs{pointer-events:auto}
+#fam7.mini .f7tabs button{pointer-events:auto}
+
+/* 子页左上角：阿福是「‹」返回箭头，不是一颗写着字的紫胶囊。
+   点击由 JS 判断归属：家长端子页回 famhome，老人端子页回 home。 */
+html.desk6.fam6:has(.page.on:not(#page-home)) .dback{
+  width:42px; height:42px; min-height:42px; padding:0; border-radius:14px;
+  font-size:0; left:12px; top:12px; right:auto;
+}
+html.desk6.fam6:has(.page.on:not(#page-home)) .dback::before{
+  content:"‹"; font-size:30px; line-height:1; color:#fff;
+}
+/* 拨号盘、常用九宫格内容会顶到最底，给悬浮胶囊让出空间 */
+html.fam6 #page-dialer .dialwrap{padding-bottom:calc(126px + env(safe-area-inset-bottom))}
+html.fam6 #page-hub > .scroll{padding-bottom:calc(132px + env(safe-area-inset-bottom))}
+/* 子页顶栏自带一个白色返回块，跟 fixed 的紫色 ‹ 叠成双层，藏掉前者 */
+html.fam6 .page:not(#page-home):not(#page-famhome) .nav > .back{display:none}
+
+/* ===== 日新 · 两次运行（赛题硬要求的可视载体） ===== */
+#fam7 .f7quote{
+  background:#FFFFFF; border-radius:18px; padding:14px 16px; margin:2px 0 12px;
+  font-size:16px; font-weight:700; color:#1B1D2E; line-height:1.5;
+  box-shadow:0 2px 12px rgba(40,42,90,.05);
+}
+#fam7 .f7quote small{display:block; font-size:12px; color:#9A9FBA; font-weight:500; margin-top:4px}
+#fam7 .f7ver{
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+  font-size:14px; font-weight:700; color:#4A3CD8; margin:0 2px 12px;
+}
+#fam7 .f7ver span{font-size:12px; font-weight:500; color:#9A9FBA}
+#fam7 .f7run2{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px}
+#fam7 .f7run{
+  background:#FFFFFF; border-radius:20px; padding:14px; min-height:150px;
+  box-shadow:0 2px 12px rgba(40,42,90,.06);
+}
+#fam7 .f7run.empty{background:#F8F8FF; box-shadow:none; border:1px dashed #D8D8EE}
+#fam7 .f7run h4{margin:0 0 10px; font-size:15px; font-weight:800; color:#4A3CD8}
+#fam7 .f7run .big{font-size:27px; font-weight:800; color:#5B4DF0; line-height:1.1}
+#fam7 .f7run .big small{font-size:13px; font-weight:600; color:#9A9FBA}
+#fam7 .f7run .ln{font-size:13px; color:#3E4260; line-height:1.6; margin-top:6px; word-break:break-all}
+#fam7 .f7run .ln.warn{color:#C62F35}
+#fam7 .f7run .ph{font-size:14px; color:#9A9FBA; line-height:1.7}
+#fam7 .f7renewin{
+  background:#FFFFFF; border-radius:20px; padding:14px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05);
+}
+#fam7 .f7renewin .field{
+  width:100%; background:#F8F8FF; border:1px solid #D8D8EE; border-radius:14px;
+  min-height:48px; padding:0 12px; color:#1B1D2E; font-family:inherit; font-size:16px;
+}
+#fam7 .f7runbtns{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px}
+#fam7 .f7runbtns button{
+  min-height:48px; border:0; border-radius:14px; cursor:pointer; font-family:inherit;
+  background:#5B4DF0; color:#fff; font-size:15px; font-weight:700;
+}
+#fam7 .f7runbtns button:first-child{background:#EEEBFF; color:#4A3CD8}
+#fam7 .f7learn{
+  background:#FFFFFF; border-radius:20px; padding:6px 16px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05);
+}
+#fam7 .f7learnrow{font-size:15px; color:#1B1D2E; padding:10px 0; border-bottom:1px solid #E9E9F5}
+#fam7 .f7learnrow:last-child{border-bottom:0}
+#fam7 .f7learnrow.dim{color:#9A9FBA; font-size:13px}
+#fam7 .f7rollback{
+  width:100%; min-height:54px; margin-top:14px; cursor:pointer; font-family:inherit;
+  border:1px solid #F3C9CB; border-radius:999px; background:#FFFFFF;
+  color:#C62F35; font-size:16px; font-weight:700;
+}
+#fam7 .f7tip{
+  position:fixed; left:20px; right:20px; bottom:100px; z-index:9; text-align:center;
+  background:#1B1D2E; color:#fff; padding:12px 16px; border-radius:14px; font-size:14px;
+}
+
+
+/* ===== 真机版式收口 v8（2026-11-07 13:55）=====
+   菲尔特：「怎么这么乱」。按真机 384×853 + 通话态实拍逐处收口，
+   PC 无头 430×932 从来拍不到这些状态，以后一律真机截图自查。
+   注意：Android WebView 的 CDP captureScreenshot 抓不到硬件视频层，
+   判断米粒形象必须用 adb exec-out screencap -p。
+   ============================================================ */
+/* 真机版式收口 v8 · 草案（先在真机注入看效果，定稿后追加进 app.css）
+   真机视口 384×853。原则：一屏只留「一只大鸡 + 一句话 + 必要状态」，
+   其余全部让位；通话态不再吃掉主角。 */
+
+/* ---- ① 通话条：从 180px 大卡收成 64px 细横条，贴顶不参与挤压 ---- */
+html.desk6 #page-home .callbar:not([hidden]){
+  position:absolute; z-index:12; left:14px; right:14px; top:8px;
+  margin:0; padding:8px 12px; border-radius:18px;
+  background:#FFFFFF; box-shadow:0 4px 16px rgba(40,42,90,.10);
+  display:flex; align-items:center; gap:10px; text-align:left;
+}
+html.desk6 #page-home .callbar:not([hidden]) .cbsub{
+  flex:1; min-width:0; min-height:0; justify-content:flex-start;
+  font-size:15px; white-space:nowrap; overflow:hidden;
+}
+html.desk6 #page-home .callbar:not([hidden]) .cbtime{
+  margin:0; font-size:13px; flex:none;
+}
+html.desk6 #page-home .callbar:not([hidden]) .cbrow{
+  margin:0; gap:6px; flex:none;
+}
+html.desk6 #page-home .callbar:not([hidden]) .cbr{
+  width:34px; height:34px;
+}
+html.desk6 #page-home .callbar:not([hidden]) .cbr svg{width:18px;height:18px}
+html.desk6 #page-home .callbar:not([hidden]) .cbr.hang{
+  width:42px; height:42px;
+}
+html.desk6 #page-home .callbar:not([hidden]) .cbr.hang svg{width:22px;height:22px}
+/* 「打字」键老人用不上（他说话，家人才打字），收掉给状态文字腾位置 */
+html.desk6 #page-home .callbar #cbKey{display:none}
+/* 通话时顶卡让出一条细横条的位置，不再叠字 */
+html.desk6 #page-home:has(.callbar:not([hidden])) .homehead{margin-top:48px}
+
+/* ---- ② 顶卡：244 → 132px，三行压成两行，守护/设置横排 ---- */
+html.desk6 #page-home .homehead{
+  padding:12px 14px; gap:2px 10px;
+  grid-template-columns:1fr auto; align-items:center;
+}
+html.desk6 #page-home .hhtime{font-size:44px; line-height:1.05}
+html.desk6 #page-home .hhr{
+  grid-column:1; margin-top:0; font-size:14px; line-height:1.3;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+html.desk6 #page-home .hhr .hhsep{display:none}
+html.desk6 #page-home .dlunar{display:none}          /* 农历收进日期那行 */
+html.desk6 #page-home .hhgreet{display:none}         /* 问候交给米粒的回话 */
+html.desk6 #page-home .dtop-side{
+  grid-column:2; grid-row:1 / span 2; flex-direction:row; align-items:center; gap:6px;
+}
+html.desk6 #page-home .dguard{font-size:12px; padding:5px 9px}
+html.desk6 #page-home .dguard i{width:7px;height:7px}
+html.desk6 #page-home .dsset{min-height:34px; padding:0 10px; font-size:13px; border-radius:11px}
+
+/* ---- ③ 米粒卡：主角必须完整，回话限两行不许顶飞小鸡 ---- */
+html.desk6 #page-home .petcard{
+  min-height:0; padding:8px 12px; gap:4px; justify-content:center;
+  /* 视频素材自带浅灰底：卡取同色，方块边界自然化掉 */
+  background:#EDEDF2;
+}
+html.desk6 #page-home .petava{
+  width:min(48vw,190px); height:min(48vw,190px); flex:0 1 auto; min-height:0;
+}
+/* 素材是 1280×720 横版，contain 会把鸡缩成一小条；cover+放大才撑得起方格。
+   正片叠底让视频的浅灰底融进卡片，不再是一块硬边灰方块。 */
+html.desk6 #page-home .petava video{
+  object-fit:cover; transform:scale(1.16); mix-blend-mode:multiply;
+  /* 素材底色不是纯白（约 #EDEDED），正片叠底后整块发灰。
+     提亮一点让灰底压到白卡上，鸡本身颜色几乎不变。 */
+  filter:brightness(1.12) contrast(.98);
+}
+html.desk6 #page-home .dhint{font-size:23px; line-height:1.25; flex:none}
+html.desk6 #page-home .bubble{
+  font-size:15px; line-height:1.35; flex:none;
+  max-height:2.7em; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+/* 米粒说话时，回话不换行撑高卡片 */
+html.desk6 #page-home .bubble #bubbleText{display:block}
+
+/* ---- ④ 图标与底栏：压高度、去重复 ---- */
+html.desk6 #page-home .deskgrid{gap:9px}
+html.desk6 #page-home .dicon{min-height:82px; padding:8px 6px; gap:4px; border-radius:18px}
+html.desk6 #page-home .dicon .dic{width:34px;height:34px}
+html.desk6 #page-home .dicon .dic svg{width:28px;height:28px}
+html.desk6 #page-home .dicon b{font-size:17px}
+/* 手电筒已在图标区，底栏再放一颗就是重复；收掉，底栏只留两颗真应急键 */
+html.desk6 #page-home .ddock{
+  grid-template-columns:1fr 1fr; gap:8px; padding:7px; border-radius:20px;
+}
+html.desk6 #page-home .ddock > .dtorch{display:none}
+html.desk6 #page-home .ddock > button{min-height:56px; font-size:16px; border-radius:15px}
+html.desk6 #page-home .ddock > button small{font-size:11px}
+html.desk6 #page-home{gap:9px; padding:10px 12px calc(10px + env(safe-area-inset-bottom))}
+
+/* ---- ⑤ 设置页：卡片不再折行 ---- */
+html.desk6 #page-home .dsgrid{gap:9px}
+html.desk6 #page-home .dscard{min-height:78px; padding:10px 11px; border-radius:16px}
+html.desk6 #page-home .dscard .dst{
+  font-size:15px; line-height:1.25; padding-right:34px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+html.desk6 #page-home .dscard .dss{
+  font-size:12px; line-height:1.3; padding-right:0;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+html.desk6 #page-home .dscard .dsarrow{right:10px; top:12px; font-size:20px}
+html.desk6 #page-home .dscard .dsw{
+  right:9px; top:12px; width:38px; height:22px;
+}
+html.desk6 #page-home .dscard .dsw::after{
+  width:16px; height:16px; top:3px; left:3px;
+}
+html.desk6 #page-home .dscard.on .dsw::after{transform:translateX(16px)}
+html.desk6 #page-home .dsgroup{margin:16px 2px 8px; font-size:16px}
+
+/* ---- ⑥ 家长端：盖住 fam6 残留标题、底部留白 ---- */
+/* fam7 是 body 级 fixed 覆盖层，fam6 的旧头/资料条会从半透明底透出来，
+   在屏幕顶上留下一个残字。fam7 自己有 nav 和 profile，旧的两条直接收掉。 */
+html.fam6 #page-famhome > .f6head,
+html.fam6 #page-famhome > .f6profile,
+html.fam6 #page-famhome > .f6tabs{display:none}
+#fam7 .f7body{padding-bottom:calc(132px + env(safe-area-inset-bottom))}
+#fam7 .f7note{margin-bottom:24px}
+
+/* 悬浮胶囊 Tab 约 76px + 安全区：内容区留白必须高于它，
+   否则最后一张卡/说明会露出半截被压住（真机 384×853 实拍）。 */
+#fam7 .f7body{padding-bottom:calc(210px + env(safe-area-inset-bottom))}
+#fam7 .f7body > .f7screen > .f7card:last-child{margin-bottom:18px}
+#fam7 .f7note{margin-bottom:18px}
+/* 真机动态态：米粒一开口，回话会长到两三行，把小鸡顶到文字里。
+   老人靠听不靠读，回话只留一行省略；形象固定不被 flex 压缩。 */
+html.desk6 #page-home .petcard{
+  background:#FFFFFF; box-shadow:0 6px 18px rgba(40,42,90,.09);
+}
+html.desk6 #page-home .petava{flex:none}
+html.desk6 #page-home .bubble{
+  display:block; max-height:none; -webkit-line-clamp:unset;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-size:14px; min-height:20px;
+}
+html.desk6 #page-home .bubble #bubbleText{display:inline}
+/* ===== v8 end ===== */
+
+
+/* ===== v9 · 状态锁死（2026-11-07 14:30）=====
+   菲尔特两张实拍：同一桌面通话条时有时无 → 顶卡跳 48px；
+   idle/sing 两段视频比例不同 → 鸡忽大忽小、文字被压。
+   这里只锁布局，配色排版一个像素不动。 */
+
+/* ① 顶部 62px 永远预留。通话条出现与否，顶卡、米粒卡、图标、底栏全部不动。 */
+html.desk6 #page-home{
+  padding-top:calc(70px + env(safe-area-inset-top));
+  padding-bottom:24px;
+}
+html.desk6 #page-home:has(.callbar:not([hidden])) .homehead{margin-top:0}
+html.desk6 #page-home .callbar,
+html.desk6 #page-home .callbar:not([hidden]){
+  position:absolute; left:12px; right:12px; top:calc(8px + env(safe-area-inset-top));
+  height:54px; box-sizing:border-box;
+}
+/* 通话条改成「一直在」的同一个元素：挂断后不消失，只把计时和三个键收起来。
+   老人看到的是同一条白条，不会一会儿有按钮一会儿没有。 */
+html.desk6 #page-home .callbar[hidden]{
+  /* 2026-11-08 菲尔特：「老人端不能时时刻刻都醒着，只有语音唤醒才醒来对话」。
+     这条原本在 hidden 态下显示成「喊一声就行」的常驻条 —— 屏幕上永远有个米粒，
+     就是他说的「阴魂不散」。现在 hidden 就是真隐藏：喊「米粒」才出现通话条。 */
+  display:none !important; margin:0; padding:8px 16px; border-radius:18px; z-index:12;
+  background:#FFFFFF; box-shadow:0 4px 16px rgba(40,42,90,.08);
+  align-items:center; gap:10px; text-align:left;
+}
+html.desk6 #page-home .callbar[hidden] .cbrow,
+html.desk6 #page-home .callbar[hidden] .cbtime{display:none}
+html.desk6 #page-home .callbar[hidden] .cbsub{flex:1; font-size:15px; color:#6B708C}
+html.desk6 #page-home .callbar[hidden] .cbsub::after{content:' · 喊一声就行'}
+
+/* ② 小鸡形象稳定（2026-11-07 16:30 三张实拍：鸡忽大忽小/裁脚/空白）：
+   容器锁 16:9（idle 素材比例），两段视频一律 contain 整幅入画不再裁切；
+   sing 素材 1470×630 更扁，contain 后只有 76% 高 → 放大 1.3125 倍按高度对齐，
+   溢出的左右两侧是纯背景，裁掉不伤鸡。加载完成前显示静态 chick-icon 占位。 */
+html.desk6 #page-home .petava{
+  width:100%; max-width:300px; height:auto; aspect-ratio:16/9;
+  overflow:hidden; border-radius:20px; flex:none; background:transparent;
+}
+html.desk6 #page-home .petava video{
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:contain; object-position:center bottom; transform:none;
+  mix-blend-mode:multiply; filter:brightness(1.12) contrast(.98);
+  opacity:0; transition:opacity .25s ease;
+}
+html.desk6 #page-home .petava video.ready{opacity:1}
+/* sing 素材 1470×630、idle 1280×720：按高度比补偿，视觉尺寸对齐 */
+html.desk6 #page-home .petava #petSingV{transform-origin:center bottom; transform:scale(1.3125)}
+html.desk6 #page-home .petava #petPoster{object-fit:contain; transition:opacity .3s ease}
+html.desk6 #page-home .petcard.d-listening .petava{transform:none}
+html.desk6 #page-home .petcard{
+  justify-content:flex-start; padding-top:12px; padding-bottom:12px; min-height:0;
+  flex:1 1 auto;
+}
+/* 文字固定在形象下方，永不被顶上去；回话最多两行，超出省略，
+   不许再横向溢出屏幕（实拍：长回话两侧被裁）。 */
+html.desk6 #page-home .dhint{flex:none; margin-top:6px}
+html.desk6 #page-home .bubble{
+  flex:none; width:100%; height:auto; max-height:44px; margin-top:2px;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  white-space:normal; overflow:hidden; text-overflow:ellipsis;
+  word-break:break-word; text-align:center;
+  font-size:15px; line-height:22px; color:#6B708C;
+}
+
+
+/* ===== v9 · 登录 / 双端切换 / 家人端引导 / 设置中心 =====
+   沿用阿福紫白：底 #F4F5FF、白卡圆角 20、唯一主色 #5B4DF0、字 #1B1D2E。
+   这层是 fixed 全覆盖，跟旧 page-* 完全隔离，不再新旧打架。 */
+#v9{position:fixed; inset:0; z-index:900; background:#F4F5FF;
+  display:none; flex-direction:column; color:#1B1D2E;
+  font-family:inherit; overflow:hidden}
+#v9.on{display:flex}
+#v9 *{box-sizing:border-box}
+#v9 .v9hd{position:relative; flex:none; padding:calc(16px + env(safe-area-inset-top)) 18px 12px;
+  display:flex; align-items:center; gap:10px; background:#F4F5FF}
+#v9 .v9hd h2{margin:0; flex:1; text-align:center; font-size:19px; font-weight:800}
+#v9 .v9hd .bk{width:40px;height:40px;border:0;background:rgba(255,255,255,.8);
+  border-radius:14px;color:#5B4DF0;font-size:26px;line-height:1;cursor:pointer;font-family:inherit;
+  box-shadow:0 2px 10px rgba(40,42,90,.06)}
+#v9 .v9hd .sp{width:40px;flex:none}
+#v9 .v9body{flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+  padding:4px 16px calc(28px + env(safe-area-inset-bottom))}
+/* 真机是 edge-to-edge，env(safe-area-inset-bottom) 在没开 viewport-fit=cover
+   时算出来是 0，底栏会贴到手势条上。这里硬留一截，不再靠环境变量。 */
+#v9 .v9foot{flex:none; padding:10px 16px 26px;
+  background:#F4F5FF; box-shadow:0 -6px 20px rgba(40,42,90,.04)}
+/* 行内图标：SVG 没写宽高在 flex 里会被压成 0，整排图标看着像丢了 */
+#v9 .ic{width:24px; height:24px; flex:none; display:grid; place-items:center;
+  color:#5B4DF0}
+#v9 .ic svg{width:22px; height:22px; display:block}
+#v9 .v9row .ic{width:26px; height:26px}
+#v9 .v9pick .ic{width:26px; height:26px}
+#v9 .v9thumb{width:46px; height:46px; flex:none; border-radius:12px; object-fit:cover;
+  background:#EDEEFB}
+#v9 .v9h1{font-size:27px; font-weight:800; line-height:1.3; margin:8px 2px 6px}
+#v9 .v9sub{font-size:14px; line-height:1.6; color:#6B708C; margin:0 2px 16px}
+#v9 .v9card{background:#FFFFFF; border-radius:20px; padding:16px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05); margin-bottom:14px}
+#v9 .v9sec{display:flex; align-items:center; gap:9px; margin:20px 2px 10px;
+  font-size:16px; font-weight:800; color:#3E4260}
+#v9 .v9sec i{width:4px;height:17px;border-radius:3px;background:#5B4DF0;flex:none}
+#v9 .v9row{display:flex; align-items:center; gap:12px; padding:13px 2px;
+  border-bottom:1px solid #ECECFA; min-height:52px}
+#v9 .v9row:last-child{border-bottom:0}
+#v9 .v9row .tx{flex:1; min-width:0; font-size:16px; font-weight:700}
+#v9 .v9row .sb{font-size:13px; color:#9A9FBA; font-weight:500; margin-top:2px}
+#v9 .v9row .go{color:#9A9FBA; font-size:20px; flex:none}
+#v9 button.v9row{width:100%; background:#FFFFFF; border:0; border-radius:16px;
+  padding:14px; text-align:left; cursor:pointer; font-family:inherit; color:#1B1D2E;
+  box-shadow:0 2px 12px rgba(40,42,90,.05); margin-bottom:10px}
+#v9 .v9field{width:100%; min-height:44px; border:1px solid #E4E4F2; border-radius:13px;
+  background:#FFFFFF; padding:11px 13px; font-size:16px; font-family:inherit;
+  color:#1B1D2E; outline:none; margin:0}
+#v9 .v9field:focus{border-color:#5B4DF0; box-shadow:0 0 0 3px rgba(91,77,240,.10)}
+#v9 .v9field::placeholder{color:#A9ADC4}
+#v9 .v9lab{font-size:13px; font-weight:700; color:#6B708C; margin:0 2px 6px}
+#v9 .v9btn{width:100%; min-height:54px; border:0; border-radius:18px; cursor:pointer;
+  background:#5B4DF0; color:#FFFFFF; font-size:17px; font-weight:800; font-family:inherit;
+  box-shadow:0 6px 18px rgba(91,77,240,.22)}
+#v9 .v9btn:active{transform:scale(.985)}
+#v9 .v9btn.ghost{background:#FFFFFF; color:#5B4DF0; box-shadow:0 2px 12px rgba(40,42,90,.06)}
+#v9 .v9btn.gray{background:#EEEBFF; color:#5B4DF0; box-shadow:none}
+#v9 .v9btn[disabled]{opacity:.45}
+#v9 .v9steps{display:flex; gap:6px; margin:6px 2px 18px}
+#v9 .v9steps i{flex:1; height:5px; border-radius:3px; background:#E4E4F2}
+#v9 .v9steps i.on{background:#5B4DF0}
+#v9 .v9pick{display:flex; align-items:center; gap:10px; padding:12px 10px;
+  border:1px solid #E9E9F5; border-radius:14px; margin-bottom:9px; cursor:pointer;
+  background:#FFFFFF; font-size:15px; font-weight:700; user-select:none}
+#v9 .v9pick.on{border-color:#5B4DF0; background:#F2F0FF}
+#v9 .v9pick .ck{width:22px;height:22px;flex:none;border-radius:7px;border:2px solid #D8D8EE;
+  display:grid;place-items:center;color:#fff;font-size:14px;line-height:1}
+#v9 .v9pick.on .ck{background:#5B4DF0;border-color:#5B4DF0}
+#v9 .v9pick .ic{width:30px;height:30px;flex:none;display:grid;place-items:center;color:#5B4DF0}
+#v9 .v9pick .ic svg{width:24px;height:24px}
+#v9 .v9pick .tx{flex:1;min-width:0}
+#v9 .v9grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#v9 .v9grid2 .v9pick{margin:0}
+#v9 .v9chip{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;
+  background:#FFFFFF;color:#5B4DF0;font-size:14px;font-weight:700;
+  box-shadow:0 2px 10px rgba(40,42,90,.06)}
+#v9 .v9code{font-size:42px;font-weight:800;letter-spacing:.18em;text-align:center;
+  color:#5B4DF0;margin:14px 0 4px;font-variant-numeric:tabular-nums}
+#v9 .v9tip{font-size:13px;line-height:1.6;color:#6B708C;margin:8px 2px}
+#v9 .v9warn{font-size:13px;line-height:1.6;color:#9A9FBA;margin:10px 2px}
+#v9 .v9tag{display:inline-block;padding:4px 10px;border-radius:999px;background:#EEEBFF;
+  color:#5B4DF0;font-size:12px;font-weight:700}
+#v9 .v9del{width:32px;height:32px;flex:none;border:0;border-radius:10px;background:#FDEEEE;
+  color:#E5484D;font-size:18px;cursor:pointer;font-family:inherit;line-height:1}
+#v9 .v9thumb{width:46px;height:46px;flex:none;border-radius:12px;object-fit:cover;
+  background:#F4F5FF}
+#v9 .v9err{color:#E5484D;font-size:14px;margin:10px 2px;min-height:20px}
+#v9 .v9ok{color:#2E9E6B;font-size:14px;margin:10px 2px;min-height:20px}
+
+/* v9：家人端配置选定的图标，压住 desk6 按点击频次重排的 d-hide */
+html.desk6 #page-home .dicon.v9on{display:flex !important}
+html.desk6 #page-home .dicon.d-hide:not(.v9on){display:none !important}
+
+/* v9：旧设置抽屉（19 卡、大量旧页入口）彻底退出，
+   桌面「设置」已改走 v9 设置中心，两套 UI 不再打架。 */
+html.desk6 #page-home .dsettings{display:none !important}
+
+/* ===== 全屏电视层（直达链播放）===== */
+#tvfull{position:fixed;inset:0;background:#000;z-index:99990;display:flex;align-items:center;justify-content:center}
+#tvfull[hidden]{display:none}
+#tvfullV{width:100%;height:100%;object-fit:contain;background:#000}
+#tvfullX{position:absolute;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:2;
+  padding:10px 18px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;
+  font-size:17px;font-weight:700;letter-spacing:.02em}
+#tvfullT{position:absolute;top:calc(12px + env(safe-area-inset-top));left:16px;z-index:2;
+  color:rgba(255,255,255,.92);font-size:16px;font-weight:600;max-width:60%;
+  text-shadow:0 1px 6px rgba(0,0,0,.6)}
+
+/* 换台键：左右两侧边缘竖条热区。
+   #tvfull 是 flex 居中容器，绝对定位子元素不写 left/right 会按「居中」摆 ——
+   之前左键跑到屏幕中央就是漏了 left:0。 */
+#tvPrev,#tvNext{position:absolute;top:0;bottom:0;width:14%;z-index:2;
+  display:flex;align-items:center;justify-content:center;
+  color:rgba(255,255,255,.9);font-size:64px;font-weight:300;
+  user-select:none;-webkit-tap-highlight-color:transparent}
+#tvPrev{left:0;background:linear-gradient(90deg,rgba(0,0,0,.32),transparent)}
+#tvNext{right:0;background:linear-gradient(270deg,rgba(0,0,0,.32),transparent)}
+#tvPrev:active,#tvNext:active{color:#fff;background:rgba(0,0,0,.45)}
+
+/* ===== 2026-11-07 全家端顶栏统一：吸顶、左对齐、无返回箭头 ===== */
+#fam7 .f7nav{
+  position:sticky; top:0; z-index:8;
+  background:#F4F5FF;
+}
+#fam7 .f7nav.lead h2{text-align:left !important; margin-left:0 !important}
+#fam7 .f7nav.lead .sp{display:none}
+
+/* ===== 首页小鸡：卡片绝不塌成一条缝（截图那根黄色糊条就是这个） ===== */
+html.desk6 #page-home .petcard{min-height:clamp(230px,36vh,340px)}
+html.desk6 #page-home .petava{aspect-ratio:1/1}
+
+/* ===== 双鸡重影：同一时刻只许一只可见 ===== */
+.petava #petPoster{transition:opacity .3s ease;z-index:0;pointer-events:none}
+.petava video{z-index:1}
+#petIdleV{transition:opacity .18s ease;opacity:1}
+.petava.singing #petIdleV{opacity:0}
+/* 视频能出画后，静态图一定让位（JS 万一没赶上，CSS 这层兜住） */
+.petava video.ready ~ #petPoster,
+.petava:has(video.ready) #petPoster{opacity:0 !important}
+
+/* 鸡头被裁：cover+scale(1.12) 是上一版为了裁视频自带灰边，结果把头顶切了。
+   改 contain，卡片底色与素材底同色，边界自然消失。 */
+html.desk6 #page-home .petava video{object-fit:contain; transform:none}
+
+/* ===== 双鸡重影收尾（2026-11-07 深夜）=====
+   根因：html.desk6 #page-home .petava video.ready{opacity:1} 的优先级高于
+   .petava #petSingV{opacity:0}，两段视频都带 ready 类 → 同时不透明 = 两只鸡。
+   规则改成「ready 只负责可播，亮不亮看当前模式」。 */
+html.desk6 #page-home .petava{aspect-ratio:16/9; height:auto; max-width:300px}
+html.desk6 #page-home .petava video{opacity:0}
+html.desk6 #page-home .petava:not(.singing) #petIdleV.ready{opacity:1}
+html.desk6 #page-home .petava.singing #petSingV.ready{opacity:1}
+html.desk6 #page-home .petava.singing #petIdleV{opacity:0}
+html.desk6 #page-home .petava:has(video.ready) #petPoster{opacity:0}
+
+/* ===== 终局：sing 视频默认封存，只有 singing 态才允许出现 ===== */
+html.desk6 #page-home .petava #petSingV{opacity:0 !important; display:none !important}
+html.desk6 #page-home .petava.singing #petSingV{opacity:1 !important; display:block !important}
+html.desk6 #page-home .petava.singing #petIdleV{opacity:0 !important}
+/* 素材里鸡只占画面 60%，contain 后显得小。放大 1.38 倍框住主体，
+   素材上下留白够，头不会被切；两侧纯背景溢出被卡片吃掉。 */
+html.desk6 #page-home .petava{max-width:320px; overflow:hidden}
+/* 23:45 首屏空白兜底：视频瞬时不可用时，静态鸡要能压过
+   .petava:has(video.ready) #petPoster{opacity:0!important} 那层。
+   旧守卫只改 inline opacity，压不过 !important，结果鸡和视频一起消失。 */
+html.desk6 #page-home .petava.video-fallback #petPoster{opacity:1 !important;display:block !important}
+html.desk6 #page-home .petava.video-fallback video{display:none !important}
+html.desk6 #page-home .petava video{transform:scale(1.38); transform-origin:center 56%}
+/* 卡片给足高度，别把「有事喊我」和下面的提示句裁掉 */
+html.desk6 #page-home .petcard{min-height:276px; justify-content:center; gap:6px}
+html.desk6 #page-home .dhint{font-size:26px}
+
+/* 家人端顶部安全边距：标题别贴着刘海 */
+#fam7 .f7body{padding-top:calc(8px + env(safe-area-inset-top))}
+
+/* ===== 全部应用抽屉 ===== */
+.adentry{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  flex:none;margin:10px auto 0;padding:10px 22px;border-radius:999px;
+  background:#FFFFFF;color:#5B4DF0;font-size:15px;font-weight:700;
+  box-shadow:0 4px 14px rgba(40,42,90,.08);border:0}
+.adentry svg{width:22px;height:22px}
+#appdrawer{position:fixed;inset:0;z-index:99995;background:#F4F5FF;
+  display:flex;flex-direction:column;padding:calc(10px + env(safe-area-inset-top)) 14px 0}
+#appdrawer[hidden]{display:none}
+#appdrawer .ad-top{display:flex;align-items:center;justify-content:space-between;padding:4px 4px 12px}
+#appdrawer .ad-top b{font-size:26px;color:#1B1D2E;letter-spacing:.01em}
+#appdrawer #adClose{width:46px;height:46px;border-radius:50%;border:0;background:#FFFFFF;
+  color:#1B1D2E;font-size:20px;font-weight:700;box-shadow:0 4px 12px rgba(40,42,90,.08)}
+#appdrawer .ad-grid{flex:1;min-height:0;overflow-y:auto;display:grid;
+  grid-template-columns:repeat(4,1fr);gap:12px;padding:6px 2px calc(20px + env(safe-area-inset-bottom))}
+#appdrawer .ad-item{display:flex;flex-direction:column;align-items:center;gap:8px;
+  background:#FFFFFF;border-radius:20px;padding:14px 6px;border:0;
+  box-shadow:0 2px 10px rgba(40,42,90,.05)}
+#appdrawer .ad-item:active{transform:scale(.96)}
+#appdrawer .ad-ic{width:46px;height:46px;border-radius:14px;background:#EEEBFF;color:#5B4DF0;
+  display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800}
+#appdrawer .ad-nm{font-size:13px;color:#1B1D2E;text-align:center;line-height:1.25;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#appdrawer .ad-empty{grid-column:1/-1;text-align:center;color:#6B708C;padding:40px 0;font-size:16px}
+
+/* 应用格子被长名字撑破第 4 列：min-width:0 + 文本省略 */
+#appdrawer .ad-item{min-width:0;overflow:hidden}
+#appdrawer .ad-nm{width:100%;min-width:0}
+
+/* 声纹录制态：呼吸红点，老人一看就知道「它在听我」 */
+.v9rec{display:inline-flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:#E5484D;margin-bottom:8px}
+.v9rec i{width:12px;height:12px;border-radius:50%;background:#E5484D;animation:vpPulse 1.1s ease-in-out infinite}
+@keyframes vpPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.55);opacity:.55}}
+
+/* 全部应用入口在 flex 列里要排在图标网格之后（order 默认 0 会顶到最上面） */
+html.desk6 #page-home .adentry{order:4}
+
+/* ===== 双端分离：家人端把老人端一切浮层收干净（视觉层保险） ===== */
+html.fam-on #bubble,
+html.fam-on #callBar,
+html.fam-on #sbBar,
+html.fam-on #sbDots,
+html.fam-on #page-home{display:none !important}
+
+/* ===== [hidden] 必须真的隐藏 =====
+   .callbar / .bubble 这些都有作者 display 规则，UA 的 [hidden]{display:none}
+   被压掉 → 元素「hidden=true」却还在屏幕上。这就是「米粒阴魂不散」的视觉层根因。 */
+[hidden]{display:none !important}
+
+/* 2026-11-08 真机：小鸡卡 flex:1 会把图标顶出屏幕，只有一行可见。
+   压到 42vh 并把首页变成可滚，图标加多了也能看到。 */
+html.desk6 #page-home{overflow-y:auto; -webkit-overflow-scrolling:touch}
+html.desk6 #page-home .petcard{flex:0 1 auto; max-height:42vh}
+
+/* ============================================================================
+   2026-11-09 · 呼吸感 / 点按反馈 / 状态可见
+   菲尔特原话：「现在应用没有动画呼吸感，点一下就立马跳转了，中途没有呼吸感」。
+   做法：转场 .22s → .42s，位移 6px → 18px 并带极轻微缩放；
+        入页的内容按序浮起（stagger），不是整块啪一下出现；
+        桌宠常驻慢呼吸，状态胶囊四态可见；所有可点元素有统一按压反馈。
+   配色只用亮紫 #5B4DF0 / 淡紫白 #F4F5FF / 深蓝灰 #1B1D2E，不引暖色。
+   ========================================================================== */
+@keyframes miliRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes miliBreath{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-5px) scale(1.022)}}
+@keyframes miliBlink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+
+/* backwards 而不是 both：动画结束后不锁住 transform，
+   否则会把按钮 :active 的按压缩放覆盖掉，点了反而没反馈。 */
+.page.on > .scroll > *{animation:miliRise .44s cubic-bezier(.16,1,.3,1) backwards}
+.page.on > .scroll > *:nth-child(1){animation-delay:.02s}
+.page.on > .scroll > *:nth-child(2){animation-delay:.06s}
+.page.on > .scroll > *:nth-child(3){animation-delay:.10s}
+.page.on > .scroll > *:nth-child(4){animation-delay:.14s}
+.page.on > .scroll > *:nth-child(5){animation-delay:.18s}
+.page.on > .scroll > *:nth-child(6){animation-delay:.22s}
+.page.on > .scroll > *:nth-child(n+7){animation-delay:.24s}
+.page.on #deskGrid .dicon{animation:miliRise .48s cubic-bezier(.16,1,.3,1) backwards}
+.page.on #deskGrid .dicon:nth-child(2){animation-delay:.05s}
+.page.on #deskGrid .dicon:nth-child(3){animation-delay:.10s}
+.page.on #deskGrid .dicon:nth-child(4){animation-delay:.15s}
+.page.on #deskGrid .dicon:nth-child(5){animation-delay:.20s}
+.page.on #deskGrid .dicon:nth-child(6){animation-delay:.25s}
+
+/* 手指一落下去就有反应，不等页面切完 */
+button{transition:transform .16s cubic-bezier(.2,.9,.3,1),filter .16s ease,box-shadow .16s ease}
+button:active{transform:scale(.955);filter:brightness(.965)}
+
+/* 桌宠：活着的感觉来自这一下慢呼吸，不是靠多放一张图 */
+.petava{animation:miliBreath 4.2s ease-in-out infinite}
+
+/* 米粒状态（待机 / 在听 / 在想 / 在说）—— 模型慢的时候靠它给反馈，不出声 */
+.petstate{position:absolute;right:12px;top:12px;z-index:4;
+  display:flex;align-items:center;gap:7px;
+  background:var(--card);color:var(--ink-2);border-radius:999px;
+  padding:7px 13px;font-size:13px;font-weight:800;letter-spacing:.02em;
+  box-shadow:var(--sh-card);pointer-events:none}
+.petstate i{width:9px;height:9px;border-radius:50%;background:var(--dusk);flex:none}
+.petstate[data-s="listen"] i,
+.petstate[data-s="think"] i,
+.petstate[data-s="speak"] i{background:#5B4DF0}
+.petstate[data-s="listen"] i{animation:miliBlink 1.15s ease-in-out infinite}
+.petstate[data-s="think"] i{animation:miliBlink .62s ease-in-out infinite}
+.petstate[data-s="speak"] i{animation:miliBlink .9s ease-in-out infinite}
+.petstate[data-s="think"]{color:#4A3CD8}
+
+/* ---- 打电话：联系人列表（2026-11-09 菲尔特拍板：不输号码，点名字） ---- */
+.peoplelist{display:flex;flex-direction:column;gap:12px}
+.personcard{width:100%;min-height:92px;border:0;border-radius:var(--r-card);
+  background:var(--card);box-shadow:var(--sh-card);display:flex;align-items:center;gap:16px;
+  padding:14px 18px;text-align:left;cursor:pointer;font-family:inherit}
+.personcard .pav{width:56px;height:56px;flex:none;border-radius:50%;
+  background:var(--accent-soft);color:#4A3CD8;display:grid;place-items:center;
+  font-size:26px;font-weight:800}
+/* 名字和「通讯录 · 号码」必须各占一行：span 默认 inline，
+   不写 display:block 就会粘成「儿子小伟通讯录 ·」，真机截图自查抓到过。 */
+.personcard > span:nth-child(2){flex:1;min-width:0}
+.personcard .pname{display:block;font-size:24px;font-weight:800;color:var(--ink);line-height:1.2}
+.personcard .psub{display:block;font-size:15px;color:var(--ink-3);margin-top:5px}
+.personcard .pgo{margin-left:auto;flex:none;width:52px;height:52px;border-radius:50%;
+  background:var(--accent-soft);color:#4A3CD8;display:grid;place-items:center;
+  font-size:15px;font-weight:800}
+.personcard:active{background:var(--card-2)}
+.peopleempty{padding:30px 18px;text-align:center;color:var(--ink-3);
+  font-size:17px;line-height:1.8;background:var(--card);
+  border-radius:var(--r-card);box-shadow:var(--sh-card)}
+
+/* ---- 紧急呼叫：短按也要能走，长按 3 秒不再是唯一一条路 ---- */
+.dsosask{position:fixed;inset:0;z-index:9999;background:var(--scrim);
+  display:none;align-items:center;justify-content:center;padding:24px}
+.dsosask.open{display:flex}
+.dsosask .box{width:100%;max-width:360px;background:var(--card);
+  border-radius:24px;padding:28px 24px;text-align:center;
+  box-shadow:0 24px 64px rgba(27,29,46,.24)}
+.dsosask b{display:block;font-size:26px;color:var(--ink);margin-bottom:12px}
+.dsosask p{font-size:18px;color:var(--ink-2);margin:0 0 20px;line-height:1.6}
+.dsosask button{width:100%;min-height:66px;border:0;border-radius:var(--r-btn);
+  font-size:22px;font-weight:800;font-family:inherit;cursor:pointer;margin-top:10px}
+.dsosask .yes{background:var(--danger);color:#fff}
+.dsosask .no{background:var(--bg-3);color:var(--ink)}
+
+/* ---- 付钱 / 收钱：两颗主按钮并排（2026-11-09 菲尔特：主打付款码 + 扫一扫） ----
+   左卡多一圈淡紫描边，因为「商家扫我」对老人更省事：
+   不用举着手机对准，把码递过去就行。收款码退到次要按钮。 */
+.paymain{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.paybig{min-height:186px;border:2px solid transparent;border-radius:var(--r-card);
+  background:var(--card);box-shadow:var(--sh-card);cursor:pointer;font-family:inherit;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+  padding:18px 8px}
+.paybig:first-child{border-color:var(--accent-soft)}
+.paybig .payico{width:64px;height:64px;flex:none;border-radius:20px;
+  background:var(--accent-soft);color:#4A3CD8;display:grid;place-items:center}
+.paybig .payico svg{width:34px;height:34px}
+.paybig b{font-size:25px;font-weight:800;color:var(--ink);line-height:1.25}
+.paybig small{font-size:15px;color:var(--ink-3);line-height:1.3}
+
+@media (prefers-reduced-motion:reduce){
+  .petava,.page.on > .scroll > *,.page.on #deskGrid .dicon,
+  .petstate i{animation:none !important}
+  .page,.page.on{transition-duration:.01s}
+}
+
+/* 页面内大字输入框：替掉系统 AlertDialog 里那个系统字号的 EditText。
+   导航 / 微信视频 / 按剧名找现在都用米粒自己的皮，不换界面。 */
+.mili-textin{width:100%;min-height:68px;border:2px solid var(--line-2);
+  border-radius:var(--r-inner);background:var(--card);color:var(--ink);
+  font-size:24px;font-weight:700;font-family:inherit;padding:12px 16px;outline:none}
+.mili-textin:focus{border-color:#5B4DF0;box-shadow:0 0 0 4px var(--accent-soft)}
+
+/* 2026-11-09 拍药盒即时反馈条 */
+#fam7 .f7medresult{
+  border-radius:16px; padding:12px 14px; margin:0 0 12px;
+  font-size:14px; line-height:1.55; box-shadow:0 2px 10px rgba(40,42,90,.05);
+  overflow:hidden; word-break:break-word; max-width:100%;
+}
+#fam7 .f7medresult b{display:block; font-weight:700}
+#fam7 .f7medresult span{display:block; font-size:12px; opacity:.8; margin-top:3px}
+
+/* ============================================================================
+   跌落确认层（2026-11-10 菲尔特：「加一个功能叫跌落检测」）
+   ----------------------------------------------------------------------------
+   手机自己发现跌倒后，盖整屏问一句。三件事必须一眼看见：
+   大字「您还好吗」、还剩几秒、两颗能摸到的按钮。
+   不倒计时给压力 —— 数字是给老人看的，不是催他。
+   配色沿用主色 #5B4DF0 + 淡紫白底，唯一红色只给「马上叫人」那一颗。
+   ========================================================================== */
+.dfall{position:fixed;inset:0;z-index:9500;display:none;
+  flex-direction:column;align-items:center;justify-content:center;
+  gap:22px;padding:36px 26px calc(36px + env(safe-area-inset-bottom));
+  /* 不透明：半透明会把首页的时间和气泡透出来，老人会以为界面没换 */
+  background:#F4F5FF;text-align:center}
+.dfall.open{display:flex}
+.dfall .fico{width:96px;height:96px;border-radius:32px;display:grid;place-items:center;
+  background:rgba(91,77,240,.10);color:#5B4DF0}
+.dfall .fico svg{width:54px;height:54px}
+.dfall h2{margin:0;font-size:44px;line-height:1.2;font-weight:800;color:#1B1D2E;letter-spacing:-.5px}
+.dfall p{margin:0;font-size:21px;line-height:1.55;color:#6f7296;max-width:18.5em;
+  text-wrap:pretty}
+.dfall .fsec{font-size:64px;font-weight:800;line-height:1;color:#5B4DF0;
+  font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:6px}
+.dfall .fsec small{font-size:20px;font-weight:700;color:#6f7296;
+  align-self:flex-end;padding-bottom:9px}
+.dfall .fbtns{display:flex;flex-direction:column;gap:14px;width:100%;max-width:400px;margin-top:4px}
+.dfall button{min-height:76px;border:0;border-radius:999px;font-family:inherit;
+  font-size:25px;font-weight:800;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;gap:10px;width:100%}
+.dfall .fok{background:#5B4DF0;color:#fff;box-shadow:0 10px 26px rgba(91,77,240,.28)}
+.dfall .fsos{background:#fff;color:#C62F35;box-shadow:inset 0 0 0 2px rgba(198,47,53,.28)}
+.dfall .fnote{font-size:16px;color:#8b8fb2;margin:0}
+.dfall.pulse .fico{animation:fallPulse 1.4s ease-in-out infinite}
+@keyframes fallPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@media (prefers-reduced-motion:reduce){.dfall.pulse .fico{animation:none}}
+
+/* 2026-11-10 真机截图自查：引导页内容一多，flex 列把子项压扁、文字重叠。
+   内联 style 在后，所以用 #onboard 提优先级盖过去。 */
+#onboard .onb-btn{flex:1;white-space:nowrap;text-align:center}
+#onboard .onb-step.on{overflow-y:auto;max-height:100%}
+#onboard .onb-step.on > *{flex-shrink:0}
+#onboard .onb-permlist{max-height:44vh;overflow-y:auto;padding-right:2px}
+
+/* ===== 2026-11-10 17:2x 菲尔特：引导页重做 + 家人端资料条 =====
+   权限屏原来 .onb-permlist 有 max-height:44vh + overflow-y:auto，8 行在 flex 列里
+   被压扁，标题上半截被裁、状态标签压在字上（真机截图实证）。整屏改成从上往下排、
+   整屏可滚，每行给死高度，字号行高写死。 */
+#onboard .onb-body{justify-content:flex-start;overflow-y:auto;gap:0}
+#onboard .onb-step.on{flex:0 0 auto;overflow:visible;max-height:none;padding:28px 0 18px;gap:18px}
+#onboard .onb-step.on > *{flex-shrink:0}
+#onboard .onb-h{font-size:30px;line-height:1.28;letter-spacing:-.02em;color:#1B1D2E}
+#onboard .onb-p{font-size:16px;line-height:1.7;color:#5A5E7A}
+#onboard .onb-permlist{max-height:none;overflow:visible;display:flex;flex-direction:column;gap:10px;margin:4px 0}
+#onboard .onb-permrow{min-height:76px;padding:14px 16px;align-items:flex-start;
+  border:1px solid #EDEDF7;box-shadow:0 2px 10px rgba(40,42,90,.04);flex-shrink:0}
+#onboard .onb-permrow .nm{min-width:0;line-height:1.45;display:block}
+#onboard .onb-permrow .nm b{display:block;font-size:16px;font-weight:700;line-height:1.5;color:#1B1D2E}
+#onboard .onb-permrow .nm span{display:block;margin-top:4px;font-size:13px!important;line-height:1.5;color:#6B6E86!important}
+#onboard .onb-permrow .tag{align-self:center;margin-top:0;flex:none;font-size:13px;padding:6px 10px}
+#onboard .onb-foot{gap:10px}
+#onboard .onb-navrow{display:flex;align-items:center;justify-content:center;gap:18px}
+#onboard .onb-prev{background:#fff;border:1px solid #E6E7F5;color:#5B4DF0;border-radius:14px;
+  padding:10px 16px;font-size:14px;font-family:inherit;cursor:pointer}
+#onboard .onb-prev[hidden]{display:none}
+#onboard .onb-btn{flex:1;min-height:50px;white-space:nowrap;text-align:center}
+#onboard .onb-vpsent{background:#fff;border-radius:18px;padding:8px 14px;
+  box-shadow:0 2px 12px rgba(40,42,90,.05)}
+#onboard .onb-vpline{display:flex;align-items:center;gap:12px;padding:10px 2px;
+  font-size:15px;color:#1B1D2E;border-bottom:1px solid #F0F0F8}
+#onboard .onb-vpline:last-child{border-bottom:0}
+#onboard .onb-vpline b{width:24px;height:24px;flex:none;border-radius:50%;background:#F4F5FF;
+  color:#5B4DF0;display:grid;place-items:center;font-size:13px}
+#onboard .onb-vpline.cur{color:#5B4DF0;font-weight:700}
+#onboard .onb-vpline.cur b{background:#5B4DF0;color:#fff}
+/* 家人端资料条：只显示、不许点；加号彻底下线 */
+#fam7 .f7plus,html.fam6 #page-famhome .f6plus{display:none!important}
+#fam7 .f7add.static,html.fam6 #page-famhome .f6add.static{
+  cursor:default;pointer-events:none;box-shadow:0 4px 14px rgba(91,77,240,.16)}
+/* 首页「全部应用」入口下线（菲尔特：这底部全部应用是什么鬼） */
+#adBtn{display:none!important}
+
+
+/* ===== 2026-11-10 18:2x 引导页视觉重做（蚂蚁阿福风） =====
+   淡紫白底、纯白卡、唯一亮紫主色、统一线性图标；权限行改左右布局修标签错位；
+   上一步放大到与下一步同高；首页底部工具栏回到页面底部。 */
+#onboard{background:radial-gradient(120% 34% at 50% 0%,#E9E6FF 0%,#F4F5FF 62%,#F4F5FF 100%)}
+.onb-sprite{position:absolute;width:0;height:0;overflow:hidden}
+.onb-top{flex:none;display:flex;align-items:center;gap:12px;padding:22px 0 8px}
+.onb-badge{width:44px;height:44px;flex:none;border-radius:14px;background:#fff;display:grid;place-items:center;color:#5B4DF0;box-shadow:0 4px 14px rgba(91,77,240,.12)}
+.onb-badge svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.onb-toptext{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.onb-toptext b{font-size:16px;color:#1B1D2E;font-weight:800}
+.onb-toptext span{font-size:12px;color:#6B6E86}
+.onb-bar{width:84px;height:6px;border-radius:6px;background:#E4E3F7;overflow:hidden;flex:none}
+.onb-bar i{display:block;height:100%;width:11%;border-radius:6px;background:#5B4DF0;transition:width .25s ease}
+#onboard .onb-body{justify-content:flex-start;overflow-y:auto;gap:0;padding-bottom:12px}
+#onboard .onb-step.on{flex:0 0 auto;overflow:visible;max-height:none;padding:14px 0 18px;gap:14px}
+#onboard .onb-step.on > *{flex-shrink:0}
+#onboard .onb-h{font-size:29px;line-height:1.28;color:#1B1D2E}
+#onboard .onb-p{font-size:15px;line-height:1.7;color:#5A5E7A}
+.onb-headicon{width:64px;height:64px;border-radius:22px;background:#fff;display:grid;place-items:center;color:#5B4DF0;box-shadow:0 6px 18px rgba(91,77,240,.10)}
+.onb-headicon svg{width:32px;height:32px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#onboard .onb-card{background:#fff;border-radius:22px;padding:14px 16px;box-shadow:0 4px 16px rgba(40,42,90,.05);border:1px solid #F0EFFA}
+.onb-feat{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #F2F1FA}
+.onb-feat:last-child{border-bottom:0}
+.onb-feat svg{width:38px;height:38px;flex:none;padding:8px;border-radius:13px;background:#F4F5FF;color:#5B4DF0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.onb-feat div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.onb-feat b{font-size:15px;color:#1B1D2E;font-weight:700}
+.onb-feat span{font-size:12px;color:#6B6E86;line-height:1.5}
+.onb-safetyline{display:flex;align-items:center;gap:10px}
+.onb-safetyline svg{width:22px;height:22px;flex:none;color:#5B4DF0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.onb-safetyline b{font-size:15px;color:#1B1D2E;font-weight:700;flex:1}
+.onb-input,.v9input{width:100%;box-sizing:border-box;margin-top:10px;height:54px;border:1px solid #E4E4F2;border-radius:16px;padding:0 14px;font-size:17px;color:#1B1D2E;background:#FAFAFF;font-family:inherit;outline:none}
+.onb-input:focus,.v9input:focus{border-color:#5B4DF0;box-shadow:0 0 0 3px rgba(91,77,240,.12)}
+.onb-switch{width:56px;height:32px;border:0;border-radius:16px;background:#DDDDEE;position:relative;flex:none;cursor:pointer}
+.onb-switch::after{content:"";position:absolute;left:3px;top:3px;width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 5px rgba(33,28,20,.2);transition:transform .2s ease}
+.onb-switch.on{background:#5B4DF0}
+.onb-switch.on::after{transform:translateX(24px)}
+.onb-sub{margin:8px 0 0;font-size:12px;line-height:1.6;color:#6B6E86}
+.onb-tip{display:flex;align-items:center;gap:8px;font-size:13px;color:#6B6E86}
+.onb-tip svg{width:18px;height:18px;flex:none;color:#5B4DF0;fill:none;stroke:currentColor;stroke-width:1.8}
+.onb-preview{width:100%;max-height:190px;object-fit:cover;border-radius:18px;border:1px solid #EDEDF7}
+.onb-field{box-shadow:none;border:1px solid #E4E4F2;background:#FAFAFF}
+#onboard .onb-permlist{max-height:none;overflow:visible;display:flex;flex-direction:column;gap:9px;margin:2px 0}
+#onboard .onb-permrow{min-height:72px;padding:12px 14px;align-items:center;flex-wrap:nowrap;border:1px solid #EDEDF7;box-shadow:0 2px 10px rgba(40,42,90,.04);flex-shrink:0}
+#onboard .onb-permrow .nm{flex:1;min-width:0;line-height:1.45}
+#onboard .onb-permrow .nm b{display:block;font-size:15px;line-height:1.5;color:#1B1D2E}
+#onboard .onb-permrow .nm span{display:block;margin-top:3px;font-size:12px!important;line-height:1.5;color:#6B6E86!important}
+#onboard .onb-permrow .tag{flex:none;align-self:center;margin:0;font-size:12px;padding:6px 10px;white-space:nowrap}
+#onboard .onb-foot{gap:12px;padding:14px 0 20px;background:linear-gradient(180deg,rgba(244,245,255,0),#F4F5FF 26%)}
+#onboard .onb-navrow{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#onboard .onb-prev{min-height:56px;min-width:150px;font-size:16px;font-weight:700;background:#fff;border:1px solid #E2E1F4;color:#5B4DF0;border-radius:18px;padding:0 18px;font-family:inherit;cursor:pointer;box-shadow:0 2px 10px rgba(40,42,90,.05)}
+#onboard .onb-prev[hidden]{display:none}
+#onboard .onb-skip{font-size:15px;padding:12px 10px;min-height:48px}
+#onboard .onb-vpline.done b{background:#E6F6EE;color:#1E7A50}
+#onboard .onb-vpline.done{color:#6B6E86}
+#page-home{display:flex;flex-direction:column}
+#page-home .ddock,#page-home .dock{position:static!important;margin-top:auto!important;bottom:auto!important}
+
+/* ===== 2026-11-10 18:5x 权限行二次修：左右两栏 + 底部导航不压内容 ===== */
+#onboard .onb-body{padding-bottom:24px;min-height:0}
+#onboard .onb-permrow{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;
+  gap:12px;min-height:64px;padding:10px 14px}
+#onboard .onb-permtext{flex:1 1 0%;min-width:0;display:flex;flex-direction:column;gap:4px}
+#onboard .onb-permtext b{font-size:15px;font-weight:700;line-height:1.4;color:#1B1D2E}
+#onboard .onb-permtext span{font-size:12px;line-height:1.4;color:#6B6E86}
+#onboard .onb-permrow .tag{flex:0 0 auto;align-self:center;margin:0;white-space:nowrap}
+#onboard .onb-foot{background:#F4F5FF;box-shadow:0 -10px 22px rgba(244,245,255,.96);position:relative;z-index:2}
+
+/* ===== 2026-11-10 19:0x 权限行三次修：彻底不用 flex，块级 + 标签绝对定位 =====
+   前两轮用 flex row，标题上半截被压掉、状态标签叠在字上（真机截图实证）。
+   权限列表是 flex column 的孙层，min-height 也挡不住 flex 压缩。
+   这里改成纯块级：整行 position:relative，右边留 84px 给绝对定位的标签。 */
+#onboard .onb-permlist{display:block;max-height:none;overflow:visible}
+#onboard .onb-permrow{display:block;position:relative;min-height:76px;
+  padding:14px 86px 14px 14px;overflow:visible;flex-wrap:wrap}
+#onboard .onb-permtext{display:block;width:100%;min-width:0;flex:none}
+#onboard .onb-permtext b{display:block;font-size:15px;font-weight:700;line-height:1.5;color:#1B1D2E}
+#onboard .onb-permtext span{display:block;margin-top:4px;font-size:12px;line-height:1.5;color:#6B6E86}
+#onboard .onb-permrow .tag{position:absolute;right:14px;top:50%;transform:translateY(-50%);
+  margin:0;white-space:nowrap;flex:none;align-self:auto}
+
+/* ===== 2026-11-10 19:0x 十三条问题收尾 ===== */
+/* 通讯录搜索框 / 打视频联系人快选 */
+.dialfilter{width:100%;box-sizing:border-box;height:48px;margin:0 0 10px;padding:0 14px;
+  border:1px solid #E4E4F2;border-radius:14px;background:#FAFAFF;color:#1B1D2E;
+  font-size:15px;font-family:inherit;outline:none}
+.dialfilter:focus{border-color:#5B4DF0;box-shadow:0 0 0 3px rgba(91,77,240,.12)}
+.pickchips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.pickchips button{border:1px solid #E4E4F2;background:#fff;color:#1B1D2E;border-radius:14px;
+  padding:9px 14px;font-size:14px;font-family:inherit;cursor:pointer}
+.pickchips button:active{background:#F4F5FF;border-color:#5B4DF0;color:#5B4DF0}
+/* 天气气泡：别把长句截成一行 / 裁掉开头 */
+#page-home .bubble #bubbleText,#bubbleText{white-space:normal!important;overflow:visible!important;
+  text-overflow:clip!important;line-height:1.55;word-break:break-word;max-height:none}
+#page-home .bubble{overflow:visible!important}
+/* 第 5 屏设备白卡 */
+#onboard .onb-cap{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  padding:0 2px 10px;border-bottom:1px solid #F0EFFA;margin-bottom:4px}
+#onboard .onb-cap b{font-size:15px;color:#1B1D2E}
+#onboard .onb-cap span{font-size:12px;color:#6B6E86}
+#onboard .onb-devlist{display:flex;flex-direction:column}
+#onboard .onb-devrow{display:flex;align-items:center;gap:12px;width:100%;padding:11px 2px;
+  border:0;border-bottom:1px solid #F2F1FA;background:transparent;text-align:left;
+  font-family:inherit;cursor:pointer}
+#onboard .onb-devrow:last-child{border-bottom:0}
+#onboard .onb-devic{width:40px;height:40px;flex:none;border-radius:13px;background:#F4F5FF;
+  display:grid;place-items:center;color:#5B4DF0}
+#onboard .onb-devic svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round}
+#onboard .onb-devtx{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+#onboard .onb-devtx b{font-size:15px;color:#1B1D2E;font-weight:700}
+#onboard .onb-devtx small{font-size:12px;color:#6B6E86;line-height:1.4}
+#onboard .onb-devck{width:24px;height:24px;flex:none;border-radius:50%;border:1.5px solid #D9D9EC;
+  display:grid;place-items:center;color:#fff;font-size:13px;font-weight:700}
+#onboard .onb-devrow.on .onb-devck{background:#5B4DF0;border-color:#5B4DF0}
+#onboard .onb-devrow.on .onb-devic{background:#5B4DF0;color:#fff}
+/* 第 8 屏一键录音：整颗主按钮，不再并排两个 */
+#onboard .onb-vpbtn{width:100%;min-height:58px;margin:14px 0;font-size:17px}
+
+/* 顶部时钟卡：日期+天气一行放得下，不再出省略号截半句 */
+.hhr,html.desk6 #page-home .hhr{overflow:visible!important;text-overflow:clip!important}
+#hhWx{white-space:nowrap!important;overflow:visible!important;text-overflow:clip!important}
+
+/* ===== 2026-11-10 19:2x 顶卡放大 + 农历 + 完整天气 + 药品确认 ===== */
+/* 顶卡两行放得下：时间更大、日期天气完整、农历单独一行 */
+html.desk6 #page-home .hhtime{font-size:60px!important;line-height:1.04;font-weight:800}
+html.desk6 #page-home .hhr{
+  grid-column:1;margin-top:2px;font-size:16px;line-height:1.4;
+  white-space:normal;overflow:visible;text-overflow:clip;flex-wrap:wrap;gap:6px
+}
+html.desk6 #page-home .hhr .hhsep{display:inline;color:rgba(255,255,255,.55)}
+html.desk6 #page-home #hhWx{white-space:normal;overflow:visible;text-overflow:clip}
+.hhlunar{font-size:13px;color:var(--ink-3);margin-top:2px}
+html.desk6 #page-home .hhlunar{grid-column:1;font-size:15px;color:rgba(255,255,255,.9);margin-top:2px}
+html.desk6 #page-home .hhgreet{display:none}
+html.desk6 #page-home .homehead{padding:14px 16px;gap:3px 10px}
+
+/* 药品确认卡：识别结果绝不自动入库，必须老人亲手点 */
+.medconfirm{position:fixed;inset:0;z-index:9999;background:rgba(24,25,45,.46);
+  display:flex;align-items:center;justify-content:center;padding:22px}
+.medconfirm[hidden]{display:none}
+.medconfirm .box{width:100%;max-width:420px;background:#fff;border-radius:24px;padding:22px;
+  box-shadow:0 18px 50px rgba(24,25,45,.25);font-family:inherit}
+.medconfirm b{display:block;font-size:22px;color:#1B1D2E;font-weight:800}
+.medconfirm .mc-tip{margin:10px 0 14px;font-size:14px;line-height:1.6;color:#6B6E86}
+.medconfirm .mc-tip em{color:#C4453F;font-style:normal;font-weight:700}
+.medconfirm .mc-input{width:100%;box-sizing:border-box;height:56px;border:1px solid #E4E4F2;
+  border-radius:16px;padding:0 14px;font-size:18px;color:#1B1D2E;background:#FAFAFF;
+  font-family:inherit;outline:none}
+.medconfirm .mc-input:focus{border-color:#5B4DF0;box-shadow:0 0 0 3px rgba(91,77,240,.12)}
+.medconfirm .mc-seen{margin:8px 2px 0;font-size:12px;color:#9A9FBA;line-height:1.5}
+.medconfirm .mc-btns{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+.medconfirm .mc-btns button{min-height:54px;border:0;border-radius:16px;font-size:16px;
+  font-weight:700;font-family:inherit;cursor:pointer}
+.medconfirm .mc-yes{background:#5B4DF0;color:#fff}
+.medconfirm .mc-no{background:#F4F5FF;color:#5B4DF0}
+
+/* 引导第 4 屏：药列表与手填 */
+#onboard .onb-medcard{padding:14px 16px}
+#onboard .onb-medlist{margin:8px 0 10px}
+#onboard .onb-medempty{font-size:13px;color:#9A9FBA;padding:10px 0}
+#onboard .onb-medrow{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid #F2F1FA}
+#onboard .onb-mednm{flex:1;min-width:0;font-size:15px;color:#1B1D2E;font-weight:700}
+#onboard .onb-medrow button{flex:none;border:1px solid #E4E4F2;background:#FAFAFF;color:#5B4DF0;
+  border-radius:12px;padding:8px 10px;font-size:12px;font-family:inherit;cursor:pointer}
+#onboard .onb-meddel{color:#C4453F!important;border-color:#F3D9D7!important}
+#onboard .onb-medadd{display:flex;gap:8px;align-items:center;margin-top:6px}
+#onboard .onb-medadd .onb-input{margin-top:0;height:50px;font-size:15px;flex:1;min-width:0}
+#onboard .onb-medadd .onb-btn{flex:none;width:96px;min-height:50px;font-size:14px;padding:0 8px}
+
+/* ===== 2026-11-10 19:5x 第 4 屏：药多了手填框别被底部导航挤没 ===== */
+#onboard .onb-medlist{max-height:168px;overflow-y:auto;overscroll-behavior:contain}
+#onboard .onb-medcard{margin-bottom:4px}
+#onboard .onb-medadd{position:sticky;bottom:0;background:#fff;padding:8px 0 2px;z-index:1}
+
+/* ===== 2026-11-10 20:0x 底部 tab 回来 + 工具栏贴回页面底部 =====
+   之前 html.desk6 #tabs{display:none} 把白色胶囊底栏整个藏了；
+   ddock 又 position:static + margin-top:auto，掉到屏外 top:855（屏高 853）。
+   这里把 tab 恢复成固定底部胶囊，ddock 收进页面底部留白内。 */
+html.desk6 #tabs{
+  display:grid!important; position:absolute; left:10px; right:10px; bottom:8px;
+  height:auto; min-height:58px; width:auto; z-index:7;
+  grid-auto-flow:column; grid-auto-columns:1fr; align-items:center;
+  padding:6px; border:1px solid #EDEDF7; border-radius:22px;
+  background:rgba(255,255,255,.96); backdrop-filter:blur(16px);
+  box-shadow:0 6px 20px rgba(40,42,90,.10);
+}
+html.desk6 #tabs .tab{padding:6px 0; border-radius:16px; gap:2px}
+html.desk6 #tabs .tab svg{width:24px;height:24px;color:#5B4DF0}
+html.desk6 #tabs .tab span{font-size:13px;font-weight:700;color:#1B1D2E}
+html.desk6 #tabs .tab:not(.on){opacity:.62}
+html.desk6 #tabs .tab:not(.on) svg{color:#6B6E86}
+/* 首页内容给固定底栏让出位置，紧急呼叫/说话两颗不再被 tab 压住 */
+html.desk6 #page-home{padding-bottom:78px!important}
+html.desk6 #page-home .ddock{position:static!important;margin-top:auto!important;bottom:auto!important}
+
+/* ===== 2026-11-10 20:15 菲尔特「首屏不要能上下滑动，一页全部展示完」 =====
+   原来 #page-home{overflow-y:auto} + 顶卡(4行) + 米粒卡(206px视频) +
+   图标(2列3行) + ddock(80px) + tabs(58px) 合计超过一屏，必须滑。
+   这里不删内容，只把尺寸按视口高度压缩、图标改 3列2行，
+   并彻底关掉滚动；所有元素仍然完整显示。 */
+html.desk6 #page-home{
+  overflow:hidden!important; overscroll-behavior:none!important;
+  height:100%; max-height:100%; gap:6px;
+  padding:8px 12px 72px!important;
+  display:flex; flex-direction:column; justify-content:flex-start;
+}
+/* 顶卡：时间保留大字号，信息行收紧 */
+html.desk6 #page-home .homehead{
+  order:1; flex:none; padding:10px 14px!important; gap:3px 10px; border-radius:20px;
+}
+html.desk6 #page-home .hhtime{font-size:clamp(42px,7.2vh,60px)!important; line-height:1}
+html.desk6 #page-home .hhr{
+  grid-column:1; margin-top:0; font-size:13px!important; line-height:1.25;
+  white-space:normal; flex-wrap:wrap; gap:4px;
+}
+html.desk6 #page-home .hhlunar{
+  grid-column:1; font-size:13px!important; line-height:1.25; margin-top:0;
+}
+html.desk6 #page-home .hhgreet{display:none}
+html.desk6 #page-home .dtop-side{gap:5px; grid-row:1 / span 3}
+html.desk6 #page-home .dguard{font-size:12px; padding:5px 10px}
+html.desk6 #page-home .dsset{min-height:38px; font-size:14px; padding:0 11px}
+/* 米粒卡：视频按视口高度收缩，不再固定 206px */
+html.desk6 #page-home .petcard{
+  order:2; flex:1 1 auto; min-height:0; max-height:none;
+  padding:8px 14px!important; gap:4px; border-radius:20px; overflow:hidden;
+}
+html.desk6 #page-home .petava{
+  width:min(24vh,150px)!important; height:min(24vh,150px)!important; border-radius:18px;
+}
+html.desk6 #page-home .dhint{font-size:clamp(18px,2.6vh,24px)!important; line-height:1.2}
+html.desk6 #page-home .bubble{font-size:14px!important; line-height:1.3;
+  white-space:normal; overflow:hidden; text-overflow:ellipsis;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical}
+/* 图标：3列2行放下 6 个，省掉一整行 */
+html.desk6 #page-home .deskgrid{
+  order:3; flex:none; grid-template-columns:repeat(3,1fr)!important; gap:6px!important;
+}
+html.desk6 #page-home .dicon{
+  min-height:clamp(54px,8vh,76px)!important; padding:6px 4px!important;
+  gap:3px; border-radius:16px;
+}
+html.desk6 #page-home .dicon .dic{width:30px;height:30px}
+html.desk6 #page-home .dicon .dic svg{width:24px;height:24px}
+html.desk6 #page-home .dicon b{font-size:14px!important; line-height:1.2}
+/* 底栏两颗应急键：压紧 */
+html.desk6 #page-home .ddock{
+  order:4; flex:none; grid-template-columns:1fr 1fr!important;
+  gap:7px; padding:6px; border-radius:18px;
+}
+html.desk6 #page-home .ddock > button{min-height:50px!important; font-size:15px!important; border-radius:14px}
+html.desk6 #page-home .ddock > button small{font-size:10px}
+html.desk6 #page-home .ddock svg{width:20px;height:20px}
+/* 底部胶囊 tab：固定，内容区已让出 72px */
+html.desk6 #tabs{min-height:50px; padding:4px 6px}
+html.desk6 #tabs .tab{padding:3px 0; gap:1px}
+html.desk6 #tabs .tab svg{width:21px;height:21px}
+html.desk6 #tabs .tab span{font-size:12px}
+
+/* ============================================================
+   2026-11-10 20:26 菲尔特拍板（永久，别再改回去）
+   ① 底部 tab 永久删除 —— 之前说「底部 tab 没了」指的是「底部工具」，
+      我错把导航 tab 恢复了。DOM 已删，这里再兜一道 CSS 防止旧规则复活。
+   ② 小鸡主体放大、卡片边框缩小腾空间 —— 不是把鸡压小，
+      是把白卡 padding / 圆角 / 留白收掉，鸡本身反而更大。
+   ③ 声纹例句一次只给一句，念完自动换下一句。
+   ============================================================ */
+#tabs, nav#tabs{display:none!important; visibility:hidden!important; height:0!important; pointer-events:none!important}
+html.desk6 #page-home{padding-bottom:10px!important}  /* tab 没了，不用再让 72px */
+/* 白卡收边：padding 从 8px→2px、圆角收小、不留多余空白 */
+html.desk6 #page-home .petcard{
+  padding:2px 10px!important; gap:2px!important; border-radius:16px!important;
+  box-shadow:0 3px 10px rgba(0,0,0,.07)!important;
+}
+/* 主体放大：从 24vh/150px 回到原尺寸并再大一点，视频略微溢出裁掉白底 */
+html.desk6 #page-home .petava{
+  width:min(58vw,232px)!important; height:min(58vw,232px)!important;
+  border-radius:18px; overflow:visible; flex:none;
+}
+html.desk6 #page-home .petava video{object-fit:cover; transform:scale(1.22)}
+html.desk6 #page-home .dhint{font-size:clamp(20px,3vh,26px)!important; line-height:1.15}
+html.desk6 #page-home .bubble{font-size:14px!important; -webkit-line-clamp:1}
+/* 图标区压紧，把省下的高度全让给小鸡 */
+html.desk6 #page-home .deskgrid{gap:5px!important}
+html.desk6 #page-home .dicon{min-height:clamp(50px,7.2vh,68px)!important; padding:4px 3px!important}
+html.desk6 #page-home .ddock{padding:5px; gap:6px}
+html.desk6 #page-home .ddock > button{min-height:48px!important}
+/* 首屏仍是一页、不许滚 */
+html.desk6 #page-home{overflow:hidden!important; overscroll-behavior:none!important}
+
+/* 声纹：一次一句，大字 */
+#onboard .onb-vpsent{padding:12px 16px!important; text-align:center}
+#onboard .onb-vpstep{font-size:13px; color:#6B6E86; font-weight:700; margin-bottom:8px; letter-spacing:.04em}
+#onboard .onb-vpone{font-size:23px; line-height:1.5; font-weight:800; color:#1B1D2E}
+#onboard .onb-vpone.done{color:#1E7A50}
+
+/* ============================================================
+   2026-11-10 20:36 菲尔特给图钉版式（覆盖前面所有 3 列 2 行的自作主张）
+   参照图 = 2 列 3 行大图标 + 宽白卡大鸡 + 顶部紫卡 + 底部两颗工具键。
+   唯一目标：这个版式一屏装完，底部两颗键完整可见、不许滚动。
+   手法：只压纵向空白（gap / 行高 / padding），鸡不放小、白卡边框继续收。
+   ============================================================ */
+html.desk6 #page-home{gap:8px!important; padding:8px 12px 8px!important;
+  overflow:hidden!important; overscroll-behavior:none!important}
+/* 图标回正：2 列 3 行 */
+html.desk6 #page-home .deskgrid{
+  order:3; flex:none; grid-template-columns:repeat(2,1fr)!important; gap:6px!important;
+}
+html.desk6 #page-home .dicon{
+  min-height:clamp(60px,8vh,72px)!important; padding:5px 6px!important;
+  gap:3px!important; border-radius:16px!important;
+}
+html.desk6 #page-home .dicon .dic{width:34px!important;height:34px!important}
+html.desk6 #page-home .dicon .dic svg{width:26px!important;height:26px!important}
+html.desk6 #page-home .dicon b{font-size:16px!important; line-height:1.2}
+/* 白卡继续吃剩余高度，鸡保持大主体，不缩 */
+html.desk6 #page-home .petcard{flex:1 1 auto!important; min-height:0!important}
+html.desk6 #page-home .petava{
+  width:min(58vw,232px)!important; height:min(58vw,232px)!important; flex:none;
+}
+html.desk6 #page-home .petava video{transform:scale(1.22)}
+/* 底部两颗工具键完整可见 */
+html.desk6 #page-home .ddock{
+  order:4; flex:none; grid-template-columns:1fr 1fr!important;
+  gap:6px!important; padding:5px!important; border-radius:18px;
+}
+html.desk6 #page-home .ddock > button{min-height:48px!important; font-size:15px!important}
+/* tab 永久不再出现 */
+#tabs, nav#tabs{display:none!important; visibility:hidden!important; height:0!important; pointer-events:none!important}
+
+
+/* ============================================================
+   2026-11-10 21:2x 菲尔特最终拍板（永久，别再改回去）
+   ① 顶部「永久预留」状态条位置 —— 不管状态条在不在，都留 70px，
+      出现/消失都不改 padding，页面绝不跳一下。
+   ② 大白卡 + 小鸡大幅缩小（但别缩成一小点）。
+   ③ 下面图标按钮、底部两颗键放大。
+   ④ 一屏放全、不许滚。
+   ============================================================ */
+html.desk6 #page-home{
+  padding:calc(70px + env(safe-area-inset-top)) 12px 8px !important;
+  gap:8px !important; overflow:hidden !important; overscroll-behavior:none !important;
+}
+/* 状态条永远 absolute 在那块预留位里，不参与流式布局 → 不会挤动任何一块 */
+html.desk6 #page-home .callbar:not([hidden]){
+  position:absolute !important; left:12px; right:12px;
+  top:calc(8px + env(safe-area-inset-top)) !important;
+  height:54px !important; box-sizing:border-box; z-index:20;
+}
+/* 顶卡不动 */
+html.desk6 #page-home .homehead{order:1; flex:none !important}
+/* 大白卡缩到「吃剩余高度」，鸡明显小一号 */
+html.desk6 #page-home .petcard{
+  order:2; flex:1 1 auto !important; min-height:0 !important;
+  padding:2px 10px !important; gap:2px !important; border-radius:16px !important;
+}
+html.desk6 #page-home .petava{
+  width:min(38vw,152px) !important; height:min(38vw,152px) !important;
+  border-radius:16px !important; flex:none;
+}
+html.desk6 #page-home .petava video{transform:scale(1.18)}
+html.desk6 #page-home .dhint{font-size:clamp(19px,2.7vh,24px) !important; line-height:1.15}
+html.desk6 #page-home .bubble{font-size:14px !important}
+/* 图标按钮放大 */
+html.desk6 #page-home .deskgrid{order:3; flex:none; grid-template-columns:repeat(2,1fr) !important; gap:7px !important}
+html.desk6 #page-home .dicon{
+  min-height:clamp(68px,9vh,82px) !important; padding:7px 6px !important;
+  gap:4px !important; border-radius:18px !important;
+}
+html.desk6 #page-home .dicon .dic{width:38px !important; height:38px !important}
+html.desk6 #page-home .dicon .dic svg{width:29px !important; height:29px !important}
+html.desk6 #page-home .dicon b{font-size:17px !important; line-height:1.2}
+/* 底部两颗放大 */
+html.desk6 #page-home .ddock{
+  order:4; flex:none; grid-template-columns:1fr 1fr !important;
+  gap:8px !important; padding:6px !important; border-radius:20px;
+}
+html.desk6 #page-home .ddock > button{min-height:62px !important; font-size:16px !important}
+html.desk6 #page-home .ddock > button small{font-size:12px !important}
+#tabs, nav#tabs{display:none!important; visibility:hidden!important; height:0!important; pointer-events:none!important}

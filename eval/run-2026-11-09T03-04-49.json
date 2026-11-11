@@ -1,0 +1,817 @@
+{
+ "stamp": "2026-11-09T03-04-49",
+ "total": 31,
+ "run1": {
+  "passed": 25,
+  "rate": 80.6,
+  "rows": [
+   {
+    "id": 1,
+    "cat": "通讯",
+    "q": "给我闺女打个电话",
+    "want": [
+     "call_phone"
+    ],
+    "got": "call_phone",
+    "ok": true,
+    "ms": 3977,
+    "err": ""
+   },
+   {
+    "id": 2,
+    "cat": "通讯",
+    "q": "跟老伴视个频",
+    "want": [
+     "wechat_call",
+     "call_phone"
+    ],
+    "got": "wechat_call",
+    "ok": true,
+    "ms": 2829,
+    "err": ""
+   },
+   {
+    "id": 3,
+    "cat": "通讯",
+    "q": "给大孙子说一声我吃饭了",
+    "want": [
+     "wechat_message",
+     "send_sms"
+    ],
+    "got": "wechat_message",
+    "ok": true,
+    "ms": 4112,
+    "err": ""
+   },
+   {
+    "id": 4,
+    "cat": "通讯",
+    "q": "接一下",
+    "want": [
+     "answer_call"
+    ],
+    "got": "answer_call",
+    "ok": true,
+    "ms": 3667,
+    "err": ""
+   },
+   {
+    "id": 5,
+    "cat": "通讯",
+    "q": "挂了吧",
+    "want": [
+     "hang_up"
+    ],
+    "got": "hang_up",
+    "ok": true,
+    "ms": 3766,
+    "err": ""
+   },
+   {
+    "id": 6,
+    "cat": "快捷",
+    "q": "把灯打开",
+    "want": [
+     "torch"
+    ],
+    "got": "torch",
+    "ok": true,
+    "ms": 3482,
+    "err": ""
+   },
+   {
+    "id": 7,
+    "cat": "快捷",
+    "q": "亮个灯",
+    "want": [
+     "torch"
+    ],
+    "got": "torch",
+    "ok": true,
+    "ms": 2544,
+    "err": ""
+   },
+   {
+    "id": 8,
+    "cat": "快捷",
+    "q": "关灯",
+    "want": [
+     "torch"
+    ],
+    "got": "torch",
+    "ok": true,
+    "ms": 2478,
+    "err": ""
+   },
+   {
+    "id": 9,
+    "cat": "快捷",
+    "q": "付钱的码调出来",
+    "want": [
+     "scan_pay"
+    ],
+    "got": "scan_pay",
+    "ok": true,
+    "ms": 3526,
+    "err": ""
+   },
+   {
+    "id": 10,
+    "cat": "快捷",
+    "q": "帮我扫个码",
+    "want": [
+     "scan_pay"
+    ],
+    "got": "scan_pay",
+    "ok": true,
+    "ms": 3140,
+    "err": ""
+   },
+   {
+    "id": 11,
+    "cat": "影音",
+    "q": "放一段豫剧",
+    "want": [
+     "play_direct",
+     "tv_channel"
+    ],
+    "got": "play_direct",
+    "ok": true,
+    "ms": 3115,
+    "err": ""
+   },
+   {
+    "id": 12,
+    "cat": "影音",
+    "q": "看新闻联播",
+    "want": [
+     "watch_news",
+     "play_direct",
+     "tv_channel"
+    ],
+    "got": "play_direct",
+    "ok": true,
+    "ms": 2796,
+    "err": ""
+   },
+   {
+    "id": 13,
+    "cat": "影音",
+    "q": "开中央13台",
+    "want": [
+     "tv_channel",
+     "play_direct"
+    ],
+    "got": "play_direct",
+    "ok": true,
+    "ms": 3529,
+    "err": ""
+   },
+   {
+    "id": 14,
+    "cat": "影音",
+    "q": "声音大点",
+    "want": [
+     "volume",
+     "player_control"
+    ],
+    "got": "volume",
+    "ok": true,
+    "ms": 2804,
+    "err": ""
+   },
+   {
+    "id": 15,
+    "cat": "影音",
+    "q": "不看了",
+    "want": [
+     "player_control",
+     "go_back"
+    ],
+    "got": "player_control",
+    "ok": true,
+    "ms": 4143,
+    "err": ""
+   },
+   {
+    "id": 16,
+    "cat": "生活",
+    "q": "今天冷不冷",
+    "want": [
+     "get_weather"
+    ],
+    "got": "get_weather",
+    "ok": true,
+    "ms": 2374,
+    "err": ""
+   },
+   {
+    "id": 17,
+    "cat": "生活",
+    "q": "几点了",
+    "want": [
+     "get_weather",
+     "search_web"
+    ],
+    "got": "read_screen",
+    "ok": false,
+    "ms": 4264,
+    "err": ""
+   },
+   {
+    "id": 18,
+    "cat": "生活",
+    "q": "明天有雨吗",
+    "want": [
+     "get_weather"
+    ],
+    "got": "get_weather",
+    "ok": true,
+    "ms": 3496,
+    "err": ""
+   },
+   {
+    "id": 19,
+    "cat": "安全",
+    "q": "我摔了",
+    "want": [
+     "emergency"
+    ],
+    "got": "emergency",
+    "ok": true,
+    "ms": 3017,
+    "err": ""
+   },
+   {
+    "id": 20,
+    "cat": "安全",
+    "q": "我不舒服，快叫我儿子",
+    "want": [
+     "emergency",
+     "call_phone"
+    ],
+    "got": "emergency",
+    "ok": true,
+    "ms": 3342,
+    "err": ""
+   },
+   {
+    "id": 21,
+    "cat": "安全",
+    "q": "我没事",
+    "want": [
+     "emergency",
+     "search_web"
+    ],
+    "got": "",
+    "ok": false,
+    "ms": 1805,
+    "err": ""
+   },
+   {
+    "id": 22,
+    "cat": "系统",
+    "q": "屏幕亮一点",
+    "want": [
+     "volume"
+    ],
+    "got": "press_key",
+    "ok": false,
+    "ms": 8034,
+    "err": ""
+   },
+   {
+    "id": 23,
+    "cat": "系统",
+    "q": "手机卡了",
+    "want": [
+     "list_apps",
+     "list_tasks"
+    ],
+    "got": "look_screen",
+    "ok": false,
+    "ms": 8420,
+    "err": ""
+   },
+   {
+    "id": 24,
+    "cat": "记忆",
+    "q": "记住我早上要吃降压药",
+    "want": [
+     "remember",
+     "check_meds"
+    ],
+    "got": "remember",
+    "ok": true,
+    "ms": 3120,
+    "err": ""
+   },
+   {
+    "id": 25,
+    "cat": "记忆",
+    "q": "我早上要吃什么药来着",
+    "want": [
+     "recall",
+     "check_meds"
+    ],
+    "got": "check_meds",
+    "ok": true,
+    "ms": 2672,
+    "err": ""
+   },
+   {
+    "id": 26,
+    "cat": "闲聊",
+    "q": "你是谁呀",
+    "want": [],
+    "got": "",
+    "ok": true,
+    "ms": 759,
+    "err": ""
+   },
+   {
+    "id": 27,
+    "cat": "闲聊",
+    "q": "我闷得慌，陪我说说话",
+    "want": [],
+    "got": "",
+    "ok": true,
+    "ms": 1766,
+    "err": ""
+   },
+   {
+    "id": 28,
+    "cat": "兜底",
+    "q": "把这个弄一下",
+    "want": [],
+    "got": "look_screen",
+    "ok": false,
+    "ms": 4076,
+    "err": ""
+   },
+   {
+    "id": 29,
+    "cat": "兜底",
+    "q": "那个东西呢",
+    "want": [],
+    "got": "",
+    "ok": true,
+    "ms": 1924,
+    "err": ""
+   },
+   {
+    "id": 30,
+    "cat": "复合",
+    "q": "给我儿子打个电话，问问他吃饭没",
+    "want": [
+     "call_phone"
+    ],
+    "got": "call_phone",
+    "ok": true,
+    "ms": 2800,
+    "err": ""
+   },
+   {
+    "id": 31,
+    "cat": "安全",
+    "q": "我脑袋晕",
+    "want": [
+     "emergency"
+    ],
+    "got": "",
+    "ok": false,
+    "ms": 1903,
+    "err": ""
+   }
+  ]
+ },
+ "teach": [
+  {
+   "id": 31,
+   "q": "我脑袋晕",
+   "before": "",
+   "after": "emergency",
+   "ok": true,
+   "ms": 2256
+  }
+ ],
+ "run2": {
+  "passed": 26,
+  "rate": 83.9,
+  "rows": [
+   {
+    "id": 1,
+    "cat": "通讯",
+    "q": "给我闺女打个电话",
+    "want": [
+     "call_phone"
+    ],
+    "got": "call_phone",
+    "ok": true,
+    "ms": 3977,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 2,
+    "cat": "通讯",
+    "q": "跟老伴视个频",
+    "want": [
+     "wechat_call",
+     "call_phone"
+    ],
+    "got": "wechat_call",
+    "ok": true,
+    "ms": 2829,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 3,
+    "cat": "通讯",
+    "q": "给大孙子说一声我吃饭了",
+    "want": [
+     "wechat_message",
+     "send_sms"
+    ],
+    "got": "wechat_message",
+    "ok": true,
+    "ms": 4112,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 4,
+    "cat": "通讯",
+    "q": "接一下",
+    "want": [
+     "answer_call"
+    ],
+    "got": "answer_call",
+    "ok": true,
+    "ms": 3667,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 5,
+    "cat": "通讯",
+    "q": "挂了吧",
+    "want": [
+     "hang_up"
+    ],
+    "got": "hang_up",
+    "ok": true,
+    "ms": 3766,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 6,
+    "cat": "快捷",
+    "q": "把灯打开",
+    "want": [
+     "torch"
+    ],
+    "got": "torch",
+    "ok": true,
+    "ms": 3482,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 7,
+    "cat": "快捷",
+    "q": "亮个灯",
+    "want": [
+     "torch"
+    ],
+    "got": "torch",
+    "ok": true,
+    "ms": 2544,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 8,
+    "cat": "快捷",
+    "q": "关灯",
+    "want": [
+     "torch"
+    ],
+    "got": "torch",
+    "ok": true,
+    "ms": 2478,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 9,
+    "cat": "快捷",
+    "q": "付钱的码调出来",
+    "want": [
+     "scan_pay"
+    ],
+    "got": "scan_pay",
+    "ok": true,
+    "ms": 3526,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 10,
+    "cat": "快捷",
+    "q": "帮我扫个码",
+    "want": [
+     "scan_pay"
+    ],
+    "got": "scan_pay",
+    "ok": true,
+    "ms": 3140,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 11,
+    "cat": "影音",
+    "q": "放一段豫剧",
+    "want": [
+     "play_direct",
+     "tv_channel"
+    ],
+    "got": "play_direct",
+    "ok": true,
+    "ms": 3115,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 12,
+    "cat": "影音",
+    "q": "看新闻联播",
+    "want": [
+     "watch_news",
+     "play_direct",
+     "tv_channel"
+    ],
+    "got": "play_direct",
+    "ok": true,
+    "ms": 2796,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 13,
+    "cat": "影音",
+    "q": "开中央13台",
+    "want": [
+     "tv_channel",
+     "play_direct"
+    ],
+    "got": "play_direct",
+    "ok": true,
+    "ms": 3529,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 14,
+    "cat": "影音",
+    "q": "声音大点",
+    "want": [
+     "volume",
+     "player_control"
+    ],
+    "got": "volume",
+    "ok": true,
+    "ms": 2804,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 15,
+    "cat": "影音",
+    "q": "不看了",
+    "want": [
+     "player_control",
+     "go_back"
+    ],
+    "got": "player_control",
+    "ok": true,
+    "ms": 4143,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 16,
+    "cat": "生活",
+    "q": "今天冷不冷",
+    "want": [
+     "get_weather"
+    ],
+    "got": "get_weather",
+    "ok": true,
+    "ms": 2374,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 17,
+    "cat": "生活",
+    "q": "几点了",
+    "want": [
+     "get_weather",
+     "search_web"
+    ],
+    "got": "read_screen",
+    "ok": false,
+    "ms": 4264,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 18,
+    "cat": "生活",
+    "q": "明天有雨吗",
+    "want": [
+     "get_weather"
+    ],
+    "got": "get_weather",
+    "ok": true,
+    "ms": 3496,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 19,
+    "cat": "安全",
+    "q": "我摔了",
+    "want": [
+     "emergency"
+    ],
+    "got": "emergency",
+    "ok": true,
+    "ms": 3017,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 20,
+    "cat": "安全",
+    "q": "我不舒服，快叫我儿子",
+    "want": [
+     "emergency",
+     "call_phone"
+    ],
+    "got": "emergency",
+    "ok": true,
+    "ms": 3342,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 21,
+    "cat": "安全",
+    "q": "我没事",
+    "want": [
+     "emergency",
+     "search_web"
+    ],
+    "got": "",
+    "ok": false,
+    "ms": 1805,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 22,
+    "cat": "系统",
+    "q": "屏幕亮一点",
+    "want": [
+     "volume"
+    ],
+    "got": "press_key",
+    "ok": false,
+    "ms": 8034,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 23,
+    "cat": "系统",
+    "q": "手机卡了",
+    "want": [
+     "list_apps",
+     "list_tasks"
+    ],
+    "got": "look_screen",
+    "ok": false,
+    "ms": 8420,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 24,
+    "cat": "记忆",
+    "q": "记住我早上要吃降压药",
+    "want": [
+     "remember",
+     "check_meds"
+    ],
+    "got": "remember",
+    "ok": true,
+    "ms": 3120,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 25,
+    "cat": "记忆",
+    "q": "我早上要吃什么药来着",
+    "want": [
+     "recall",
+     "check_meds"
+    ],
+    "got": "check_meds",
+    "ok": true,
+    "ms": 2672,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 26,
+    "cat": "闲聊",
+    "q": "你是谁呀",
+    "want": [],
+    "got": "",
+    "ok": true,
+    "ms": 759,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 27,
+    "cat": "闲聊",
+    "q": "我闷得慌，陪我说说话",
+    "want": [],
+    "got": "",
+    "ok": true,
+    "ms": 1766,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 28,
+    "cat": "兜底",
+    "q": "把这个弄一下",
+    "want": [],
+    "got": "look_screen",
+    "ok": false,
+    "ms": 4076,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 29,
+    "cat": "兜底",
+    "q": "那个东西呢",
+    "want": [],
+    "got": "",
+    "ok": true,
+    "ms": 1924,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 30,
+    "cat": "复合",
+    "q": "给我儿子打个电话，问问他吃饭没",
+    "want": [
+     "call_phone"
+    ],
+    "got": "call_phone",
+    "ok": true,
+    "ms": 2800,
+    "err": "",
+    "replayed": false
+   },
+   {
+    "id": 31,
+    "cat": "安全",
+    "q": "我脑袋晕",
+    "want": [
+     "emergency"
+    ],
+    "got": "emergency",
+    "ok": true,
+    "ms": 2256,
+    "err": "",
+    "replayed": true,
+    "before": ""
+   }
+  ],
+  "note": "仅教过的句子重跑；其余沿用 RUN1 结果（replayed:false）"
+ },
+ "stubbed": true,
+ "errs": []
+}

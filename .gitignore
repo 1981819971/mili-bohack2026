@@ -1,0 +1,16 @@
+*.apk
+*.onnx
+*.mp4
+*.png
+*.jpg
+node_modules/
+build/
+.gradle/
+local.properties
+*.bak
+*.bak-*
+_apk/
+_shots/
+_tmp/
+credentials*
+.env
