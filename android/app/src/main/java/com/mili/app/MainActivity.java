@@ -1483,29 +1483,52 @@ public class MainActivity extends Activity {
            Thread.sleep 是唯一能老实数完这 2600 毫秒的地方。
            约束：只给「等界面加载」用，单次上限 15 秒，不做长轮询。 */
         /* 2026-11-11 评测 #22「屏幕亮一点」一直是功能缺口（模型只能去乱按按键）。
-           系统亮度要 WRITE_SETTINGS 这个特殊权限，没有就把他领到开关页，
-           别默默失败 —— 老人不知道发生了什么。 */
+           两级实现：
+           ① 有 WRITE_SETTINGS（少数机型/系统签名能拿到）→ 改系统亮度，全局生效；
+           ② 拿不到就改**自己这个窗口**的亮度 —— 不需要任何权限，立刻见效。
+              小米实测 adb 的 appops / pm grant 都改不动这个授权，老人也不可能自己
+              翻三层设置去找「修改系统设置」这个开关，所以②才是主路径。
+              代价：只对米粒自己的界面有效，切到别的 App 会回到系统亮度。
+              对老人来说够了 —— 他说「看不清」，看的就是米粒这块屏。 */
         @JavascriptInterface
         public String setBrightness(String dir) {
+            final boolean up = !"down".equals(dir);
+            /* ① 有系统权限就走全局 */
             try {
-                if (!android.provider.Settings.System.canWrite(MainActivity.this)) {
-                    android.content.Intent i = new android.content.Intent(
-                            android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS);
-                    i.setData(android.net.Uri.parse("package:" + getPackageName()));
-                    i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(i);
-                    return "{\"ok\":false,\"detail\":\"调屏幕得先允许我改系统设置，我把那个开关给您打开了，打开「允许」再说一声就行。\"}";
+                if (android.provider.Settings.System.canWrite(MainActivity.this)) {
+                    android.content.ContentResolver cr = getContentResolver();
+                    int cur = android.provider.Settings.System.getInt(
+                            cr, android.provider.Settings.System.SCREEN_BRIGHTNESS);
+                    int next = up ? Math.min(255, cur + 70) : Math.max(15, cur - 70);
+                    android.provider.Settings.System.putInt(
+                            cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, next);
+                    return "{\"ok\":true,\"detail\":\"" + (up ? "屏幕调亮了。" : "屏幕调暗了。") + "\"}";
                 }
-                android.content.ContentResolver cr = getContentResolver();
-                int cur = android.provider.Settings.System.getInt(
-                        cr, android.provider.Settings.System.SCREEN_BRIGHTNESS);
-                boolean up = !"down".equals(dir);
-                int next = up ? Math.min(255, cur + 70) : Math.max(15, cur - 70);
-                android.provider.Settings.System.putInt(
-                        cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, next);
-                return "{\"ok\":true,\"detail\":\"" + (up ? "屏幕调亮了。" : "屏幕调暗了。") + "\"}";
+            } catch (Throwable ignored) {}
+            /* ② 没权限就调自己窗口的亮度 */
+            try {
+                final float delta = up ? 0.25f : -0.25f;
+                /* got[0] 把真正写进去的值带回来 —— 截图截不到窗口亮度（screencap 是原始帧，
+                   合成器的亮度乘数不在里面），只能靠这个数自证有没有生效。 */
+                final float[] got = { -1f };
+                runOnUiThread(new Runnable() { @Override public void run() {
+                    try {
+                        android.view.WindowManager.LayoutParams lp = getWindow().getAttributes();
+                        float cur = lp.screenBrightness;
+                        if (cur < 0f) cur = 0.5f;          /* 跟随系统时给个中间值做起点 */
+                        lp.screenBrightness = Math.max(0.12f, Math.min(1f, cur + delta));
+                        getWindow().setAttributes(lp);
+                        got[0] = getWindow().getAttributes().screenBrightness;
+                    } catch (Throwable ignored) {}
+                }});
+                try { Thread.sleep(80); } catch (Throwable ignored) {}
+                if (got[0] < 0f) {
+                    return "{\"ok\":false,\"detail\":\"屏幕亮度没调成，系统不让改。\"}";
+                }
+                return "{\"ok\":true,\"detail\":\"" + (up ? "屏幕调亮了。" : "屏幕调暗了。")
+                        + "\",\"v\":" + got[0] + "}";
             } catch (Throwable t) {
-                return "{\"ok\":false,\"detail\":\"屏幕亮度没调成，可能系统不让改。\"}";
+                return "{\"ok\":false,\"detail\":\"屏幕亮度没调成。\"}";
             }
         }
 
