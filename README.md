@@ -19,6 +19,9 @@ BoHack 2026 · 日新主题赛道（Built for Better）参赛作品。
 - `app/evolve.js`：**DEPRECATED**，11-07 旧意图正则引擎，仅断网兜底，默认关闭
 - `android/` 原生层：离线唤醒 sherpa-onnx、流式 ASR、TTS、无障碍代操作、桌宠、状态备份
 - `eval/`：31 句 held-out 回归门禁（promptfoo 断言），只作不变量校验，不作进化证据
+- `backend/`：ECS 9001 服务端实现 —— 账号/配对/药箱/健康数据（`mili_auth.py`）、语音识别与状态同步（`asr_server.py`）、开发服务器与豆包 TTS
+- `docs/BUILD.md`：现在能跑什么、还缺哪些二进制素材与本机配置（逐项清单）
+- `docs/BACKEND-CONTRACT.md`：全部后端接口、数据落点、本机与服务端边界、安全边界
 - `tests/memory.test.mjs`：纯 Node 回归测试；`CONTRIBUTING.md` 是 3 人协作与上手说明
 
 ## 运行

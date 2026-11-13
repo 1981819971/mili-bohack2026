@@ -25,6 +25,8 @@ npm run scan   # 敏感串扫描，命中就别提交
 | `app/evolve.js` | **DEPRECATED**。11-07 旧意图正则引擎，只作断网兜底，默认关闭（`window.__MILI_LEGACY_EVO`） |
 | `tests/memory.test.mjs` | 记忆层回归测试 |
 | `tools/scan-secrets.mjs` | 提交前敏感串自检 |
+| `backend/` | ECS 9001 服务端：`mili_auth.py`（账号/配对/药箱/健康）、`asr_server.py`（ASR + `/state`）、`dev_server.py`、`doubao_tts.py` |
+| `docs/` | `BUILD.md` 构建缺件清单、`BACKEND-CONTRACT.md` 接口契约 |
 | `eval/` | 31 句 held-out 与 promptfoo 断言 |
 
 **别再建第二份 `app.js` 副本。** 历史上 `app_boot.js` 是它的手工拷贝，两份 13000 行只差 35 行却已经逻辑漂移（boot 版停在「满 3 天」，线上版是「3 次或 3 天」）。2026-11-13 起 `build.mjs` 的 `toBoot()` 现场从 `app.js` 生成 boot 版，`app_boot.js` 已删除。改前端只改 `app/app.js`。
@@ -68,9 +70,12 @@ npx promptfoo eval --assertions eval/assertions.yaml --model-outputs eval/output
 
 ## 与真机工程的关系
 
-本仓是**脱敏快照**，真机源码与资源在队长的本地工程，不在 GitHub：
+本仓是**脱敏快照**。2026-11-13 已补齐 Gradle 骨架、AndroidManifest、`res/`、前端 vendor、
+后端 4 个 Python 实现与依赖清单；仍缺的是大体积二进制素材与本机配置。
+**逐项清单见 `docs/BUILD.md`**，后端接口与数据落点见 `docs/BACKEND-CONTRACT.md`。
 
-- 缺 `app/vendor/three/`、`app/assets/`（模型、贴图、音频）、`android/app/src/main/assets/` 等大体积资源，所以 `node app/build.mjs` 直接跑会因读不到 `vendor/three/three.module.js` 报错。要构建单文件版，先从真机工程同步这些目录，或改 `build.mjs` 跳过缺失资源。
+- `node app/build.mjs` 现在能读到 `app/vendor/three/`（已补），但仍需 `app/assets/` 的模型/贴图/音频；缺资源时脚本会在读取模型处报错，属预期。
+- 密钥、ECS 地址、真实手机号、学号、姓名一律占位符；同步真机代码后用 `npm run scan` 校验。
 - `app/agent.js` 的 `DS.key` 是 `sk-REPLACE_WITH_YOUR_OWN_KEY`，`LLM_PRESETS` 只留官方 DeepSeek 与硅基流动。现场通过 `MILI_AGENT.setLLM({...})` 填本机密钥，不进仓。
 - 从真机同步代码到本仓必须走脱敏脚本（工作区 `sync_public_repo.py`），逐文件替换后再 `npm run scan`。**不要整目录复制。**
 
