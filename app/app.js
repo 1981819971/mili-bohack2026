@@ -1636,25 +1636,15 @@ function speak(text, opts) {
   nativeTTS(text, o);
 }
 
-/* 系统 TTS 兜底。抬到 1.55 尽量贴近童声，但音色终究不同，
-   所以只在「语料没覆盖 + 服务端也没拿到」时才用它。 */
+/* 2026-11-14：封死系统 TTS。n.speak / speechSynthesis 是小米的成年女声，
+   和豆包童声放一起就是「冰冷女声」「两个人在说话」。
+   童声主路径是 say() 里的 n.ttsSay()；能走到这里说明它已经失败，
+   宁可这一句不出声、屏幕上的字留着，也绝不换嗓子。
+   （预生成 voice/*.mp3 是 edge-tts XiaoyiNeural，也不是同一个嗓子，不用。） */
 function nativeTTS(text, o) {
-  o = o || {};
-  const n = NATIVE();
-  if (n && n.speak) { try { n.speak(text, !!o.slow); } catch (e) {} return; }
-  if (!('speechSynthesis' in window) || !voiceOn) return;
-  try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'zh-CN';
-    if (zhVoice) u.voice = zhVoice;
-    u.rate = o.slow ? 0.82 : 0.98;
-    u.pitch = 1.55;
-    u.volume = 1;
-    u.onstart = () => { speaking = true; try{petMode('sing')}catch(e){} if (curAnim === 'idle' || curAnim === 'speak') playAnim('speak', 30); };
-    u.onend = () => { speaking = false; try{petMode('idle')}catch(e){} if (curAnim === 'speak') playAnim('idle', 1); };
-    speechSynthesis.speak(u);
-  } catch (e) {}
+  try { console.log('[TTS] 童声不可用，静音兜底（不再用系统女声）：' + String(text || '').slice(0, 40)); } catch (e) {}
+  /* 原来靠系统 TTS 的 onend 复位 speaking，静音后必须自己复位，否则会卡在「在说」。 */
+  try { speaking = false; if (typeof petMode === 'function') petMode('idle'); } catch (e) {}
 }
 
 function hush() {
@@ -3410,8 +3400,19 @@ async function agentSay(text, quiet, opts) {
          说「我胸口闷」是要人管。同一句里差两个字，走的路必须不一样 ——
          这条排除先接住，身体的事一律当正事办。 */
       && !/微信|打电话|电话给|发消息|发条|联系人|打给|拨给|视频通话|胸闷|胸口|心慌|喘不上|憋/.test(String(text || ''))) {
-    voiceTools = false;
-    try { console.log('[CHAT] 这句是纯闲聊，本轮不挂工具'); } catch (e) {}
+    /* 2026-11-14：闲聊轮不再把工具摘光。
+       摘光后模型看到「你手上真有的本事」却一个工具都没有，会抱怨「没工具可调」；
+       11-12 实测摘光还会让它退回通用聊天模型、按版权策略拒答。
+       改成只挂 3 个只读信息类工具：保住「我是能办事的助手」的自我认知，
+       又不可能开微信去找「话题」。 */
+    voiceTools = (function () {
+      const want = ['tell_time', 'recall', 'remember'];
+      try {
+        const arr = window.MILI_TOOLS.schema().filter((t) => want.indexOf(t.function.name) >= 0);
+        return arr.length ? arr : false;
+      } catch (e) { return false; }
+    })();
+    try { console.log('[CHAT] 这句是纯闲聊，本轮只挂只读工具'); } catch (e) {}
   }
   /* 2026-11-09 菲尔特：「不要搞其他的声音出来」。
      原来中途会念「我看看啊」/「我还找着呢」，把「还没想好」伪装成「已经答了」，
@@ -5078,6 +5079,14 @@ async function handleSay(text, quiet, opts) {
       }
     }
     const r = await agentSay(_askMerge(raw), quiet, opts);
+    /* 2026-11-14：busy 必须在这里就收住。
+       原来 r.err==='busy' 会同时跳过下面两个 if，一路落到「本地硬规则 / 查必应」
+       兜底，老人听到的是「没听清」「没弄明白」甚至答非所问。
+       排队的那句会自动接上，这里只给一句人话。 */
+    if (r && r.err === 'busy') {
+      if (!quiet) say('我听着呢，等一下就回您。', 3200);
+      return r;
+    }
     if (r && r.err !== 'busy') {
       if (r.said || r.did) {
         if (window.EVO && r.did) { try { EVO.hit(raw, 'agent'); } catch (e) {} }
@@ -6505,9 +6514,9 @@ function bindSpeakTime() {
     const h = n.getHours(), m = n.getMinutes();
     const line = '现在是' + (h < 6 ? '凌晨' : h < 12 ? '上午' : h < 14 ? '中午' : h < 18 ? '下午' : '晚上')
       + (h % 12 === 0 ? 12 : h % 12) + '点' + (m ? m + '分' : '整');
+    /* 2026-11-14：删掉 nn.speak 第二次播报。say() 已经念过一遍，
+       再调系统 TTS 就是「冰冷女声 + 同一个意思念两遍」。 */
     try { say(line); } catch (e) {}
-    const nn = NATIVE();
-    if (nn && nn.speak) { try { nn.speak(line, false); } catch (e) {} }
   };
 }
 
@@ -13350,8 +13359,9 @@ window.MILI_FALL_NOW = function(by){
         if (!text) return;
         if (window.__F7_FAMILY) return;   /* 家人端不播 */
 
+        /* 2026-11-14：删掉第二次 nativeTTS(text)。say() 已经播过一次，
+           这里再播一遍就是确定性叠音，而且那一嗓子正是系统成年女声。 */
         try { say(text, 6000); } catch(e){}
-        try { if (typeof nativeTTS === 'function' && !window.__VOICE) nativeTTS(text); } catch(e){}
       };
       setInterval(function(){
         if (window.__F7_FAMILY) return;   /* 家人端不轮询、不播报 */
