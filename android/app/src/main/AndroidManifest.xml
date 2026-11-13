@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.mili.app">
+
+    <!-- 说话、听话 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- 打电话 / 发短信 -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <!-- 白名单来电自动接（API 26+，TelecomManager.acceptRingingCall 需要它） -->
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+
+    <!-- 天气按老人站的地方报，不按服务器出口 IP 猜 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- 手环心率：读华为手环的「心率广播」。
+         Android 12 起蓝牙权限分成 SCAN/CONNECT 两个，旧的 BLUETOOTH 也留着兼容老系统。
+         只在老人亲手打开那个开关时才扫，不常驻。 -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+    <!-- 眼睛 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- 桌宠悬浮窗 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 无障碍自愈用：被 MIUI 强停抹掉后自己写回去。签名权限，用户点不出来，
+         只能用 adb 给一次（tools/grant-perms.sh 里有）。没给也只是不自动修，不会崩。 -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- 吃药提醒 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- 防诈骗 -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.FLASHLIGHT" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- 要知道装了哪些 App（微信 / 高德 / 视频软件） -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /></intent>
+        <intent><action android:name="android.intent.action.DIAL" /></intent>
+        <intent><action android:name="android.intent.action.SENDTO" /></intent>
+        <package android:name="com.tencent.mm" />
+        <!-- 看电视/看短剧要用的 App 必须在这儿声明，否则 hasPkg() 看不见它们
+             （Android 11+ 包可见性；实测漏了 com.cat.readall 导致「看看电视」被系统浏览器截走） -->
+        <package android:name="com.cat.readall" />
+        <package android:name="com.phoenix.read" />
+        <package android:name="com.quark.browser" />
+        <package android:name="tv.danmaku.bili" />
+        <package android:name="com.cctv.cctv" />
+        <package android:name="com.autonavi.minimap" />
+        <package android:name="com.baidu.BaiduMap" />
+        <package android:name="com.qiyi.video" />
+        <package android:name="com.hunantv.imgo.activity" />
+        <package android:name="com.tencent.qqlive" />
+        <package android:name="com.youku.phone" />
+        <package android:name="com.cctv.cctv" />
+    </queries>
+
+    <application
+        android:label="米粒"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
+        android:theme="@android:style/Theme.Light.NoTitleBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:stateNotNeeded="true"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- 2026-11-06：米粒自己就是桌面（HOME）。开机、按 Home 键都回到米粒，
+                     一个 App 就是完整产品；不再依赖第三方老人桌面。 -->
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- 扫码配对。配对码在老人手机上，家人得用自己这台扫。
+             自己开相机、只用 ZXing core 解码 —— 不依赖 Google Play 服务，
+             国产 ROM 和模拟器都能用。 -->
+        <activity
+            android:name=".ScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- 桌宠：常驻悬浮窗 + 唤醒 -->
+        <!-- 用 specialUse：不绑麦克风就不需要 RECORD_AUDIO 才能前台化。
+             唤醒词需要麦克风时另有运行时授权，两者解耦。 -->
+        <service
+            android:name=".MilService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|microphone">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="elder_companion_overlay" />
+        </service>
+
+        <!-- 吃药提醒 -->
+        <receiver android:name=".MedAlarm" android:exported="false" />
+
+        <!-- 防诈骗：短信先过一遍 -->
+        <receiver
+            android:name=".ScamGuard"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 开机自启 -->
+        <receiver android:name=".BootStart" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.mili.app.KEEPALIVE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 覆盖安装后进程是新的，无障碍往往还没绑上，补一次自愈 -->
+        <receiver android:name=".A11yKeeper$Receiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 通话中的挂断 / 扬声器。走广播，不把 App 提到前台，
+             否则微信通话界面会被顶掉，手势就点空了。 -->
+        <receiver
+            android:name=".HangupReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mili.app.HANGUP" />
+                <action android:name="com.mili.app.SPEAKER" />
+                <action android:name="com.mili.app.SAY" />
+                <action android:name="com.mili.app.GATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 读微信红包通知：独立于无障碍，MIUI 上更可靠 -->
+        <service
+            android:name=".MiliNotifService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".MiliAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/mili_access" />
+        </service>
+    </application>
+</manifest>

@@ -1,0 +1,77 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mili.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.mili.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        /* ABI 由命令行 -PmiliAbi 决定，默认 arm64（真机）。
+           模拟器是 x86_64，不带它的 so 就得走 ARM 转译，
+           而 sherpa-onnx 的 ONNX Runtime 在转译层里会 SIGSEGV（实测崩在 mili-kws 线程）。
+           两个 ABI 同时塞进一个包要 190MB+，所以拆成两个包分开出。 */
+        ndk {
+            abiFilters (project.hasProperty('miliAbi') ? project.miliAbi : 'arm64-v8a')
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            // 用 debug 签名，保证能直接装
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // 不压缩 assets 里的 html，避免加载异常
+    androidResources {
+        // 模型必须原样躺着：压缩后 sherpa 读 asset 要整体解压，首启会卡好几秒
+        noCompress 'html', 'glb', 'onnx', 'txt'
+    }
+}
+
+dependencies {
+    // 离线唤醒引擎（含 arm64 的 libsherpa-onnx-jni.so）
+    implementation(name: 'sherpa-onnx', ext: 'aar')
+    /* 豆包端到端实时语音（全双工）走 WebSocket。
+       用手动放到 libs 的 Java-WebSocket（139KB），不走 mavenCentral —— 换机器/断网都能编。
+       ⚠️ 但它并不是「零依赖」：内部用 slf4j 打日志，jar 自己不带。
+       APK 里缺这个类，ws.connect() 会立刻 NoClassDefFoundError，
+       表现是豆包一次都连不上、每句都悄悄退回系统 TTS（2026-11-06 真机实测）。
+       api + nop 两个加起来不到 40KB，nop 让日志直接丢弃，不拖性能。 */
+    implementation(name: 'Java-WebSocket-1.5.6', ext: 'jar')
+    implementation 'org.slf4j:slf4j-api:2.0.13'
+    implementation 'org.slf4j:slf4j-nop:2.0.13'
+    // AAR 里的 Kotlin data class 运行时要 stdlib（Intrinsics 空检查）
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
+    /* 中文 → 拼音。微信搜联系人认拼音首字母（李昌洪 = lch），
+       而且识别把字听错时，拼音首字母往往还对得上，比直接搜中文稳。 */
+    implementation 'com.belerweb:pinyin4j:2.5.1'
+    // 红包详情页是微信自绘的，节点树全空 —— 用本地中文 OCR 读金额和发送者
+    implementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
+    /* 扫二维码配对。用 ZXing core 的纯 Java 解码器（不是那套带 Activity 的 Android 库），
+       自己开 CameraX 取帧 —— 这样不依赖 Google Play 服务，模拟器和国产 ROM 都能用。
+       core 只有 500KB 左右，不拖包体。 */
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'androidx.camera:camera-core:1.3.4'
+    implementation 'androidx.camera:camera-camera2:1.3.4'
+    implementation 'androidx.camera:camera-lifecycle:1.3.4'
+    // PreviewView：取景画面。自己拿 TextureView 拼 SurfaceProvider 也能做，
+    // 但旋转、缩放、铺满这些坑 PreviewView 都填过了，不值得再踩一遍。
+    implementation 'androidx.camera:camera-view:1.3.4'
+}

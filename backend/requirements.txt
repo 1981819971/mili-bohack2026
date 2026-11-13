@@ -1,0 +1,13 @@
+# 米粒的耳朵（服务端）
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# ASR_BACKEND=funasr（推荐，中文+方言强，CPU 可跑）
+funasr==1.2.6
+modelscope==1.22.0
+
+# ASR_BACKEND=whisper 时才需要
+# faster-whisper==1.1.1
+
+# 需要系统装 ffmpeg（转成 16k 单声道）

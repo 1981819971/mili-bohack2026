@@ -1,0 +1,18 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // 本地 AAR：sherpa-onnx（离线语音唤醒）放 app/libs
+        flatDir { dirs 'app/libs' }
+    }
+}
+rootProject.name = "米粒"
+include ':app'
