@@ -1,0 +1,152 @@
+{
+  "meta": {
+    "name": "米粒长期记忆探针（LongMemEval 风格本地化小集）",
+    "why": "对标 LongMemEval (ICLR 2025) 五类能力：信息抽取、多会话推理、时序推理、知识更新、弃答。用中文老人真实说法自建，专门测三层记忆的召回与冲突消解，不测模型本身。",
+    "rule": "只作不变量校验与回归门禁，不作进化证据；不是赛题考卷，与 eval/heldout.json 分开跑。",
+    "method": "把 sessions 依次灌进 MILI_CONTEXT.push() 与 MILI_MEMO.add()，再用 MILI_CONTEXT.retrieve(q,5) 召回，检查 want 是否出现在 top-k；弃答类检查 hasEvidence() 为 false。",
+    "metrics": [
+      "Recall@5",
+      "top1 命中率",
+      "弃答正确率",
+      "知识更新新值优先率"
+    ],
+    "source": "自建；题型结构参考 xiaowu0162/LongMemEval，规模远小，只能用作回归门禁，不能对外宣称 benchmark 分数"
+  },
+  "sessions": [
+    {
+      "day": "2026-11-10",
+      "turns": [
+        [
+          "user",
+          "我女儿叫小芳，她在天津上班，每周六给我打电话"
+        ],
+        [
+          "assistant",
+          "记着啦，小芳在天津。"
+        ]
+      ]
+    },
+    {
+      "day": "2026-11-11",
+      "turns": [
+        [
+          "user",
+          "我喜欢喝花茶，早上 7 点吃药"
+        ],
+        [
+          "assistant",
+          "好嘞，花茶和药都记着。"
+        ]
+      ]
+    },
+    {
+      "day": "2026-11-12",
+      "turns": [
+        [
+          "user",
+          "今天去医院看了喉咙，医生让我少说话"
+        ],
+        [
+          "assistant",
+          "那您歇着，我小声点。"
+        ],
+        [
+          "user",
+          "上次看的是天天耍大牌，在抖音看的"
+        ],
+        [
+          "assistant",
+          "记住啦。"
+        ]
+      ]
+    },
+    {
+      "day": "2026-11-13",
+      "turns": [
+        [
+          "user",
+          "我现在改喝乌龙茶了，花茶不喝了"
+        ],
+        [
+          "assistant",
+          "记住啦，改乌龙茶。"
+        ],
+        [
+          "user",
+          "我今天又去了一趟医院，拿了药"
+        ],
+        [
+          "assistant",
+          "辛苦啦。"
+        ]
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "id": "m1",
+      "type": "single-session-user",
+      "q": "我女儿叫什么名字",
+      "want": "小芳"
+    },
+    {
+      "id": "m2",
+      "type": "single-session-user",
+      "q": "我女儿在哪个城市上班",
+      "want": "天津"
+    },
+    {
+      "id": "m3",
+      "type": "single-session-preference",
+      "q": "我以前喜欢喝什么茶",
+      "want": "花茶"
+    },
+    {
+      "id": "m4",
+      "type": "knowledge-update",
+      "q": "我现在喝什么茶",
+      "want": "乌龙茶"
+    },
+    {
+      "id": "m5",
+      "type": "temporal-reasoning",
+      "q": "我哪天去医院看的喉咙",
+      "want": "2026-11-12"
+    },
+    {
+      "id": "m6",
+      "type": "multi-session",
+      "q": "我家里人是谁，我看过什么病",
+      "wantAny": [
+        "小芳",
+        "喉咙"
+      ]
+    },
+    {
+      "id": "m7",
+      "type": "single-session-user",
+      "q": "我每天几点吃药",
+      "want": "7 点"
+    },
+    {
+      "id": "m8",
+      "type": "single-session-user",
+      "q": "上次看的片名叫什么",
+      "want": "天天耍大牌"
+    },
+    {
+      "id": "m9",
+      "type": "abstention",
+      "q": "我孙子叫什么名字",
+      "want": null,
+      "expectAbstain": true
+    },
+    {
+      "id": "m10",
+      "type": "abstention",
+      "q": "我家的狗叫什么",
+      "want": null,
+      "expectAbstain": true
+    }
+  ]
+}

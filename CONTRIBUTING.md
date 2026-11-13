@@ -84,3 +84,12 @@ npx promptfoo eval --assertions eval/assertions.yaml --model-outputs eval/output
 - 别往 `evolve.js` 加新正则，也别拿它 27 句考卷的分数当进化证据。
 - 别把开发日记写进 systemPrompt。历史决策放 `docs/` 或 commit message，提示词只留规则。
 - 别让 skill 模糊匹配直接执行副作用工具（`wechat_call` / `send_sms` / `emergency`）。命中即 0ms 重放，没有第二次确认。
+
+
+## 改记忆 / agent 之前（2026-11-13 新增）
+
+1. 先读 `docs/ARCHITECTURE.md`，它是机制单一真源；进化口径以 `BOHACK.md §十三` 为准。
+2. **禁新增意图正则**。新能力 = 工具接 `agent-tools.js` + 写进 `tool-router.js` 的检索域目录。
+3. 每次改完跑：`node --test tests/*.test.mjs` 与 `node eval/run-eval.mjs`，把基线记进 `eval/results.json`。
+4. 评测数字只作不变量校验，**不拿它当「第二次比第一次好」的进化证据**。
+5. 真机 `assets/web/` 里有真实 key 与 ECS 地址，**同步一律走精确补丁，禁止整文件覆盖**。

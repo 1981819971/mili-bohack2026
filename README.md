@@ -23,6 +23,9 @@ BoHack 2026 · 日新主题赛道（Built for Better）参赛作品。
 - `docs/BUILD.md`：现在能跑什么、还缺哪些二进制素材与本机配置（逐项清单）
 - `docs/BACKEND-CONTRACT.md`：全部后端接口、数据落点、本机与服务端边界、安全边界
 - `tests/memory.test.mjs`：纯 Node 回归测试；`CONTRIBUTING.md` 是 3 人协作与上手说明
+- `tests/*.test.mjs`：27 条纯 Node 回归（记忆总线 / 三层上下文 / BM25 工具检索）
+- `eval/run-eval.mjs`：BFCL 式工具选择基准 + LongMemEval 风格长期记忆探针，**只作回归门禁，不作进化证据**
+- `docs/ARCHITECTURE.md`：**机制单一真源** —— 运行时形态、级联决策链、三层记忆、动态工具路由、进化口径、评测方法
 
 ## 运行
 

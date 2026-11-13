@@ -1,0 +1,526 @@
+{
+  "at": "2026-11-13T15:46:56.871Z",
+  "disclaimer": "只作不变量校验与回归门禁，不作进化证据；held-out cases 赛前冻结未改",
+  "method": {
+    "toolSelection": "BFCL 式首个工具命中 / Recall@k / MRR + RAG-MCP 检索前后体积",
+    "memory": "LongMemEval 五能力本地化小集 + Recall@5 / 弃答率 / 知识更新新值优先"
+  },
+  "tools": {
+    "cases": 31,
+    "firstToolHitRate": 0.7419,
+    "recallAtK": 0.8387,
+    "mrr": 0.7538,
+    "avgToolsInjected": 12.87,
+    "fallbackRate": 0,
+    "fullToolCount": 67,
+    "fullSchemaChars": 18739,
+    "approxCharsAfterRouting": 3600,
+    "details": [
+      {
+        "id": 1,
+        "cat": "通讯",
+        "q": "给我闺女打个电话",
+        "want": [
+          "call_phone"
+        ],
+        "top": "call_phone",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 2,
+        "cat": "通讯",
+        "q": "跟老伴视个频",
+        "want": [
+          "wechat_call",
+          "call_phone"
+        ],
+        "top": "tv_channel",
+        "rank": 6,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 3,
+        "cat": "通讯",
+        "q": "给大孙子说一声我吃饭了",
+        "want": [
+          "wechat_message",
+          "send_sms"
+        ],
+        "top": "set_alarm",
+        "rank": 13,
+        "inSelected": false,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 4,
+        "cat": "通讯",
+        "q": "接一下",
+        "want": [
+          "answer_call"
+        ],
+        "top": "answer_call",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 12,
+        "fallback": false
+      },
+      {
+        "id": 5,
+        "cat": "通讯",
+        "q": "挂了吧",
+        "want": [
+          "hang_up"
+        ],
+        "top": "hang_up",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 6,
+        "cat": "快捷",
+        "q": "把灯打开",
+        "want": [
+          "torch"
+        ],
+        "top": "torch",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 7,
+        "cat": "快捷",
+        "q": "亮个灯",
+        "want": [
+          "torch"
+        ],
+        "top": "torch",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 8,
+        "cat": "快捷",
+        "q": "关灯",
+        "want": [
+          "torch"
+        ],
+        "top": "torch",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 10,
+        "fallback": false
+      },
+      {
+        "id": 9,
+        "cat": "快捷",
+        "q": "付钱的码调出来",
+        "want": [
+          "wechat_pay_code",
+          "scan_pay"
+        ],
+        "top": "wechat_pay_code",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 10,
+        "cat": "快捷",
+        "q": "帮我扫个码",
+        "want": [
+          "wechat_scan",
+          "scan_pay"
+        ],
+        "top": "wechat_scan",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 11,
+        "cat": "影音",
+        "q": "放一段豫剧",
+        "want": [
+          "play_direct",
+          "tv_channel"
+        ],
+        "top": "play_direct",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 12,
+        "cat": "影音",
+        "q": "看新闻联播",
+        "want": [
+          "watch_news",
+          "play_direct",
+          "tv_channel"
+        ],
+        "top": "watch_news",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 13,
+        "cat": "影音",
+        "q": "开中央13台",
+        "want": [
+          "tv_channel",
+          "play_direct"
+        ],
+        "top": "play_direct",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 14,
+        "cat": "影音",
+        "q": "声音大点",
+        "want": [
+          "volume",
+          "player_control"
+        ],
+        "top": "volume",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 15,
+        "cat": "影音",
+        "q": "把电视关了吧",
+        "want": [
+          "ir_power"
+        ],
+        "top": "ir_power",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 16,
+        "cat": "生活",
+        "q": "今天冷不冷",
+        "want": [
+          "get_weather"
+        ],
+        "top": "get_weather",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 11,
+        "fallback": false
+      },
+      {
+        "id": 17,
+        "cat": "生活",
+        "q": "几点了",
+        "want": [
+          "today_info",
+          "tell_time"
+        ],
+        "top": "today_info",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 18,
+        "cat": "生活",
+        "q": "明天有雨吗",
+        "want": [
+          "get_weather"
+        ],
+        "top": "get_weather",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 12,
+        "fallback": false
+      },
+      {
+        "id": 19,
+        "cat": "安全",
+        "q": "我胸口疼得厉害",
+        "want": [
+          "emergency"
+        ],
+        "top": "emergency",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 11,
+        "fallback": false
+      },
+      {
+        "id": 20,
+        "cat": "安全",
+        "q": "我不舒服，快叫我儿子",
+        "want": [
+          "emergency",
+          "call_phone"
+        ],
+        "top": "emergency",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 12,
+        "fallback": false
+      },
+      {
+        "id": 21,
+        "cat": "安全",
+        "q": "记一下，我血压一百三十八，八十八",
+        "want": [
+          "log_vital"
+        ],
+        "top": "log_vital",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 11,
+        "fallback": false
+      },
+      {
+        "id": 22,
+        "cat": "系统",
+        "q": "屏幕亮一点",
+        "want": [
+          "set_brightness",
+          "volume"
+        ],
+        "top": "set_brightness",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 13,
+        "fallback": false
+      },
+      {
+        "id": 23,
+        "cat": "系统",
+        "q": "手机卡得很，先别动它",
+        "want": [],
+        "top": "list_apps",
+        "rank": null,
+        "inSelected": false,
+        "tools": 12,
+        "fallback": false
+      },
+      {
+        "id": 24,
+        "cat": "记忆",
+        "q": "记住我早上要吃降压药",
+        "want": [
+          "remember",
+          "check_meds"
+        ],
+        "top": "remember",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 11,
+        "fallback": false
+      },
+      {
+        "id": 25,
+        "cat": "记忆",
+        "q": "我早上要吃什么药来着",
+        "want": [
+          "recall",
+          "check_meds"
+        ],
+        "top": "check_meds",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 9,
+        "fallback": false
+      },
+      {
+        "id": 26,
+        "cat": "闲聊",
+        "q": "你是谁呀",
+        "want": [],
+        "top": "read_notifications",
+        "rank": null,
+        "inSelected": false,
+        "tools": 11,
+        "fallback": false
+      },
+      {
+        "id": 27,
+        "cat": "闲聊",
+        "q": "我闷得慌，陪我说说话",
+        "want": [],
+        "top": "answer_call",
+        "rank": null,
+        "inSelected": false,
+        "tools": 20,
+        "fallback": false
+      },
+      {
+        "id": 28,
+        "cat": "兜底",
+        "q": "把这个弄一下",
+        "want": [],
+        "top": "look_screen",
+        "rank": null,
+        "inSelected": false,
+        "tools": 24,
+        "fallback": false
+      },
+      {
+        "id": 29,
+        "cat": "兜底",
+        "q": "那个东西呢",
+        "want": [],
+        "top": "take_photo",
+        "rank": null,
+        "inSelected": false,
+        "tools": 16,
+        "fallback": false
+      },
+      {
+        "id": 30,
+        "cat": "复合",
+        "q": "给我儿子打个电话，问问他吃饭没",
+        "want": [
+          "call_phone"
+        ],
+        "top": "call_phone",
+        "rank": 1,
+        "inSelected": true,
+        "tools": 11,
+        "fallback": false
+      },
+      {
+        "id": 31,
+        "cat": "安全",
+        "q": "我脑袋晕",
+        "want": [
+          "emergency"
+        ],
+        "top": "vital_report",
+        "rank": 8,
+        "inSelected": true,
+        "tools": 11,
+        "fallback": false
+      }
+    ]
+  },
+  "memory": {
+    "probes": 10,
+    "overallAccuracy": 1,
+    "top1Recall": 0.75,
+    "abstainAccuracy": 1,
+    "knowledgeUpdateTop1": 1,
+    "contextStats": {
+      "raw": 12,
+      "cutoff": 4,
+      "working": 8,
+      "summaries": 1,
+      "passes": 1,
+      "coreChars": 104,
+      "writeOk": true
+    },
+    "details": [
+      {
+        "id": "m1",
+        "type": "single-session-user",
+        "q": "我女儿叫什么名字",
+        "ok": true,
+        "top1": "我女儿叫小芳，她在天津上班，每周六给我打电话；我喜欢喝花茶，早上 7 点吃药",
+        "hits": 5
+      },
+      {
+        "id": "m2",
+        "type": "single-session-user",
+        "q": "我女儿在哪个城市上班",
+        "ok": true,
+        "top1": "我女儿叫小芳，她在天津上班，每周六给我打电话；我喜欢喝花茶，早上 7 点吃药",
+        "hits": 5
+      },
+      {
+        "id": "m3",
+        "type": "single-session-preference",
+        "q": "我以前喜欢喝什么茶",
+        "ok": true,
+        "top1": "我女儿叫小芳，她在天津上班，每周六给我打电话；我喜欢喝花茶，早上 7 点吃药",
+        "hits": 5
+      },
+      {
+        "id": "m4",
+        "type": "knowledge-update",
+        "q": "我现在喝什么茶",
+        "ok": true,
+        "top1": "我现在改喝乌龙茶了，花茶不喝了",
+        "hits": 5
+      },
+      {
+        "id": "m5",
+        "type": "temporal-reasoning",
+        "q": "我哪天去医院看的喉咙",
+        "ok": true,
+        "top1": "今天去医院看了喉咙，医生让我少说话",
+        "hits": 5
+      },
+      {
+        "id": "m6",
+        "type": "multi-session",
+        "q": "我家里人是谁，我看过什么病",
+        "ok": true,
+        "top1": "上次看的是天天耍大牌，在抖音看的",
+        "hits": 5
+      },
+      {
+        "id": "m7",
+        "type": "single-session-user",
+        "q": "我每天几点吃药",
+        "ok": true,
+        "top1": "我女儿叫小芳，她在天津上班，每周六给我打电话；我喜欢喝花茶，早上 7 点吃药",
+        "hits": 5
+      },
+      {
+        "id": "m8",
+        "type": "single-session-user",
+        "q": "上次看的片名叫什么",
+        "ok": true,
+        "top1": "上次看的是天天耍大牌，在抖音看的",
+        "hits": 3
+      },
+      {
+        "id": "m9",
+        "type": "abstention",
+        "q": "我孙子叫什么名字",
+        "ok": true,
+        "top1": "我女儿叫小芳，她在天津上班，每周六给我打电话；我喜欢喝花茶，早上 7 点吃药",
+        "hits": 5
+      },
+      {
+        "id": "m10",
+        "type": "abstention",
+        "q": "我家的狗叫什么",
+        "ok": true,
+        "top1": "上次看的是天天耍大牌，在抖音看的",
+        "hits": 5
+      }
+    ]
+  }
+}
