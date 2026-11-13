@@ -1065,6 +1065,12 @@
   /* 把历史压成 messages。只带最近几轮，且只带说话内容，不带工具细节 ——
      老人不需要模型记住上一次调了什么工具，只需要记住聊过什么。 */
   function histMessages() {
+    /* 三层长期记忆接管：core（常驻画像）+ episodic（增量摘要）+ working（最近原文）。
+       systemPrompt 保持完全静态，变化部分全放 messages 尾部，prompt prefix cache 友好。
+       context.js 没加载时退回原来的 8 轮内存历史，不硬依赖。 */
+    if (window.MILI_CONTEXT && window.MILI_CONTEXT.histMessages) {
+      try { return window.MILI_CONTEXT.histMessages(); } catch (e) {}
+    }
     const out = [];
     for (const h of _hist.slice(-HIST_MAX)) {
       out.push({ role: h.role, content: h.content });
@@ -1141,8 +1147,12 @@
 
   function pushHist(role, content) {
     if (!content) return;
-    _hist.push({ role: role, content: String(content).slice(0, 300) });
+    const text = String(content).slice(0, 300);
+    _hist.push({ role: role, content: text });
     while (_hist.length > HIST_MAX) _hist.shift();
+    /* 原文同步进 append-only raw log；压缩由 context.js 按阈值自动触发，
+       重启后长期记忆仍在，不再像 _hist 那样一关机就全丢。 */
+    if (window.MILI_CONTEXT) { try { window.MILI_CONTEXT.push(role, text); } catch (e) {} }
   }
 
   /**
@@ -1262,7 +1272,24 @@
         const useTools = (opts.tools === false) ? false : (r < CFG.maxRounds - 1);
         /* 第 2 轮起收窄工具集：66 个清单 8K tokens，重发一次就是一次白花钱。
            返回 null 时 turn 会退回全量（工具太少就不冒险）。 */
-        const roundTools = (r >= 1 && usedNames.size) ? toolSubset(usedNames) : null;
+        /* 动态工具检索：第 0 轮就用 BM25 从 69 个里挑 top-k + 通用工具，
+           不再每轮全量注入 8K tokens。RAG-MCP 实测全量 13.62% → 检索 43.13%。
+           select() 低置信度会自己退回全量，绝不硬猜；零额外模型回合。 */
+        const roundTools = (function () {
+          if (r >= 1 && usedNames.size) {
+            const sub = toolSubset(usedNames);
+            if (sub) return sub;
+          }
+          if (window.MILI_TOOL_ROUTER) {
+            try {
+              const sel = window.MILI_TOOL_ROUTER.select(text, {
+                used: Array.from(usedNames), recent: Array.from(usedNames).slice(-3)
+              });
+              if (sel && sel.tools && sel.tools.length) return sel.tools;
+            } catch (e) {}
+          }
+          return null;
+        })();
         _forceTools = false;
         _retryAfterFail = false;
         const left = CFG.totalTimeout - (Date.now() - T0);
@@ -1349,11 +1376,12 @@
           });
 
           /* assistant 的这条要原样放回去，否则模型不知道自己在上一轮说了什么 */
-          messages.push({
-            role: 'assistant',
-            content: t.text || null,
-            tool_calls: calls,
-          });
+          /* DeepSeek 思考模式下的 tool loop 要求把该轮 reasoning_content 原样带回，
+             否则接口返回 400、结构化 tool_calls 丢失，模型只能把调用写进正文 ——
+             harvestXmlCalls 那 70 行正则就是这么来的。这里补回真因。 */
+          const _assistantMsg = { role: 'assistant', content: t.text || null, tool_calls: calls };
+          if (t.reason) _assistantMsg.reasoning_content = t.reason;
+          messages.push(_assistantMsg);
 
           /* 失败反思提示先攒着，所有回执收齐后再放（根治 400 的另一半） */
           let nudge = null;
@@ -1857,6 +1885,9 @@
     busy: () => _busy && (Date.now() - _busyAt < 6000),
     abort: () => { _epoch++; },
     trace: () => _lastTrace,
+    /* 验收只读：这一轮实际给了模型哪些工具、长期记忆压缩到什么状态 */
+    routeInfo: () => (window.MILI_TOOL_ROUTER ? window.MILI_TOOL_ROUTER.stats() : null),
+    contextInfo: () => (window.MILI_CONTEXT ? window.MILI_CONTEXT.stats() : null),
     history: () => _hist.slice(),
     clearHistory: () => { _hist.length = 0; },
     /* 2026-11-10：主动问候和跌落问话不经过 run()，但老人接下来的回答
