@@ -47,6 +47,10 @@
   var MAX_SUMMARIES = 6;     // 摘要段数上限，超过就链式再压缩
   var CORE_LIMIT = 800;
   var SUMMARY_LIMIT = 620;
+  /* 会话边界：超过 20 分钟没说话，上一会话的原文不再当成「当前对话」。
+     没有这条，上午聊的半句会被下午第一句接走 —— 真机复现过
+     「你好呀」回成「36 到底中不中呀」。 */
+  var SESSION_GAP = 20 * 60 * 1000;
 
   function blankEvent() { return { cutoff: 0, cutoffId: '', summaries: [], at: 0, passes: 0 }; }
 
@@ -84,8 +88,12 @@
     if (!text) return null;
     /* dayOverride 只给「导入历史会话 / 离线回放」用；真实对话一律按本地当天记。 */
     var day = dayOverride || (STORE && STORE.localDay ? STORE.localDay() : new Date().toLocaleDateString('zh-CN'));
-    var m = { id: 'c' + (Date.now().toString(36)) + '_' + (++seq), role: role === 'assistant' ? 'assistant' : 'user',
-              text: text.slice(0, 500), at: Date.now(), day: day };
+    var nowMs = Date.now();
+    var prevAt = raw.length ? (raw[raw.length - 1].at || 0) : 0;
+    /* 跨会话：先把上一会话整段压成摘要并推进 cutoff，working 从这一句重新开始。 */
+    if (prevAt && nowMs - prevAt > SESSION_GAP) maybeCompact(true, true);
+    var m = { id: 'c' + (nowMs.toString(36)) + '_' + (++seq), role: role === 'assistant' ? 'assistant' : 'user',
+              text: text.slice(0, 500), at: nowMs, day: day };
     raw.push(m);
     put(K_RAW, raw);
     maybeCompact();
@@ -101,7 +109,9 @@
     var t = String(s || '').trim();
     if (t.length < 5 || CHITCHAT.test(t)) return false;
     if (/^(嗯|哦|啊|好|是|对|行|没|哈)/.test(t) && t.length < 10) return false;
-    if (/[0-9０-９]/.test(t)) return true;
+    /* 光有数字不算事实：「36 到底中不中呀」这种闲聊也会被存进摘要，
+       隔天又被当成当前话题接走。数字必须带量词（点/次/天/号/岁/块…）。 */
+    if (/[0-9０-９]/.test(t) && /(点|次|天|号|岁|年|月|日|块|元|个|分|集|片)/.test(t)) return true;
     if (/(女儿|儿子|老伴|闺女|孙子|外孙|名字|住在|喜欢|不爱|每天|早上|上午|下午|晚上|昨天|今天|上次|记得|别|要去|吃过|看过|买过|挂号|约了|点|号|岁|药|医院)/.test(t)) return true;
     return false;
   }
@@ -132,12 +142,13 @@
     for (var i = 0; i < raw.length; i++) if (raw[i].id === ev.cutoffId) return i;
     return Math.min(ev.cutoff || 0, raw.length);   // ID 找不到就退回旧 index，不硬猜
   }
-  function maybeCompact(force) {
+  function maybeCompact(force, all) {
     var cut = anchor();
-    var pending = raw.length - cut - WORK_MAX;
+    /* all=true 用于会话边界：把旧会话全部归档，不保留原文窗口。 */
+    var pending = raw.length - cut - (all ? 0 : WORK_MAX);
     if (!force && pending < TRIGGER) return { compacted: false, pending: pending };
     if (pending <= 0) return { compacted: false, pending: pending };
-    var from = cut, to = raw.length - WORK_MAX;
+    var from = cut, to = all ? raw.length : raw.length - WORK_MAX;
     var slice = raw.slice(from, to);
     var text = extractive(slice);
     var day = (slice[0] && slice[0].day) || '';
@@ -168,9 +179,11 @@
     var out = [];
     var head = [coreBlock(), summaryBlock()].filter(Boolean).join('\n');
     if (head) out.push({ role: 'user', content: head });
-    var cut = anchor();
+    var cut = anchor(), nowMs = Date.now();
     for (var i = cut; i < raw.length; i++) {
       var m = raw[i];
+      /* 双保险：即便忘了归档，也不把 20 分钟前的原话当成本轮上下文。 */
+      if (m.at && nowMs - m.at > SESSION_GAP) continue;
       out.push({ role: m.role, content: m.text });
     }
     /* 兜底上限：即便 raw 异常膨胀也不让请求爆掉 */

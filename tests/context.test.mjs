@@ -133,3 +133,16 @@ test('抽取式摘要只留带事实的句子，纯寒暄不进档', () => {
   assert.ok(t.includes('小芳'));
   assert.ok(!t.includes('哈哈'));
 });
+
+test('会话边界：20 分钟前的半句话不串进新一轮对话', () => {
+  const { sandbox } = makeEnv();
+  const C = sandbox.MILI_CONTEXT;
+  C.push('user', '36 到底中不中呀', '2026-11-13');
+  /* history() 是浅拷贝，改内存里那条的时间来模拟「隔了半小时」 */
+  C.history()[0].at = Date.now() - 30 * 60 * 1000;
+  C.push('user', '你好呀', '2026-11-14');
+  const ms = C.histMessages();
+  assert.ok(!ms.some((m) => m.content.includes('36 到底中不中')), '旧会话原文被当成当前上下文');
+  assert.ok(ms.some((m) => m.content.includes('你好呀')));
+  assert.ok(C.stats().cutoff >= 1, '旧会话应被归档并推进 cutoff');
+});

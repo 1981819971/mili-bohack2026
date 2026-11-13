@@ -93,3 +93,9 @@ npx promptfoo eval --assertions eval/assertions.yaml --model-outputs eval/output
 3. 每次改完跑：`node --test tests/*.test.mjs` 与 `node eval/run-eval.mjs`，把基线记进 `eval/results.json`。
 4. 评测数字只作不变量校验，**不拿它当「第二次比第一次好」的进化证据**。
 5. 真机 `assets/web/` 里有真实 key 与 ECS 地址，**同步一律走精确补丁，禁止整文件覆盖**。
+   🚨 2026-11-13 真事故：整文件 `cp` 把真实凭据冲成占位符。现在写盘前后**各跑一次**护栏：
+   ```
+   node tools/check-device-credentials.mjs app public                       # 公开仓必须脱敏
+   node tools/check-device-credentials.mjs "<真机 app 目录>" device          # 真机必须有真实凭据
+   ```
+   任一返回非 0 就停手，从 `_bak_*/` 回滚后再打补丁。`tests/safety.test.mjs` 也会拦回归。
