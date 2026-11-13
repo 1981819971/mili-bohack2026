@@ -445,6 +445,24 @@
    *   · 「不超过 46 字」是因为老人耳朵跟不上长句
    * ======================================================================== */
   function systemPrompt(text, opts) {
+    /* 2026-11-14 首句提速：闲聊轮走精简提示词。
+       完整版 7.8K 字符每轮重发，光输入编码就要几百毫秒；闲聊不需要
+       67 个工具说明、失败经验、能力清单。精简到 ~350 字，首字延迟直接降一截。 */
+    if (opts && opts.lite) {
+      const ld = new Date();
+      const lwk = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][ld.getDay()];
+      let llun = '';
+      try { llun = window.lunarCN ? window.lunarCN(ld) : ''; } catch (e) {}
+      return [
+        '你是米粒，一只刚出壳不久的小鸡，陪一位中国老人过日子。',
+        '今天是' + (ld.getMonth()+1) + '月' + ld.getDate() + '日 ' + lwk + (llun ? '，农历' + llun : '') + '。',
+        '称呼老人「外婆」或「您」。像五六岁小孩：短句、口语、常带呀哦啦呢。',
+        '一次只回一两句，总共不超过 28 个字。不列清单、不写序号、不讲道理。',
+        '老人问日期、星期、农历，直接照上面那句答，不要联网搜。',
+        '绝不要提工具、能力、办不办得了；不要说「没工具可调」「我没有这个功能」。',
+        '不要说自己是 AI 或语言模型。换话题就只答新的这件，别提上一件。',
+      ].join('\n');
+    }
     const me = (E.me() || '').trim();
     const toolList = window.MILI_TOOLS.names().join('、');
     /* 老人没填名字时不能硬塞一个「老人家」。
@@ -1249,11 +1267,19 @@
     let dupFinal = '';
 
     try {
+      /* 2026-11-14 首句提速：闲聊轮精简提示词只有 218 字，
+         别再让三层记忆把上下文撑回几千字。只带画像/摘要头 + 最近 2 条原文。 */
+      const _histAll = histMessages();
+      const _hist = (opts && opts.lite)
+        ? _histAll.slice(0, 1).concat(_histAll.slice(-2))
+        : _histAll;
       const messages = [{ role: 'system', content: systemPrompt(text, opts) }]
-        .concat(histMessages())
+        .concat(_hist)
         .concat([{ role: 'user', content: text.slice(0, 300) }]);
 
-      for (let r = 0; r < CFG.maxRounds; r++) {
+      /* 闲聊轮一轮就回，不进多轮 ReAct。省掉整轮往返（~1-2s）。 */
+      const rounds = (opts && opts.lite) ? 1 : CFG.maxRounds;
+      for (let r = 0; r < rounds; r++) {
         if (Date.now() - T0 > CFG.totalTimeout) { err = 'total_timeout'; break; }
         maybeNarrate(r, T0, opts.onSaid);
 
@@ -1273,7 +1299,7 @@
            「你需要自己查一下版权方」。它不知道自己是个能操作这台手机的助手。
            现在改成：工具照挂（保住能力感），但这一轮只要它张嘴的时候返回了调用，
            全部丢弃（见下面 tcs 分支的 askFirst 拦截）。它问，但动不了手。 */
-        const useTools = (opts.tools === false) ? false : (r < CFG.maxRounds - 1);
+        const useTools = (opts.tools === false) ? false : (r < rounds - 1);
         /* 第 2 轮起收窄工具集：66 个清单 8K tokens，重发一次就是一次白花钱。
            返回 null 时 turn 会退回全量（工具太少就不冒险）。 */
         /* 动态工具检索：第 0 轮就用 BM25 从 69 个里挑 top-k + 通用工具，
@@ -1319,7 +1345,8 @@
              要动工具的轮次压到 0.15（选哪个工具、填什么参数要确定），
              纯说话的最后一轮仍是 0.55（说人话要自然）。 */
           temperature: useTools ? 0.15 : CFG.temperature,
-          maxTokens: (r === 0 || useTools) ? CFG.maxTokens : CFG.sayTokens,
+          /* 精简轮限 140 tokens：老人一句话 28 字就够，别让它先写小作文。 */
+          maxTokens: (opts && opts.lite) ? 140 : ((r === 0 || useTools) ? CFG.maxTokens : CFG.sayTokens),
           timeout: Math.max(4000, Math.min(CFG.turnTimeout, left)),
           onDelta: liveDelta,
           /* 档位按轮次给（2026-11-06 菲尔特：「回复的时间太慢了」）。
