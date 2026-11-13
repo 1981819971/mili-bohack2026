@@ -317,21 +317,17 @@ let chickRoot = null, midRoot = null, adultRoot = null, bones = {}, PET = null;
 let pGeo, pMat, dust, pT = 0;
 const PN = 100, pPos = new Float32Array(PN * 3), pVel = [];
 
-/* ---- 视频形象的模式切换 ----
-   idle = 待机循环（常驻）；sing = 唱歌视频（米粒开口说话时切这段）。
-   两段视频都常驻 DOM，切换只动 class + play/pause，不重新加载。 */
+/* ---- 视频形象的模式切换（2026-11-13 重写）----
+   只用 idle 一段视频常驻循环，绝不 pause、绝不切源。
+   旧实现说一句话就 i.pause() 停掉 idle、再 s.play() 切到另一段构图不同的素材；
+   sing 视频被 CSS 封存后，两段一起没画面 —— 鸡「说句话就消失」「忽大忽小」都由此而来。
+   singing 现在只是状态标记（波纹/文案用），不参与画面。 */
 function petMode(m) {
-  const a = $('petAva'), i = $('petIdleV'), s = $('petSingV');
-  if (!a || !i || !s) return;
-  if (m === 'sing') {
-    if (a.classList.contains('singing')) return;
-    a.classList.add('singing');
-    try { s.currentTime = 0; s.play().catch(() => {}); i.pause(); } catch (e) {}
-  } else {
-    if (!a.classList.contains('singing')) return;
-    a.classList.remove('singing');
-    try { i.play().catch(() => {}); s.pause(); } catch (e) {}
-  }
+  const a = $('petAva'), i = $('petIdleV');
+  if (!a || !i) return;
+  if (m === 'sing') a.classList.add('singing');
+  else a.classList.remove('singing');
+  if (i.paused) { try { i.play().catch(() => {}); } catch (e) {} }
 }
 window.__petMode = petMode;   // 原生桥/调试也能切
 
@@ -13316,37 +13312,22 @@ window.MILI_FALL_NOW = function(by){
       /* 自愈守卫：切页回来 WebView 会把视频停掉，停了就显示系统默认海报
          （灰底黑三角）—— 截图里那个「诡异形变」。两秒一次：该播没播就续上，
          真坏了就退回静态小鸡，绝不让默认海报露脸。 */
+      /* 2026-11-13 重写：只负责「切页回来 WebView 把视频停了」这一件事。
+         旧守卫在 readyState<2 时把 video display:none 并切静态图，切页/返回
+         那一两秒鸡就整块消失，之后又要等 canplay 才回来 —— 这正是「有时消失」。
+         现在永不隐藏视频、永不切 poster；真 error 也保留最后一帧，不让默认海报露脸。 */
       setInterval(function(){
         const ava = $('petAva');
         if (!ava || ava.offsetParent === null) return;   // 首页不可见就不折腾
-        const singing = ava.classList.contains('singing');
-        const v = singing ? $('petSingV') : $('petIdleV');
-        const post = $('petPoster');
+        const v = $('petIdleV');
         if (!v) return;
-        if (v.error || v.readyState < 2) {
-          /* 2026-11-09：show() 把静态鸡设成 display:none，旧守卫只把
-             opacity 改回 1 是没用的 —— display 还是 none，视频一坏首屏
-             就整块空白。这里必须把静态图真正放回来，宁可看到一只不动的鸡，
-             也不能让老人以为米粒不见了。 */
-          if (v.error) v.style.display = 'none';
-          /* 摘掉 ready：CSS 里 .petava:has(video.ready) #petPoster{opacity:0!important}
-             是带 !important 的，光改 inline opacity 压不过它。 */
-          v.classList.remove('ready');
-          /* 静态图必须真能盖住视频：CSS 里 :has(video.ready) 是 !important，
-             只改 inline opacity 压不过它，得靠这个 class 的更高优先级规则。 */
-          ava.classList.add('video-fallback');
-          if (post) { post.style.display = 'block'; post.style.opacity = '1'; }
-          return;
-        }
-        /* 2026-11-09 23:45 修「首页又没了」：视频恢复了必须把 ready 加回去。
-           CSS 里 html.desk6 #page-home .petava video{opacity:0}，只有 .ready 才亮；
-           旧守卫在视频瞬时不可用时摘掉 ready，之后从不加回 ——
-           切一次页 / WebView 停一次视频，首屏就永久空白。 */
         ava.classList.remove('video-fallback');
-        mark(v);
+        v.classList.add('ready');
+        const post = $('petPoster');
+        if (post) { post.style.display = 'none'; post.style.opacity = '0'; }
+        if (v.error) return;
         if (v.paused) { try { v.play().catch(function(){}); } catch(e){} }
-        if (post && (post.style.display !== 'none' || post.style.opacity !== '0')) show();
-      }, 2000);
+      }, 1200);
     })();
     /* 老人端两个真轮询：① 捎句话（家人端下发，米粒开口念）
        ② 到点吃药提醒（用药计划里定的时间，命中 HH:MM 播一次，一天只播一次） */

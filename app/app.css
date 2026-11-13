@@ -3958,19 +3958,35 @@ html.desk6 #page-home .ddock > button small{font-size:12px !important}
 
 
 /* ==========================================================================
-   2026-11-13 定稿：小鸡形象恒定（放在文件最后，盖掉上面所有历史覆盖）
+   2026-11-13 22:45 定稿：小鸡恒定（放在文件最后，盖掉上面所有历史覆盖）
    --------------------------------------------------------------------------
-   历史上同一 .petava video 被 5+ 组规则反复覆盖（cover ↔ contain、
-   scale 1.0 / 1.12 / 1.22 / 1.3125），idle 与 sing 两段素材尺寸又不同，
-   状态一切换鸡就忽大忽小。这里一次性钉死：容器固定、contain、零缩放。
-   形态在 app.js applyForm() 里已锁死为 chick（m2/m3 不加载）。
+   历史上同一 .petava video 被 8+ 组规则反复覆盖（cover/contain、scale
+   1.0/1.12/1.18/1.22/1.38/1.3125），容器另有 miliBreath 呼吸动画持续
+   scale(1~1.022)，切页回来还会重放 —— 鸡忽大忽小、有时放大、有时消失。
+   这里一次性钉死：容器零动画零变换；单段 idle 常驻；固定放大倍率。
    ========================================================================== */
-html.desk6 #page-home .petava{
+html.desk6 #page-home .petava,
+html.desk6 #page-home .petcard.d-listening .petava{
   width:min(58vw,232px)!important; height:min(58vw,232px)!important;
   overflow:hidden!important;
+  animation:none!important; transform:none!important; transition:none!important;
 }
 html.desk6 #page-home .petava video{
   object-fit:contain!important; object-position:center center!important;
-  transform:none!important;
+  transform:scale(1.34)!important; transform-origin:center 56%!important;
+  transition:none!important;
 }
-html.desk6 #page-home .petava #petSingV{ transform:none!important; }
+/* idle 永远在画面上：singing 也不许把它藏掉 */
+html.desk6 #page-home .petava #petIdleV,
+html.desk6 #page-home .petava.singing #petIdleV,
+html.desk6 #page-home .petava.video-fallback #petIdleV{
+  opacity:1!important; display:block!important;
+}
+/* 第二段素材构图不同，彻底不参与画面 */
+html.desk6 #page-home .petava #petSingV,
+html.desk6 #page-home .petava.singing #petSingV{
+  opacity:0!important; display:none!important; transform:none!important;
+}
+/* 任何 fallback 分支都不许藏视频、不许拿静态图盖住 */
+html.desk6 #page-home .petava.video-fallback video{display:block!important;opacity:1!important}
+html.desk6 #page-home .petava.video-fallback #petPoster{display:none!important;opacity:0!important}
