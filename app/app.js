@@ -2689,7 +2689,8 @@ function prunePoisonRules() {
   try {
     if (!Array.isArray(S.rules) || !S.rules.length) return 0;
     const bad = S.rules.filter((r) => r && r.ans &&
-      (POISON_ANS.test(r.ans) || /baike\.baidu|汉语|字典|百科/i.test(r.src || '')));
+      (POISON_ANS.test(r.ans) || /baike\.baidu|汉语|字典|百科/i.test(r.src || '')
+       || /农历|阴历|几号|几月几|星期几|几点|什么日子/.test(String((r && r.q) || ''))));
     if (!bad.length) return 0;
     S.rules = S.rules.filter((r) => bad.indexOf(r) < 0);
     save();
@@ -2698,6 +2699,11 @@ function prunePoisonRules() {
 }
 
 function learnAnswer(question, answer, src, costMs) {
+  /* 日期/农历/星期由本地算，绝不学成问答规则。
+     学歪一次就会像今天这样，每次问都抢答一段百科。 */
+  const qq = String(question || '');
+  if (/农历|阴历|几号|几月几|星期几|周几|几点|什么日子/.test(qq)
+      && !/提醒|闹钟/.test(qq)) return null;
   const k = learnKey(question);
   if (!k || !answer) return null;
   if (!answerSane(question, answer, src)) return null;
@@ -3245,11 +3251,13 @@ function goodCalls(results, trace) {
  *   ③ 会跑偏 —— 问一次农历，它能拐去讲阴历阳历怎么换算。
  * ======================================================================== */
 function lunarCNOf(d) {
+  /* 2026-11-14：全站统一成 window.lunarCN，不再另写一套 dateStyle:'long'。
+     顶卡、systemPrompt、today_info 工具用的都是 window.lunarCN（month:'long'+day:'numeric'），
+     只有这里用 dateStyle:'long' 再按「年」切字符串。Android WebView 的 ICU 输出格式
+     与桌面不一致时会切错或抛错，老人问农历就乱答。单一真源，别再分叉。 */
   try {
-    const s = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { dateStyle: 'long' }).format(d);
-    /* 输出形如「2026丙午年十月初四」，砍掉年份干支，只留月日 */
-    const i = s.indexOf('年');
-    return i >= 0 ? s.slice(i + 1) : s;
+    if (window.lunarCN) return window.lunarCN(d);
+    return new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { month: 'long', day: 'numeric' }).format(d);
   } catch (e) { return ''; }
 }
 function localDateSay(raw) {
@@ -3261,7 +3269,7 @@ function localDateSay(raw) {
   const hh = d.getHours();
   const mm = ('0' + d.getMinutes()).slice(-2);
   const clock = hh + ' 点 ' + (mm === '00' ? '整' : mm + ' 分');
-  const askLunar = /农历|阴历/.test(q);
+  const askLunar = /农历|阴历|老历|初几/.test(q);
   const askWeek = /星期|礼拜|周几/.test(q);
   const askDay = /几号|几月几|\d+\s*月/.test(q);
   const askTime = /几点|什么时候了|现在时间/.test(q);
@@ -3471,6 +3479,8 @@ async function agentSay(text, quiet, opts) {
       if (typeof CALL !== 'undefined' && CALL.on) { try { callExit('task'); } catch (e) {} }
     },
     tools: voiceTools,
+    /* 闲聊轮（只挂 3 个只读工具）走精简 systemPrompt，首字延迟大幅下降。 */
+    lite: Array.isArray(voiceTools) && voiceTools.length <= 4,
     quiet: quiet,
     /* 2026-11-08 关掉流式播报：真机上出现「同一句念两遍 + 气泡重复」，
        根因是 streamed 判定失手后又补了一次 say。老人要的是「说出来就是一句完整的」，
@@ -3603,6 +3613,11 @@ let _cloud = null, _llmModel = null, _llmWarned = false;
    产品版绝不暴露这些内部函数 —— 老人不该看到，也不该被误触。
    我自己验收、探针复验都靠它，省得每次改一行就得重打包。 */
 window.__bootAt = Date.now();
+/* 2026-11-14 首句提速：开机就把 DeepSeek 连接焐热（DNS+TCP+TLS 约 300~400ms）。
+   原来只有进入通话才 prewarm，老人开机后第一句话是冷启动，白等这一截。 */
+setTimeout(function () {
+  try { window.MILI_AGENT && window.MILI_AGENT.prewarm && window.MILI_AGENT.prewarm(); } catch (e) {}
+}, 900);
 /* 开机补推一次：不是所有启动路径都会 save()，但白名单必须一开机就有。
    晚 1.8 秒等原生桥挂好。 */
 setTimeout(function () { try { syncCallCfg(); } catch (e) {} }, 1800);
@@ -4948,13 +4963,47 @@ async function handleSay(text, quiet, opts) {
     return;
   }
 
+  /* 2026-11-14 首句提速：纯寒暄不进模型。
+     走一趟 DeepSeek 要 ~900ms，换回一句「外婆好呀」不值。
+     这是出厂固定应答（和安全求助一样属于基础能力），不是进化成果：
+     只读常量表、精确键查表（不是意图正则）、不写入 S.rules、不参与学习、
+     不计入演示数字。表外的任何话照旧交给模型。 */
+  const GREET_FAST = {
+    '你好': '哎，外婆好呀，我在呢。',
+    '你好呀': '外婆好呀，我在呢，您说。',
+    '您好': '哎，我在呢，您说。',
+    '您好呀': '外婆好呀，我听着呢。',
+    '在吗': '在呢在呢，您说。',
+    '在不在': '在呢，我一直都在呀。',
+    '早上好': '外婆早呀，今天起得挺早。',
+    '上午好': '哎，上午好呀。',
+    '中午好': '中午好呀，吃饭了没？',
+    '下午好': '下午好呀，歇会儿没？',
+    '晚上好': '晚上好呀，今天累不累？',
+    '早': '外婆早呀。',
+    '嗨': '哎，我在呢。',
+    '哈喽': '哎，我在这儿呀。'
+  };
+  const _greet = GREET_FAST[raw] || GREET_FAST[bare];
+  if (_greet && !/农历|阴历|几号|几月几|星期|几点|什么日子|提醒|闹钟|药/.test(raw)) {
+    CALL.last = Date.now();
+    say(_greet, 3200);
+    return { did: false, said: _greet, ms: 0, trace: [] };
+  }
+
   window.__askedOnce = true;   // 问过话之后，开机问候就不再抢麦克风
   const t0 = performance.now();
 
   /* 0) 它学会的那条，先接管。
      这一步就是「进化真的改变行为」：学会之前要转圈查 2 秒，
      学会之后 0.04 秒就答，而且说法也不一样。 */
-  const rule = findRule(raw);
+  /* 2026-11-14 修「今天农历几月几号」乱答：
+     S.rules 问答缓存里存着一条旧规则（多半是当年 search_web 搜回来的农历换算百科），
+     findRule 在 ①.0 日期直答之前抢答，而且这里裸 return 不给回执 ——
+     老人听到的就是那段百科。日期/时间类一律跳过问答缓存，交给本地 0ms 直答。 */
+  const DATE_SKIP_RULE = /农历|阴历|老历|初几|几号|几月几|星期几|礼拜几|周几|几点|什么日子/;
+  const DATE_SKIP_BLOCK = /提醒|闹钟|叫我|药|挂号|预约/;
+  const rule = (DATE_SKIP_RULE.test(raw) && !DATE_SKIP_BLOCK.test(raw)) ? null : findRule(raw);
   if (rule && rule.ans && !/药/.test(raw)) {
     const ms = Math.max(1, Math.round(performance.now() - t0));
     rule.hits = (rule.hits || 0) + 1;
@@ -5011,9 +5060,12 @@ async function handleSay(text, quiet, opts) {
   }
 
   /* ---- ①.0 日期 / 农历 / 星期 / 时间：本地算完直接念 ---- */
-  const DATE_Q = /农历|阴历|几号|几月几|星期几|礼拜几|周几|几点|什么日子/;
+  const DATE_Q = /农历|阴历|老历|初几|几号|几月几|星期几|礼拜几|周几|几点|什么日子/;
+  /* 2026-11-14：明确在问农历时，别被「看/播/电影」这类词挤到模型去。
+     老人说「今天农历几号啊，我待会想看戏」，问的还是农历，本地 0ms 就能答准。 */
+  const LUNAR_Q = /农历|阴历|老历|初几/;
   if (DATE_Q.test(raw)
-      && !/提醒|闹钟|叫我|药|挂号|预约|看|播|节目|电影/.test(raw)) {
+      && (LUNAR_Q.test(raw) || !/提醒|闹钟|叫我|药|挂号|预约|看|播|节目|电影/.test(raw))) {
     const line = localDateSay(raw);
     if (line) {
       playAnim('nod', 1.2);
