@@ -9,8 +9,8 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="design-tokens.css">
 <link rel="stylesheet" href="app.css">
-  <!-- 云服务 SDK（免密 LLM）。只有从部署域名打开时才生效；file:// 打开会静默跳过。 -->
-  <script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
+  <!-- 2026-11-13 移除：云服务 SDK 在 file:// 下静默跳过，却是同步阻塞脚本，
+       实测首屏白等 390ms。真机直连 DeepSeek，不需要它。需要时按域名异步注入。 -->
   <!-- 错误收集：只留「记录 + 画红条」这两件事，调试浮层与 ?dbg=1 探针已删。
        老人机没有 DevTools，屏幕顶部那条红条是唯一能看见错的地方，
        所以它保留 —— 但只在真出错时出现，平时看不见。 -->
