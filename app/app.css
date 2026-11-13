@@ -3011,7 +3011,8 @@ html.desk6 #page-home .petava video{
 }
 html.desk6 #page-home .petava video.ready{opacity:1}
 /* sing 素材 1470×630、idle 1280×720：按高度比补偿，视觉尺寸对齐 */
-html.desk6 #page-home .petava #petSingV{transform-origin:center bottom; transform:scale(1.3125)}
+/* 2026-11-13：不再按素材高度补偿放大，两段视频统一 contain + 无缩放 */
+html.desk6 #page-home .petava #petSingV{transform:none}
 html.desk6 #page-home .petava #petPoster{object-fit:contain; transition:opacity .3s ease}
 html.desk6 #page-home .petcard.d-listening .petava{transform:none}
 html.desk6 #page-home .petcard{
@@ -3187,8 +3188,10 @@ html.desk6 #page-home .petava:has(video.ready) #petPoster{opacity:0}
 
 /* ===== 终局：sing 视频默认封存，只有 singing 态才允许出现 ===== */
 html.desk6 #page-home .petava #petSingV{opacity:0 !important; display:none !important}
-html.desk6 #page-home .petava.singing #petSingV{opacity:1 !important; display:block !important}
-html.desk6 #page-home .petava.singing #petIdleV{opacity:0 !important}
+/* 2026-11-13：用户要「一直保持小鸡状态」。sing 素材 1470×630 与 idle 1280×720
+   构图不同，切换时鸡会忽大忽小；这里让 idle 常驻，singing 只当状态标记。 */
+html.desk6 #page-home .petava.singing #petSingV{opacity:0 !important; display:none !important}
+html.desk6 #page-home .petava.singing #petIdleV{opacity:1 !important}
 /* 素材里鸡只占画面 60%，contain 后显得小。放大 1.38 倍框住主体，
    素材上下留白够，头不会被切；两侧纯背景溢出被卡片吃掉。 */
 html.desk6 #page-home .petava{max-width:320px; overflow:hidden}
@@ -3742,7 +3745,7 @@ html.desk6 #page-home .petava{
   width:min(58vw,232px)!important; height:min(58vw,232px)!important;
   border-radius:18px; overflow:visible; flex:none;
 }
-html.desk6 #page-home .petava video{object-fit:cover; transform:scale(1.22)}
+html.desk6 #page-home .petava video{object-fit:contain; transform:none}
 html.desk6 #page-home .dhint{font-size:clamp(20px,3vh,26px)!important; line-height:1.15}
 html.desk6 #page-home .bubble{font-size:14px!important; -webkit-line-clamp:1}
 /* 图标区压紧，把省下的高度全让给小鸡 */
@@ -3952,3 +3955,22 @@ html.desk6 #page-home .ddock > button small{font-size:12px !important}
   border-radius:0 0 10px 10px;
 }
 #demoHud .dh-rs:active{color:var(--accent-deep)}
+
+
+/* ==========================================================================
+   2026-11-13 定稿：小鸡形象恒定（放在文件最后，盖掉上面所有历史覆盖）
+   --------------------------------------------------------------------------
+   历史上同一 .petava video 被 5+ 组规则反复覆盖（cover ↔ contain、
+   scale 1.0 / 1.12 / 1.22 / 1.3125），idle 与 sing 两段素材尺寸又不同，
+   状态一切换鸡就忽大忽小。这里一次性钉死：容器固定、contain、零缩放。
+   形态在 app.js applyForm() 里已锁死为 chick（m2/m3 不加载）。
+   ========================================================================== */
+html.desk6 #page-home .petava{
+  width:min(58vw,232px)!important; height:min(58vw,232px)!important;
+  overflow:hidden!important;
+}
+html.desk6 #page-home .petava video{
+  object-fit:contain!important; object-position:center center!important;
+  transform:none!important;
+}
+html.desk6 #page-home .petava #petSingV{ transform:none!important; }
