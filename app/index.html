@@ -552,13 +552,13 @@
 
         <!-- ⑨ 比赛演示（2026-11-12 菲尔特：「我怎么进入演示模式」）
              放在设置组最下面 —— 家人找得到、老人平时不会误碰。
-             点进去只做三件事：复位到第一遍、屏幕角上挂提词、把三遍的
-             提问次数和耗时记成一张表。 -->
+             点进去只做三件事：复位到第一遍、屏幕角上挂提词、把两遍的
+             提问次数和耗时记成一张表。遍数由演示者自己点，默认不自动开。 -->
         <p class="sec">比赛演示</p>
         <div class="panel">
           <div class="merow"><span class="ml">演示模式</span><span class="mr" id="demoTag">没开</span></div>
           <button class="act-btn" id="demoBtn" style="width:100%;margin-top:12px">打开演示模式</button>
-          <p class="cp small" style="margin:10px 2px 0">同一个片子说三遍：第一遍问平台和片名，第二遍只问片名，第三遍一句不问直接放。</p>
+          <p class="cp small" style="margin:10px 2px 0">同一个片子说两遍：第一遍问清平台和片名，第二遍一句不问直接跳转。遍数在提词条上自己点。</p>
         </div>
 
       </div>
@@ -1074,25 +1074,27 @@
 <script src="agent-memo.js"></script>
 <script src="agent-tools.js"></script>
 <script src="tool-router.js"></script>
+<script src="stream-speak.js"></script>
 <script src="agent.js"></script>
 <script type="module" src="app.js"></script>
 <!-- ============================================================
-     演示模式（2026-11-12）
-     ① demoHud —— 右上角提词条。只在演示模式打开时出现，不挡手。
-        它不是「第几步」的按钮，而是**照着当前记住多少**告诉他该说哪句：
-        平台和片名都忘了 → 第一遍；记得平台 → 第二遍；都记得 → 第三遍。
-        现场的进度由它自己走，不用人点，按错了也不会演成假的。
+     演示模式（2026-11-14 定稿：两遍 + 手动切）
+     ① demoHud —— 右上角提词条。**默认不出现**，进 App 就是普通首页；
+        只有点「我的 → 设置 → 比赛演示」才挂出来。
+        第 1 遍 / 第 2 遍由演示者自己点按钮切，不靠记忆自动跳。
      ② demoSheet —— 「我的 → 设置 → 比赛演示」点开的那张面板：
-        三步怎么说、三遍的结果表、复位。
+        两遍怎么说、两遍的结果表、遍数切换、复位。
      ============================================================ -->
 <div id="demoHud" hidden>
   <div class="dh-hd">
-    <span class="dh-step" id="dhStep">第 1 遍 / 共 3</span>
-    <span class="dh-dots" id="dhDots"><i class="on"></i><i></i><i></i></span>
+    <span class="dh-step" id="dhStep">第 1 遍 / 共 2</span>
+    <span class="dh-dots" id="dhDots"><i class="on"></i><i></i></span>
     <button class="dh-x" id="dhX" aria-label="收起提词">✕</button>
   </div>
   <div class="dh-say" id="dhSay">米粒，我想看天天耍大牌</div>
   <div class="dh-ex"><span id="dhExpect">问两件：哪个平台、片子叫啥</span><span id="dhLast">还没开始</span></div>
+  <!-- 2026-11-14：遍数由演示者自己点，不靠记忆自动跳。 -->
+  <div class="dh-sw"><button data-demostep="1" class="on">第 1 遍</button><button data-demostep="2">第 2 遍</button></div>
   <!-- 提词条自带复位（2026-11-12）。它右下角正好压着首页的「设置」，
        演完想重来还得先去点设置，手一滑就点错。这里直接给一个。 -->
   <button class="dh-rs" id="dhReset">复位 · 重演一遍</button>
@@ -1104,7 +1106,8 @@
       <b>比赛演示</b>
       <button class="dh-x" id="dsClose" aria-label="关掉">✕</button>
     </div>
-    <p class="ds-lead">同一个片子说三遍。中间<strong>不用点任何按钮</strong> —— 它记得多少，就问多少。</p>
+    <p class="ds-lead">同一个片子说两遍。<strong>第 1 遍 / 第 2 遍由你点按钮切</strong>，不靠它自己记没记住。</p>
+    <div class="ds-sw"><button data-demostep="1" class="on">第 1 遍 · 会追问</button><button data-demostep="2">第 2 遍 · 直接跳</button></div>
 
     <div class="ds-list">
       <div class="ds-row" data-n="1">
@@ -1113,22 +1116,18 @@
       </div>
       <div class="ds-row" data-n="2">
         <span class="ds-n">2</span>
-        <div><b>你说：我想看耍大牌</b><i>平台记下了，只确认片名</i></div>
-      </div>
-      <div class="ds-row" data-n="3">
-        <span class="ds-n">3</span>
-        <div><b>你说：我要看打牌</b><i>两样都记住了，一句不问，直接全屏</i></div>
+        <div><b>你说：我要看天天耍大牌</b><i>一句不问，直接跳转</i></div>
       </div>
     </div>
 
-    <p class="ds-cap">这三遍的实测</p>
+    <p class="ds-cap">这两遍的实测</p>
     <div class="ds-table" id="dsTable"></div>
 
     <!-- 主按钮：一步进到现场。复位 → 回首页 → 挂提词。
          现场最怕的是"还要再点两下"，所以这三个动作合成一次点击。 -->
     <button class="act-btn" id="dsReset" style="width:100%;margin-top:16px">开始演 · 复位并回首页</button>
     <button class="act-btn ghost" id="dsStop" style="width:100%;margin-top:10px">关掉演示模式（提词条收起）</button>
-    <p class="ds-tip" id="dsTip">复位会清掉它记住的平台和片名，然后从第一遍开始。</p>
+    <p class="ds-tip" id="dsTip">复位会清掉它记住的平台和片名，回到第 1 遍。演完第 1 遍后点上面「第 2 遍」再说话。</p>
     <p class="ds-tip" style="margin-top:6px">每遍之间按一次返回键回到米粒 —— 抖音全屏时提词条看不到。</p>
   </div>
 </div>

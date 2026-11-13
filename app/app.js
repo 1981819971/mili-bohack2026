@@ -1689,6 +1689,8 @@ const SS = {
   wait: {},         // 号 → 播完之后该干什么
   all: '',          // 这一轮收到的完整文本（只用来查复读，不参与播放）
   dup: false,       // 已经判定在复读，后面的增量一律不再收
+  turnId: 0,        // 轮次归属：上一轮迟到的增量按 id 丢弃（late-settle suppression）
+  turn: null,       // app/stream-speak.js 的当前轮：切句 / claimedEnd / 落盘对账
 };
 
 /* 流式调优用的打点。平时一点都不占，验收时在控制台设 window.__ssTrace = 1 才记。
@@ -1722,6 +1724,10 @@ function ssGate(close) {
 function ssReset() {
   SS.live = true;
   SS.engaged = true;
+  /* 2026-11-14：切句 / 幂等 / 对账交给独立纯逻辑模块 stream-speak.js，
+     SS 只管播放队列、麦克风、气泡。模块没加载时 ssFeed 会直接 return，退化成不流式。 */
+  SS.turn = (window.MILI_STREAM && window.MILI_STREAM.createTurn)
+    ? window.MILI_STREAM.createTurn('r' + SS.turnId) : null;
   SS.finished = false;
   SS.wrapped = false;
   SS.buf = '';
@@ -1761,54 +1767,24 @@ function ssBubble(add) {
   }
   if (b.hidden) { t.textContent = add; b.hidden = false; }
   else t.textContent = String(t.textContent || '') + add;
+  /* 流式是一句一句贴的，句间可能隔 1~2 秒。沿用上次 say() 的 1.2s 会把字幕收掉，
+     老人抬眼就没字了。每贴一句把保底时长顶到 5.2s。 */
+  bHold = Math.max(bHold || 0, 5200);
   try { petResizeSoon(); } catch (e) {}
   try { if (typeof armBubbleHide === 'function') armBubbleHide(); } catch (e) {}
 }
 
-/* 切句。force = 内核说完了，剩下的不管有没有标点都吐出去 */
-function ssCut(force) {
-  for (;;) {
-    const b = SS.buf;
-    if (!b) return;
-    let cut = -1;
-    if (SS.seq === 0) {
-      /* 第一句：逗号和句号谁先到就切谁。
-         这里不能「先找句号、找不到才退回逗号」—— 那句话一旦有句号，
-         第一句就一路拖到 20 字才出声，听感上跟整段播没区别。
-         老人最在意的就是「它什么时候开口」，所以第一句越短越好。
-         但至少要 4 个字，「好，」这种切出来不值当合成一趟。 */
-      for (let i = 0; i < b.length; i++) {
-        if (/[。！？!?；;\n]/.test(b[i])) { cut = i; break; }
-        if (i >= 3 && /[，,、：:]/.test(b[i])) { cut = i; break; }
-      }
-    } else {
-      /* 后面的句子只认强边界。逗号也切的话，一句话被剁成四五段，
-         合成器每段都要重新起调，拼起来像机器人换气。 */
-      for (let i = 0; i < b.length; i++) {
-        if (/[。！？!?；;\n]/.test(b[i])) { cut = i; break; }
-      }
-    }
-    /* 一直没标点：攒到 24 字硬切。不能无限等 —— 模型有时候一口气写长句 */
-    if (cut < 0 && b.length >= 24) cut = 23;
-    if (cut < 0 && force) cut = b.length - 1;
-    if (cut < 0) return;
-    /* 连着的标点一起带上：「？！」不该拆成两句，合成器念两次问号很怪 */
-    let j = cut;
-    while (j + 1 < b.length && /[。！？!?；;…\n」』"'）)】]/.test(b[j + 1])) j++;
-    const seg = b.slice(0, j + 1).trim();
-    SS.buf = b.slice(j + 1);
-    if (seg) ssPush(seg);
-  }
-}
+/* 切句与复读检测已移入 app/stream-speak.js（纯逻辑、可跑 Node 回归）。
+   这里保留 SS 的播放队列：一句一段、按序合成、原生播完按稳定 id 回执。 */
 
-function ssPush(seg) {
+function ssPush(seg, stableId) {
   SS.seq++;
   const n = NATIVE();
   /* 原生在的话根本不用预下载：轮到这一句时再让它合成，
      连带的那个 <audio> 元素也不必建 —— 建了就得发一次 /tts 请求，
      白白多一条网络连接，还占解码器。 */
   if (n && typeof n.ttsSay === 'function') {
-    SS.q.push({ text: seg, ready: true, bad: false, a: null });
+    SS.q.push({ text: seg, id: stableId, ready: true, bad: false, a: null });
     ssPump();
     return;
   }
@@ -1819,7 +1795,7 @@ function ssPush(seg) {
   const url = '/tts?t=' + encodeURIComponent(seg.slice(0, 160));
   const a = new Audio();
   a.preload = 'auto';
-  const it = { text: seg, a: a, ready: false, bad: false };
+  const it = { text: seg, id: stableId, a: a, ready: false, bad: false };
   SS.q.push(it);
 
   a.addEventListener('canplay', () => { it.ready = true; ssPump(); });
@@ -1877,7 +1853,9 @@ function ssPlay(it) {
      首音实测 392ms —— 网页拿 mp3 那条路是 1.9 秒。 */
   const n = NATIVE();
   if (n && typeof n.ttsSay === 'function') {
-    const id = 's' + (++SS.uid);
+    /* 稳定 id：一句一段带 turn+seq，既防重复播放/乱序，也是原生
+       miliTtsEnd(id) 的对账键。跨轮不会撞号（dsh-tts-live 的做法）。 */
+    const id = it.id || ('s' + (++SS.uid));
     SS.wait[id] = done;
     try { n.ttsSay(it.text, id); return; } catch (e) { delete SS.wait[id]; }
   }
@@ -1895,55 +1873,38 @@ function ssPlay(it) {
   } catch (e) { nativeTTS(it.text, {}); done(); }
 }
 
-/* 复读检测。模型偶尔会退化：把同一段话连着说两遍 ——
-   菲尔特截图里那句解释星星的话，整段在气泡里出现了两次。
-   人耳一听就烦，而且它一开始复读就说明这一轮已经到头了，再等也等不出新东西。
-   判据：末尾 L 个字，往前紧邻的同样长度位置出现过一模一样的 L 个字。
-   只认长度 ≥ 12 的重复 —— 更短的是正常说法（「谢谢谢谢」「好的好的」）。 */
-function ssDupAt(s) {
-  const n = s.length;
-  for (let L = Math.min(60, n >> 1); L >= 12; L--) {
-    const tail = s.slice(n - L);
-    const p = s.lastIndexOf(tail, n - L - 1);
-    if (p >= 0 && n - L - p === L) return p;   // 紧贴着重复，返回第二遍的起点
-  }
-  return -1;
-}
-
-/* 内核吐一片 */
-function ssFeed(chunk) {
+/* 内核吐一片。turn 归属 + claimedEnd + 复读检测全在 stream-speak.js，
+   这里只负责把切好的段送进播放队列、贴气泡。 */
+function ssFeed(chunk, turnId) {
   if (!chunk) return;
-  if (SS.dup) return;                 // 已经在复读，后面的增量一个字都不收
+  if (turnId !== undefined && turnId !== SS.turnId) return;  // 上一轮的迟到增量
+  if (SS.dup) return;
   /* 上一轮还在播（老人已经说了新的一句）：老的让位，不能两句话叠在一起 */
   if (!SS.live && (SS.playing || SS.q.length)) ssHalt();
   if (!SS.live) ssReset();
-  SS.all += chunk;
-
-  const at = ssDupAt(SS.all);
-  if (at >= 0) {
-    /* 砍掉第二遍，立刻收尾。已经念出去的那半句收不回来，
-       但能把「听第三遍」掐在这里 —— 这一刀下去，老人最多多听半句。 */
+  if (!SS.turn) return;                       // 模块没加载 → 不流式，后面整段播报兜底
+  const segs = SS.turn.feed(chunk);
+  SS.all = SS.turn.all;
+  if (SS.turn.dup) {
     SS.dup = true;
-    SS.all = SS.all.slice(0, at);
-    SS.buf = SS.all.slice(Math.min(SS.all.length, SS.spoke.length));
-    ssMark('dup', at);
     SS.finished = true;
-    ssCut(true);
     SS.live = false;
     ssPump();
-    return;
   }
-
-  SS.buf += chunk;
-  ssMark('feed', chunk.length);
-  ssCut(false);
+  segs.forEach(function (s) {
+    ssMark('feed', s.text.length);
+    ssPush(s.text, s.id);
+  });
 }
 
-/* 内核报「说完了」 */
-function ssEnd(finalText) {
-  if (!SS.live) return;
+/* 内核报「说完了」。claimedEnd 保证尾段只 flush 一次；
+   finalText 只用于对账与气泡定稿，绝不整段补播（11-08 的念两遍）。 */
+function ssEnd(finalText, turnId) {
+  if (turnId !== undefined && turnId !== SS.turnId) return;
+  if (!SS.live || !SS.turn) return;
+  const segs = SS.turn.end(finalText);
   SS.finished = true;
-  ssCut(true);
+  segs.forEach(function (s) { ssPush(s.text, s.id); });
   SS.live = false;
   ssPump();
 }
@@ -3222,7 +3183,7 @@ function wireAgent() {
    没有副作用，重放没意义，还容易把过期数据当新数据。 */
 /* 🚨 2026-11-12 修：原来这张表漏了 search_in_app / shop_search / watch_video，
    导致 goodCalls() 把它们全过滤掉 → calls 为空 → did 恒为 false → skill 从不落库。
-   表现就是「三遍演示第二遍还得问」，而日志里一切正常、查不出错。
+   表现就是「两遍演示第二遍还得问」，而日志里一切正常、查不出错。
    判据：凡是对手机屏幕产生真实改变、且值得下次直接重放的，都要进来。 */
 const SIDE_EFFECT = /^(call_phone|wechat_message|wechat_call|wechat_redpacket|send_sms|ir_power|open_map|play_video|watch_video|search_in_app|shop_search|watch_news|open_app|open_url|set_alarm|pet_toggle|grab_redpacket|register_hospital|scan_pay|wechat_pay_code)$/;
 
@@ -3445,6 +3406,9 @@ async function agentSay(text, quiet, opts) {
      一旦误判成「没流式」，下面就再 say 一次，而 say → speak 里有「让位」
      逻辑，会把刚排好的整队句子全清掉：流式跑得挺好，一句都没响。 */
   SS.engaged = false;
+  /* 本轮唯一 turn id。onDelta / onStreamEnd 都带上它，上一轮迟到的增量
+     在 ssFeed / ssEnd 里按 id 丢弃。设 window.__MILI_NO_STREAM = 1 可现场一键回退。 */
+  const myTurn = (SS.turnId = (SS.turnId || 0) + 1);
   /* 🚨 2026-11-10 菲尔特拍板的连续对话规则（四条，别再改回一刀切）：
        ① 闲聊 → 耳朵一直开着，老人连着说、米粒连着答，静默到点自动收。
        ② 这轮真要调工具 → 由内核的 onToolBegin 在这里关麦收声，执行期间全程安静，
@@ -3482,11 +3446,18 @@ async function agentSay(text, quiet, opts) {
     /* 闲聊轮（只挂 3 个只读工具）走精简 systemPrompt，首字延迟大幅下降。 */
     lite: Array.isArray(voiceTools) && voiceTools.length <= 4,
     quiet: quiet,
-    /* 2026-11-08 关掉流式播报：真机上出现「同一句念两遍 + 气泡重复」，
-       根因是 streamed 判定失手后又补了一次 say。老人要的是「说出来就是一句完整的」，
-       不是边想边说。等流式稳定了再开（代码留着）。 */
-    onDelta: null,
-    onStreamEnd: null,
+    /* 2026-11-14 重新打开流式首句起播。11-08 关掉它的「同一句念两遍」已断根：
+       app/stream-speak.js 用 claimedEnd 一次性认领尾段、稳定 id 队列、
+       turn 归属丢迟到增量；agent.js 回传确定性 r.streamed，前端据此绝不补 say()。
+       只有「本轮不挂工具」的说话轮内核才会真送增量（见 liveDelta）。 */
+    onDelta: quiet ? null : function (chunk) {
+      if (window.__MILI_NO_STREAM || myTurn !== SS.turnId) return;
+      try { ssFeed(chunk, myTurn); } catch (e) {}
+    },
+    onStreamEnd: quiet ? null : function (finalText) {
+      if (myTurn !== SS.turnId) return;
+      try { ssEnd(finalText, myTurn); } catch (e) {}
+    },
     /* 日新页 RUN 1 专用：头一回听到这个说法，先真问一句再办。
        产品平时不带这个标记，仍然是「能办就直接办」。 */
     askFirst: !!(opts && opts.askFirst),
@@ -3567,7 +3538,11 @@ async function agentSay(text, quiet, opts) {
   /* 这一轮是不是已经边生成边念过了。
      光看 engaged 还不够稳：真要出现「说是流式了但其实一句没排上」的情况，
      那就会既不播也不补，老人一个字都听不见。所以再确认一句确实在手上。 */
-  const streamed = SS.engaged && !!(SS.spoke || SS.q.length || SS.playing || SS.live);
+  /* 11-08 念两遍的第二个根因：原来靠「队列里还有没有东西」猜流式，
+        队列刚好播空就补一次 say(r.said)。现在只信内核回传的 r.streamed
+        + 本轮确实切出过段，二者齐了就绝不再补播。 */
+      const streamed = !!(r && r.streamed && SS.turn &&
+        (SS.turn.segments.length || SS.spoke));
 
   if (r.said && !quiet) {
     if (streamed) {
@@ -13643,6 +13618,9 @@ setTimeout(function () {
 
   var D = {
     on: false,
+    /* 2026-11-14：遍数由演示者手动切（0 = 跟着记忆自动判，1/2 = 强制）。
+       现场不用再赌「它到底记没记住」，点一下就是那一遍。 */
+    forceStep: 0,
     /* 演示者自己按 ✕ 收起的。跟"因为设置页挡着先藏一下"不是一回事 ——
        前者要记住，后者随时恢复。2026-11-12 就是把两者混成一个 hidden，
        结果设置页一逛，提词条再也不回来了。 */
@@ -13666,14 +13644,28 @@ setTimeout(function () {
     return { plat: plat, title: title };
   }
   function stepNow() {
+    /* 手动优先。演示者点了「第 1 遍 / 第 2 遍」就照他点的算，
+       记忆里那两条还在不在都不改变遍数 —— 现场要的是可控，不是自动。 */
+    if (D.forceStep) return D.forceStep;
     var k = know();
-    /* 2026-11-13 改两遍制：平台和片名没都记下就是第 1 遍；
-       两条齐了直接进第 2 遍，放行 skill 重放。 */
     return (k.plat && k.title) ? 2 : 1;
   }
 
+  /* 手动切遍。不写记忆、不造事实，只改判定：
+     第 1 遍 → blockSkill 挡住旧 skill，逼它追问；
+     第 2 遍 → 放行 skill，一句话不问直接跳转。
+     顺手把当前结算状态收干净，免得 watchStep 把上一遍误算到新遍上。 */
+  function setStep(n) {
+    n = (n === 2) ? 2 : 1;
+    D.forceStep = n;
+    D.cur = null;
+    D.lastStep = n;
+    paint(); table();
+    return n;
+  }
+
   /* 提词。第一遍那句话里头带着「米粒」—— 现场手机可能是锁屏被叫醒的，
-     带称呼最稳；后两遍已经在对话里，不用再喊。 */
+     带称呼最稳；第 2 遍已经在对话里，不用再喊。 */
   var SAY = {
     1: { say: '米粒，我想看天天耍大牌', ex: '问两件：哪个平台、片子叫啥' },
     2: { say: '我要看天天耍大牌', ex: '一句不问，直接跳转' },
@@ -13753,7 +13745,7 @@ setTimeout(function () {
     D.lastStep = s;
   }
 
-  /* ---------------- 闸：前两遍不许走 skill 重放 ----------------
+  /* ---------------- 闸：第 1 遍不许走 skill 重放 ----------------
      没有这道闸，第 1 遍「我想看天天耍大牌」会被上次学会的序列 0 毫秒重放，
      一次都不问 —— 两遍演示当场变成一遍。第 2 遍放行，因为那正是要演的东西。 */
   function blockSkill(text, hit) {
@@ -13801,6 +13793,12 @@ setTimeout(function () {
       }
     }
 
+    /* 手动切遍按钮：HUD 和面板各一组，统一高亮当前遍。 */
+    var sws = document.querySelectorAll('[data-demostep]');
+    for (var si = 0; si < sws.length; si++) {
+      try { sws[si].classList.toggle('on', Number(sws[si].getAttribute('data-demostep')) === s); }
+      catch (e) {}
+    }
     var tag = $('demoTag');
     if (tag) tag.textContent = '已开';
     var rows = document.querySelectorAll('#demoSheet .ds-row');
@@ -13843,7 +13841,8 @@ setTimeout(function () {
     } catch (e) {}
     D.runs = { 1: null, 2: null };
     D.cur = null;
-    D.lastStep = 0;
+    D.forceStep = 1;          // 复位就是回到第 1 遍，之后由演示者自己点第 2 遍
+    D.lastStep = 1;
     try { window.__askOrigin = null; } catch (e) {}
     try { if (window.MILI_MEMO) MILI_MEMO.save(); } catch (e) {}
     paint(); table();
@@ -13858,13 +13857,17 @@ setTimeout(function () {
   function start(openSheet) {
     D.on = true;
     D.muted = false;
-    try { localStorage.setItem('mili_demo_on', '1'); } catch (e) {}
+    /* 2026-11-14：不写 localStorage。以前写了，重开 App 就自动进演示模式，
+       首页一进去就是一块提词条 —— 菲尔特明确不要这个。 */
+    D.forceStep = 1;
+    D.cur = null;
+    D.lastStep = 1;
     paint(); table();
     if (openSheet) sheet(true);
   }
   function stop() {
     D.on = false;
-    try { localStorage.removeItem('mili_demo_on'); } catch (e) {}
+    D.forceStep = 0;
     paint();
     var tag = $('demoTag'); if (tag) tag.textContent = '没开';
   }
@@ -13905,11 +13908,16 @@ setTimeout(function () {
       paint(); table();
     };
 
-    /* 上次没关的演示模式，重开页面自动接着 —— 现场手机被系统杀掉重开时，
-       提词条不能没了（那就真成瞎演了）。 */
-    try {
-      if (localStorage.getItem('mili_demo_on') === '1') { D.on = true; paint(); }
-    } catch (e) {}
+    /* 2026-11-14 菲尔特：首页不要一进去就是演示模式。
+       删掉「上次开着就自动恢复」，并清掉历史遗留的开关位。
+       现在每次进 App 都是普通首页，要演示自己去点「我的 · 比赛演示」。 */
+    try { localStorage.removeItem('mili_demo_on'); } catch (e) {}
+
+    /* 遍数手动切换：HUD 与面板两组按钮共用一个入口。 */
+    var sw = document.querySelectorAll('[data-demostep]');
+    for (var k = 0; k < sw.length; k++) {
+      sw[k].onclick = function () { setStep(Number(this.getAttribute('data-demostep'))); };
+    }
 
     /* 记忆是异步长出来的（agent 执行完才写），提词条要跟着它走。
        一秒看一次，只在演示模式开着的时候。 */
@@ -13921,7 +13929,8 @@ setTimeout(function () {
 
   window.__DEMO = {
     on: function () { return D.on; },
-    start: start, stop: stop, reset: reset,
+    start: start, stop: stop, reset: reset, setStep: setStep,
+    forceStep: function () { return D.forceStep; },
     step: stepNow, know: know, runs: function () { return D.runs; },
     blockSkill: blockSkill,
     sheet: sheet,

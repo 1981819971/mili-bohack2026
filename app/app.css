@@ -3956,6 +3956,17 @@ html.desk6 #page-home .ddock > button small{font-size:12px !important}
 }
 #demoHud .dh-rs:active{color:var(--accent-deep)}
 
+/* 2026-11-14：遍数手动切换。两枚白色胶囊，选中态才是主色亮紫，
+   不给渐变、不给暖黄，跟全站蚂蚁阿福风一致。 */
+#demoHud .dh-sw, #demoSheet .ds-sw{display:flex; gap:6px; margin-top:7px}
+#demoHud .dh-sw button, #demoSheet .ds-sw button{
+  flex:1; padding:6px 0; border:0; cursor:pointer; font-family:inherit;
+  font-size:12px; font-weight:700; border-radius:999px;
+  background:var(--card-2, #F3F4FA); color:var(--ink-3);
+}
+#demoHud .dh-sw button.on, #demoSheet .ds-sw button.on{background:var(--accent); color:#fff}
+
+
 
 /* ==========================================================================
    2026-11-13 22:45 定稿：小鸡恒定（放在文件最后，盖掉上面所有历史覆盖）

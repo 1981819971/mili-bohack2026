@@ -884,6 +884,7 @@
     /* 流式放行门：默认关着，攒够一个句号才开。见下面 onDelta 那段的解释。 */
     let gateOn = !!opts.onDelta;
     let gateBuf = '';
+    let emitted = 0;          // 本轮真正递给 onDelta 的字符数，用于回传 streamed 标记
     /* 2026-11-12 菲尔特：「打电话第一句话回话太慢」。
        量出来的账：模型首字 406ms、TTS 首包 300ms，可他从说完到听见回应是 1.8 秒。
        多出来的一秒全在**这扇门上** —— 要等模型吐到第 10~14 个字（一个句号）才放行。
@@ -974,9 +975,11 @@
                 gateOn = false;
                 const out = gateBuf;
                 gateBuf = '';
+                emitted += out.length;
                 try { opts.onDelta(out); } catch (e) {}
               }
             } else {
+              emitted += d.content.length;
               try { opts.onDelta(d.content); } catch (e) {}
             }
           }
@@ -1007,6 +1010,7 @@
         err: aborted ? 'timeout' : ((e && e.message) || 'call_failed'),
         text: hv.text, reason: reason, tcs: tcs.filter(Boolean).concat(hv.calls),
         ms: Date.now() - t0, firstMs: firstMs, fin: fin, usage: lastUsage,
+        emitted: emitted,
       };
     }
 
@@ -1016,6 +1020,7 @@
       err: null, text: hv.text, reason: reason,
       tcs: tcs.filter(Boolean).concat(hv.calls),
       ms: Date.now() - t0, firstMs: firstMs, fin: fin, usage: lastUsage,
+      emitted: emitted,
     };
   }
 
@@ -1194,6 +1199,7 @@
     /* 2026-11-10 菲尔特：「执行期间保持安静，不要一直说我办一下」。
        一轮任务只交代第一句（第一个真动作），后面每一步都闭嘴干活。 */
     let saidOnce = false;
+    let streamedChars = 0;    // 各回合累计的流式送出字符，决定 r.streamed
     opts = opts || {};
     const T0 = Date.now();
     const text = String(userText || '').trim();
@@ -1335,7 +1341,12 @@
            其余情况放开：闲聊第一句就能出声，办完事说结果也是边说边出。 */
         const anyFailYet = results.some((x) => x.ok === false);
         const riskyFirst = (r === 0 && results.length === 0 && userWantsAct);
-        const liveDelta = (opts.onDelta && !anyFailYet && !riskyFirst) ? opts.onDelta : null;
+        /* 2026-11-14 流式首句起播：只在本轮**没挂工具**时开。
+           挂了工具的轮次，模型可能「说半句、转头去办事」，那半句念出去就是
+           一句没头没尾的话。纯说话轮不可能中途办事，gateDead 的顾虑整体消失，
+           guardHonest 也不会改写文本 —— 流式念的就是最终稿。 */
+        const liveDelta = (opts.onDelta && !useTools && !anyFailYet && !riskyFirst)
+          ? opts.onDelta : null;
 
         const t = await turn(sanitizeMessages(messages), {
           tools: useTools ? (roundTools || undefined) : false,
@@ -1360,6 +1371,9 @@
              这是「一句话要等好几秒」最直接的来源。全部压成 low。 */
           effort: 'low',
         });
+        /* 把这一轮真正递给 onDelta 的字符数记回本轮，收尾据此回传
+           r.streamed —— 不再靠「队列里还有没有东西」猜（11-08 的念两遍）。 */
+        if (t && t.emitted) streamedChars += t.emitted;
 
         trace.push({
           round: r, ms: t.ms, firstMs: t.firstMs, fin: t.fin, err: t.err,
@@ -1748,6 +1762,7 @@
         ms: Date.now() - T0,
         trace: trace,
         err: err,
+        streamed: streamedChars > 0,   // 前端据此决定是否补 say()，杜绝念两遍
       };
     } finally {
       _busy = false;
