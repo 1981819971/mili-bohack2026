@@ -416,8 +416,15 @@ public class Actions {
                 return ok("watch", "给你打开" + row[1] + "了，接着上次看。");
             }
         }
-        /* 一台机上没装这些视频 App 时，老人其实是在悟空里追剧。 */
-        if (n.isEmpty() && hasPkg(WUKONG_PKG)) return resumeWukong();
+        /* 🚫 2026-11-12：原来这里落到 resumeWukong（悟空观看历史）。
+           悟空已下架，一台机上没装视频 App 就直接开抖音。 */
+        if (n.isEmpty() && hasPkg("com.ss.android.ugc.aweme")) {
+            try {
+                Intent i = ctx.getPackageManager().getLaunchIntentForPackage("com.ss.android.ugc.aweme");
+                if (i != null) { i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); ctx.startActivity(i); }
+                return ok("watch", "给你打开抖音了。");
+            } catch (Exception ignored) {}
+        }
         return fail("no_video", "这台手机上没找到能放的视频软件。");
     }
 
@@ -484,6 +491,35 @@ public class Actions {
         return null;
     }
 
+    /**
+     * 按中文名直接打开 App，并把「到底开了哪个」回给网页。
+     * 2026-11-12 菲尔特：「我让它打开王者荣耀、淘宝，它不会，不行，
+     * 不管什么软件它都要认得」。网页那侧的 findPkg 先扫 listApps，
+     * 扫不到再落到这里 —— 两边用的是同一套 PackageManager 标签，
+     * 差别只在 Java 这边能容忍「王者」对「王者荣耀」这种半截叫法。
+     */
+    public JSONObject openAppByName(String name) {
+        String want = name == null ? "" : name.trim();
+        if (want.isEmpty()) return fail("empty", "没说开哪个软件。");
+        String hit = findAppByLabel(want);
+        if (hit == null) return fail("no_app", "这台手机里没找到叫「" + want + "」的软件。");
+        int i = hit.indexOf('|');
+        String pkg = hit.substring(0, i), label = hit.substring(i + 1);
+        try {
+            Intent it = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+            if (it == null) return fail("no_launch", "「" + label + "」打不开。");
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(it);
+            noteOften("app", label);
+            JSONObject o = ok("open_app", label + "打开了。");
+            o.put("pkg", pkg);
+            o.put("label", label);
+            return o;
+        } catch (Exception e) {
+            return fail("open_fail", "「" + label + "」打不开。");
+        }
+    }
+
     /** 「用悟空浏览器找后会有期」：开指定 App，再让无障碍在里面搜片名。 */
     public JSONObject watchSearch(String appName, String show) {
         String app = appName == null ? "" : appName.trim();
@@ -513,10 +549,33 @@ public class Actions {
             return fail("no_app", "手机上没找到「" + app + "」，你看看图标在不在。");
         }
         try {
-            /* 悟空浏览器：在它自己里面搜，不走百度。
-               老人要的是悟空的结果页 —— 那儿直接带剧集和播放器；百度只是一张网页。 */
-            if (pkg.equals(WUKONG_PKG) && !showName.isEmpty()) {
-                return searchInWukong(showName, label);
+            /* 🚫 2026-11-12 悟空浏览器彻底下架：只要还有任何一条路能落到它，
+               老人说「我想看后会有期」就还是会被它接走。这里直接改成抖音，
+               走搜索深链（真机实测直达 SearchResultActivity）。 */
+            if (pkg.equals(WUKONG_PKG)) {
+                if (!hasPkg("com.ss.android.ugc.aweme")) return fail("no_app", "这台手机上没装抖音。");
+                if (!showName.isEmpty()) {
+                    try {
+                        Intent di = new Intent(Intent.ACTION_VIEW, Uri.parse(
+                                "snssdk1128://search?keyword=" + URLEncoder.encode(showName, "UTF-8")));
+                        di.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        ctx.startActivity(di);
+                        noteOften("show", showName);
+                        return ok("search_douyin", "好，我在抖音里搜《" + showName + "》，点开就能看。");
+                    } catch (Exception ignored) {}
+                }
+                pkg = "com.ss.android.ugc.aweme"; label = "抖音";
+            }
+            /* 抖音：一条深链直达搜索结果，别让无障碍在首页里乱点 */
+            if (pkg.equals("com.ss.android.ugc.aweme") && !showName.isEmpty()) {
+                try {
+                    Intent di = new Intent(Intent.ACTION_VIEW, Uri.parse(
+                            "snssdk1128://search?keyword=" + URLEncoder.encode(showName, "UTF-8")));
+                    di.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ctx.startActivity(di);
+                    noteOften("show", showName);
+                    return ok("search_douyin", "好，我在抖音里搜《" + showName + "》，点开就能看。");
+                } catch (Exception ignored) {}
             }
             /* 别的浏览器仍走 URL 直达：它们的输入框不认无障碍写入。 */
             boolean isBrowser = label.contains("浏览器") || pkg.equals("com.android.browser");

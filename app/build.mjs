@@ -221,7 +221,13 @@ function guardOverwrite(prodPath, srcText, label) {
   const prod = stripInjected(fs.readFileSync(prodPath, 'utf8'));
   const pl = prod.split('\n').length;
   const sl = srcText.split('\n').length;
-  if (pl > sl + 2) {
+  /* 2026-11-12：阈值从 +2 放宽到 +6。
+     真源**删行**（改短一段 HTML）时，产物必然比真源长，而内容完全一致 ——
+     这种情况每次都会报「产物上直接改过东西」，逼人加 FORCE_OVERWRITE，
+     加着加着这东西就没人看了，真手改那天也不会有人当回事。
+     注入块下面已经 strip 干净，剩下几行的差只可能是空行/格式。
+     真手改通常是整段新增，几十行起步，+6 挡不住它。 */
+  if (pl > sl + 6) {
     console.warn(
       '\n⚠️  [%s] 产物 %d 行 > 真源 %d 行 —— 产物上直接改过东西。\n' +
       '    拒绝覆盖（否则那些改动会被静默抹掉）。\n' +

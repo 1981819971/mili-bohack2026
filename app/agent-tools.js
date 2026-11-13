@@ -121,7 +121,13 @@
 
 
 
-  /* ---------- 常用 App 包名 ---------- */
+  /* ---------- 常用 App 包名 ----------
+     🚨 2026-11-12 菲尔特：「我让它打开王者荣耀、淘宝，它不会，不行，
+     不管什么软件它都要认得」。写死名单永远追不上老人手机里装的东西，
+     所以这里只当**快路径**（省一次 listApps 调用），真匹配靠
+     PackageManager 全量扫描 + 中文标签模糊对（findPkg 后半段）。
+     🚫 悟空浏览器 2026-11-10 已下架，这里连别名一起删掉 ——
+     只要还留着，`pkgOf('浏览器')` 就会把老人送进悟空。 */
   const PKG = {
     '微信': 'com.tencent.mm',
     '爱奇艺': 'com.qiyi.video',
@@ -131,8 +137,9 @@
     '优酷': 'com.youku.phone',
     '抖音': 'com.ss.android.ugc.aweme',
     '快手': 'com.smile.gifmaker',
-    '悟空浏览器': 'com.cat.readall',
-    '悟空': 'com.cat.readall',
+    '王者荣耀': 'com.tencent.tmgp.sgame',
+    '王者': 'com.tencent.tmgp.sgame',
+    '和平精英': 'com.tencent.tmgp.pubgmhd',
     '夸克浏览器': 'com.quark.browser',
     '夸克': 'com.quark.browser',
     '哔哩哔哩': 'tv.danmaku.bili',
@@ -158,13 +165,76 @@
     '设置': 'com.android.settings',
   };
 
-  function pkgOf(name) {
-    const s = String(name || '').trim();
-    if (!s) return null;
-    if (PKG[s]) return PKG[s];
-    for (const k in PKG) if (s.indexOf(k) >= 0 || k.indexOf(s) >= 0) return PKG[k];
+  /* 装了哪些 App 的本地缓存。老人手机不会一边说话一边装软件，
+     缓存 5 分钟足够；listApps 走 PackageManager，不依赖无障碍开关。 */
+  let _appsCache = { at: 0, list: [] };
+  function installedApps(nn) {
+    const now = Date.now();
+    if (now - _appsCache.at < 300000 && _appsCache.list.length) return _appsCache.list;
+    try {
+      if (!nn || !nn.listApps) return _appsCache.list;
+      const j = JSON.parse(nn.listApps() || '{}');
+      if (j && j.ok && Array.isArray(j.apps)) {
+        _appsCache = { at: now, list: j.apps };
+      }
+    } catch (e) {}
+    return _appsCache.list;
+  }
+
+  /* 名字归一：去掉空格、括号、TV/HD 这类尾巴，全角转半角。
+     「王者荣耀」和标签「王者荣耀」要能对上，「B站」和「哔哩哔哩」靠别名表。 */
+  function normName(s) {
+    return String(s || '')
+      .replace(/[\s\u3000（）()【】\[\]·・\-—_]/g, '')
+      .replace(/(官方版|正式版|手机版|TV版|HD版|HD|tv|TV)$/g, '')
+      .toLowerCase();
+  }
+  /* 老人日常叫法 → 标签里可能出现的字。宁可多试几个，不要直接说「不认得」。 */
+  const ALIAS = {
+    'b站': ['哔哩哔哩', 'bilibili'], '哔哩': ['哔哩哔哩', 'bilibili'],
+    '头条': ['今日头条'], '高德': ['高德地图'], '地图': ['高德地图', '百度地图'],
+    '支付宝': ['支付宝'], '淘宝': ['淘宝'], '天猫': ['天猫'], '拼多多': ['拼多多'],
+    '京东': ['京东'], '闲鱼': ['闲鱼'], '美团': ['美团'], '点评': ['大众点评'],
+    '王者': ['王者荣耀'], '王者荣耀': ['王者荣耀'], '吃鸡': ['和平精英'],
+    '铁路': ['铁路12306', '12306'], '火车票': ['铁路12306', '12306'],
+    '网银': ['中国工商银行', '中国建设银行'], '抖音': ['抖音'], '快手': ['快手'],
+    '红果': ['红果'], '短剧': ['红果免费短剧', '红果'], '央视频': ['央视频'],
+    '相册': ['相册', '图库'], '相机': ['相机'], '设置': ['设置'], '计算器': ['计算器'],
+    '日历': ['日历'], '天气': ['天气'], '收音机': ['收音机'], '录音机': ['录音机'],
+  };
+
+  /* 真·按名字找包名：写死表 → 已装列表精确 → 已装列表包含 → 别名 → 写死表包含。
+     找不到返回 null，由调用方决定怎么跟老人说。 */
+  function findPkg(name, nn) {
+    const raw = String(name || '').trim();
+    if (!raw) return null;
+    if (PKG[raw]) return PKG[raw];
+    const n = normName(raw);
+    if (!n) return null;
+    for (const k in PKG) if (normName(k) === n) return PKG[k];
+
+    const list = installedApps(nn);
+    /* ① 标签精确 */
+    for (const a of list) if (normName(a.name) === n) return a.pkg;
+    /* ② 标签含老人说的词（「王者荣耀」⊂「王者荣耀」；「淘宝」⊂「手机淘宝」） */
+    for (const a of list) if (normName(a.name).indexOf(n) >= 0) return a.pkg;
+    /* ③ 老人说的词含标签（「帮我打开微信」不太会走到这，但「哔哩哔哩动画」会） */
+    for (const a of list) if (n.indexOf(normName(a.name)) >= 0 && normName(a.name).length >= 2) return a.pkg;
+    /* ④ 别名 */
+    const als = ALIAS[n] || ALIAS[raw] || [];
+    for (const al of als) {
+      const an = normName(al);
+      for (const a of list) if (normName(a.name).indexOf(an) >= 0) return a.pkg;
+      for (const k in PKG) if (normName(k).indexOf(an) >= 0) return PKG[k];
+    }
+    /* ⑤ 写死表兜底 */
+    for (const k in PKG) if (n.indexOf(normName(k)) >= 0 || normName(k).indexOf(n) >= 0) return PKG[k];
     return null;
   }
+
+  /* 老名字留着，别处还在用（search_in_app / play_video 都调它） */
+  function pkgOf(name, nn) { return findPkg(name, nn); }
+
 
   /* ---------- 工具表 ----------
      描述写法的规矩（实测出来的）：
@@ -695,8 +765,9 @@
     });
 
   def('list_apps',
-    '看看这台手机上都装了什么（能打开的都在）。老人说「那个看视频的」「我平时用的那个」，' +
-    '或者你想打开一个 App 但不确定叫什么的时候，先用它看清楚再 open_app。',
+    '看看这台手机上都装了什么。只在「老人描述得很含糊、你实在拿不准是哪个 App」时才用。' +
+    '⚠ 想打开某个具体名字的软件，直接 open_app 就行，不用先查这个 —— ' +
+    'open_app 自己会去系统里按名字找，查得到的比这里列的全。',
     {},
     [],
     async function (a, E) {
@@ -707,7 +778,10 @@
       const names = arr.map((x) => x.name).join('、');
       return {
         ok: true,
-        detail: '装了这些：' + names,
+        /* 2026-11-12 真机踩到：老人说「打开网易云音乐」，模型先调了 list_apps，
+           看到前 60 个里没有就回「手机上没装」—— 其实装了，只是排在后面。
+           现在原生长度放到 400，这里也明说「列出来的不全」。 */
+        detail: '装了这些（只列了 ' + arr.length + ' 个，没列出来的不代表没装）：' + names,
         extra: { apps: arr },
       };
     });
@@ -818,28 +892,47 @@
         }
       }
 
-      /* 软件 + 片名都有：在那个软件里搜 */
-      if (app && show && nn.watchSearch) return fromJava(nn.watchSearch(app, show));
-      /* 只有片名：2026-11-08 起不走浏览器、不走悟空。
-         短剧/红果 → 红果 App；其余 → 抖音搜索深链（真机验证直达结果页）。 */
-      if (show && window.MILI_TV) {
+      /* 🚨 2026-11-12 菲尔特：「我说想看后会有期，它没打开抖音全屏，
+         打开了悟空浏览器」。根因：只要 app 有值就走 watchSearch，
+         而 watchSearch 里 悟空 是一条专用分支。现在按平台分流：
+         抖音 / 没点名 / 说成「浏览器」→ 一律抖音一条龙（连点开全屏）；
+         只有明确点了爱奇艺、芒果这些，才进那个 App 里搜。 */
+      const toDouyin = !app || /抖音|douyin/i.test(app) || /浏览器|悟空|上网/i.test(app);
+      if (show && toDouyin && window.MILI_TV) {
         const dd = window.MILI_TV.resolve(show);
+        if (dd && dd.type === 'tv') return window.MILI_TV.open(dd.url, dd.name);
         if (dd && dd.type === 'app') return window.MILI_TV.openApp(dd);
         return window.MILI_TV.openDl({
           url: 'snssdk1128://search?keyword=' + encodeURIComponent(show),
           name: '抖音·' + show
         });
       }
+      /* 点了名的视频 App + 片名：在那个 App 里搜 */
+      if (app && show && nn.watchSearch) return fromJava(nn.watchSearch(app, show));
+      if (show && window.MILI_TV) {
+        return window.MILI_TV.openDl({
+          url: 'snssdk1128://search?keyword=' + encodeURIComponent(show),
+          name: '抖音·' + show
+        });
+      }
       if (show && nn.watchShow) return fromJava(nn.watchShow(show));
-      /* 都没说：接着上次那部剧，别只把 App 首页打开 */
-      if (!app && !show && nn.resumeWukong) return fromJava(nn.resumeWukong());
+      /* 🚫 2026-11-12：原来这里调到 resumeWukong —— 老人只要说「接着看」
+         就会被塞进悟空。悟空已下架，没片子就直接开抖音。 */
+      if (!app && !show) {
+        try {
+          if (nn.launchApp) nn.launchApp('com.ss.android.ugc.aweme');
+          return { ok: true, detail: '抖音给您打开了。', fastReply: '抖音给您打开了。' };
+        } catch (e) {}
+      }
       if (nn.watch) return fromJava(nn.watch(app));
       return noNative();
     });
 
   def('watch_video',
-    '老人说想看某个剧、短剧、视频（「我想看红果短剧」「我想看昨天那个片子」）时用这个。' +
-    '它会先看手机上有没有对应的 App，有就直接打开；没有才用浏览器搜。',
+    '老人点名了内容在哪个 App / 平台（「我想看红果短剧」「去B站看」「爱奇艺那个剧」）时用这个。' +
+    '它会先看手机上有没有对应的 App，有就直接打开；没有才用浏览器搜。' +
+    '🚨 老人只说了片名、没说在哪个 App 看（「我想看天天耍大牌」）→ 不要用它，改用 search_in_app：' +
+    '先问一句在哪个 App 看。猜错平台要白等二十秒，比问一句贵得多。',
     { name: { type: 'string', description: '想看的内容或 App 名字，如「红果短剧」「哔哩」「新闻联播」' } },
     ['name'],
     function (a, E) {
@@ -851,8 +944,17 @@
           if (d.type === 'app') return window.MILI_TV.openApp(d);
         if (d.type === 'app') return window.MILI_TV.openApp(d.pkg, d.name);
       }
-      const nn = n(E); if (!nn || !nn.watchWhat) return noNative();
-      return fromJava(nn.watchWhat(a.name));
+      const nn = n(E);
+      if (!nn) return noNative();
+      /* 🚫 2026-11-12：watchWhat 这个原生方法根本不存在（调了就是 noNative），
+         而且悟空下架后也没人再接这条路。直接走抖音一条龙。 */
+      if (window.MILI_TV) {
+        return window.MILI_TV.openDl({
+          url: 'snssdk1128://search?keyword=' + encodeURIComponent(a.name),
+          name: '抖音·' + a.name
+        });
+      }
+      return noNative();
     });
 
   def('volume',
@@ -862,7 +964,11 @@
     function (a, E) {
       const nn = n(E); if (!nn || !nn.volume) return noNative();
       const v = String(a.action || '').toLowerCase();
-      return fromJava(nn.volume(v.indexOf('down') >= 0 || v.indexOf('小') >= 0 ? 'down' : 'up'));
+      const down = v.indexOf('down') >= 0 || v.indexOf('小') >= 0;
+      const r = fromJava(nn.volume(down ? 'down' : 'up'));
+      /* 单动作：成没成工具自己知道，不必再让模型复述一轮（省 1.5~2 秒） */
+      if (r.ok) r.fastReply = down ? '声音调小了一点。' : '声音调大了一点。';
+      return r;
     });
 
   def('set_brightness',
@@ -872,7 +978,10 @@
     function (a, E) {
       const nn = n(E); if (!nn || !nn.setBrightness) return noNative();
       const v = String(a.action || '').toLowerCase();
-      return fromJava(nn.setBrightness(v.indexOf('down') >= 0 || v.indexOf('暗') >= 0 ? 'down' : 'up'));
+      const down = v.indexOf('down') >= 0 || v.indexOf('暗') >= 0;
+      const r = fromJava(nn.setBrightness(down ? 'down' : 'up'));
+      if (r.ok) r.fastReply = down ? '屏幕调暗了一点。' : '屏幕调亮了一点。';
+      return r;
     });
 
   def('media',
@@ -923,8 +1032,13 @@
   def('search_in_app',
     '在某个 App 里搜内容，并点开第一条。' +
     '「抖音上搜 XX」「在红果里找某部剧」「爱奇艺搜 XX」都用这个。' +
-    '「抖音上搜 XX」「在红果里找 XX」「爱奇艺搜 XX」都用这个。' +
-    '老人只说片名没说平台（「我想看 XX」「XX 最新一期」）→ app 填抖音，就用这个。',
+    '🚨 老人只说了片名、没说在哪个 App 看（「我想看 XX」「XX 最新一期」）→ 不要自己猜平台：' +
+    '先看他记忆里有没有用惯的平台，有就只用那个，一个字都别再问；' +
+    '记忆里没有，就问一句「您是在抖音看，还是快手？」。' +
+    '猜错平台要白等二十秒，比问一句贵得多。他答完这一句，平台就记下了，以后不再问。' +
+    '🚨 一次只调一个平台，绝对不许同时调好几个平台去试 —— ' +
+    '每调一次老人手机要真的开一个 App、等它加载，四个平台就是四倍等待，' +
+    '而且屏幕上会一个个弹出来乱跳。只调一个，看完结果再说。',
     {
       app: { type: 'string', description: '在哪个 App 里搜，如 抖音、红果、爱奇艺' },
       keyword: { type: 'string', description: '搜什么，就是老人说的那个内容名' },
@@ -951,15 +1065,39 @@
         try {
           if (nn.playDouyin) {
             const r = JSON.parse(nn.playDouyin(clean) || '{}');
-            if (r && r.ok) return { ok: true,
-              detail: '「' + clean + '」已经在抖音横屏全屏播放了。任务到此完成，'
-                    + '不要再调用任何工具（尤其不要 look_screen / player_control / ui_map），直接回一句给老人。' };
+            if (r && r.ok) {
+              /* 演示模式要一个不会骗人的「真开播了」信号。
+                 原生 playDouyin 返回 ok 才算数：深链打开了、第一张卡点了、
+                 横屏验过了，三道都过才给 ok。演示模式的第 3 遍全靠它结算 ——
+                 那一遍一句话都没问，记忆也不会再变，除了这个没有别的证据。 */
+              try {
+                window.__MILI_WATCH_OK = { at: Date.now(), app: app, kw: clean };
+              } catch (e4) {}
+              /* 2026-11-12：办成一次就把「看视频用抖音」记进事实层。
+                 下一回他再点片名，提示词里就带着这条，模型不用再问平台 ——
+                 追问从「问平台+问片名」降到「只问片名」。这是他答一句换来的，不是预置的。 */
+              try {
+                if (E.memoAdd) {
+                  /* 2026-11-12 分级记：第一次只记「平台」，第二次才记「片名」。
+                     道理是真实的 —— 平台是稳定的（他这台手机看视频就用抖音），
+                     片名是一次性的，得再看一次才敢当成他的习惯。
+                     顺带让追问自然递减：第 1 回问平台+片名，第 2 回只问片名，第 3 回不问。 */
+                  let seenPlat = false;
+                  try { seenPlat = !!(E.memoFind && E.memoFind('看视频用').length); } catch (e3) {}
+                  E.memoAdd('preference', '看视频用抖音', 'search_in_app');
+                  if (seenPlat) E.memoAdd('event', '上次看的是《' + clean + '》', 'search_in_app');
+                }
+              } catch (e2) {}
+              return { ok: true,
+                detail: '「' + clean + '」已经在抖音横屏全屏播放了。任务到此完成，'
+                      + '不要再调用任何工具（尤其不要 look_screen / player_control / ui_map），直接回一句给老人。' };
+            }
           }
         } catch (e) {}
       }
 
       if (app) {
-        const p = pkgOf(app);
+        const p = pkgOf(app, nn);
         if (!p) return { ok: false, detail: '不认得「' + app + '」这个软件。' };
         if (nn.hasApp && !nn.hasApp(p)) return { ok: false, detail: '这台手机上没装' + app + '。' };
         if (nn.launchApp) nn.launchApp(p);
@@ -1221,25 +1359,43 @@
 
   /* ===== 打开某个 App ===== */
   def('open_app',
-    '按名字打开手机上装的某个软件。老人说「打开X」「给我开X」时用。',
-    { name: { type: 'string', description: '软件名，如 微信、抖音、支付宝、高德地图' } },
+    '按名字打开手机上装的某个软件。老人说「打开X」「给我开X」时用。' +
+    'X 可以是任何装在手机上的软件（游戏、购物、银行、地图、视频都算），照原话填，别自己换成别的名字。' +
+    '⚠ 只是「打开」用这个；要在微信里发消息、打视频，用 wechat_message / wechat_call，别先开微信自己点。',
+    { name: { type: 'string', description: '软件名，照老人原话抄，如 王者荣耀、淘宝、拼多多、微信、抖音' } },
     ['name'],
     function (a, E) {
-      const nn = n(E); if (!nn || !nn.launchApp) return noNative();
-      /* 微信是唯一例外：不能只把微信打开让模型自己点。
-         真机实证那样会在聊天列表里点错人（发到「软件学院」群）。 */
-      if (a.name && String(a.name).indexOf('微信') >= 0) {
-        return { ok: false, detail: '微信里找人发消息、打视频语音，直接调 wechat_message / wechat_call，一步到位；不要先打开微信自己点。' };
+      const nn = n(E);
+      if (!nn) return noNative();
+      const want = String(a.name || '').trim();
+      if (!want) return { ok: false, detail: '没说开哪个软件。' };
+
+      /* 🚨 2026-11-12：不再靠写死名单。findPkg 会扫 PackageManager 里的
+         全部中文标签，老人装什么就认得什么；扫不到还有一条原生兜底
+         openByName（原生那边有更宽松的包含匹配）。 */
+      const p = findPkg(want, nn);
+      if (!p) {
+        if (nn.openByName) {
+          const r = fromJava(nn.openByName(want));
+          if (r && r.ok) {
+            r.fastReply = '打开' + (r.label || want) + '了。';
+            return r;
+          }
+        }
+        return { ok: false, detail: '这台手机里没找到叫「' + want + '」的软件。' };
       }
-      const p = pkgOf(a.name);
-      if (!p) return { ok: false, detail: '不认得「' + (a.name || '') + '」这个软件。' };
       if (nn.hasApp && !nn.hasApp(p)) {
-        return { ok: false, detail: '这台手机上没装' + a.name + '。' };
+        return { ok: false, detail: '这台手机上没装' + want + '。' };
       }
-      try { nn.launchApp(p); } catch (e) {
-        return { ok: false, detail: a.name + '打不开。' };
+      try {
+        if (nn.launchApp) nn.launchApp(p);
+        else if (nn.openAppByPkg) nn.openAppByPkg(p);
+      } catch (e) {
+        return { ok: false, detail: want + '打不开。' };
       }
-      return { ok: true, detail: '打开了' + a.name + '。' };
+      /* 单动作工具：原生这一句就是最终答复，不必再让模型复述一轮
+         —— 省一次往返（约 1.5~2 秒），也省掉它把「打开了」说成别的。 */
+      return { ok: true, detail: '打开' + want + '了。', fastReply: '打开' + want + '了。' };
     });
 
   /* ===== 开网页 ===== */
@@ -1254,7 +1410,84 @@
       return fromJava(nn.openUrl(u));
     });
 
-  /* ===== 记事情（长期记忆的写入口） ===== */
+  /* ===== 在购物 App 里搜东西 =====
+     2026-11-12 菲尔特：「我说我想在淘宝买件羽绒服，它应该自动跳转去搜，
+     停在商品界面供我挑」。真机实测（小米 Android 13 / 淘宝 10.x / 拼多多 7.x）：
+       淘宝   taobao://s.taobao.com/search?q=羽绒服
+               → com.taobao.taobao/SearchActivity，搜索框已填好、结果已出
+       拼多多 pinduoduo://com.xunmeng.pinduoduo/search_result.html?search_key=羽绒服
+               → NewPageActivity，直接是商品列表
+     两条都不用无障碍点、不用等 20 秒。走不到才落到「只打开 App」并如实说。 */
+  const SHOP = {
+    '淘宝': { pkg: 'com.taobao.taobao', url: function (q) { return 'taobao://s.taobao.com/search?q=' + encodeURIComponent(q); } },
+    '天猫': { pkg: 'com.taobao.taobao', url: function (q) { return 'taobao://s.taobao.com/search?q=' + encodeURIComponent(q); } },
+    '拼多多': { pkg: 'com.xunmeng.pinduoduo', url: function (q) { return 'pinduoduo://com.xunmeng.pinduoduo/search_result.html?search_key=' + encodeURIComponent(q); } },
+    '京东': {
+      pkg: 'com.jingdong.app.mall',
+      url: function (q) {
+        const p = JSON.stringify({ category: 'jump', des: 'productList', keyword: q });
+        return 'openapp.jdmobile://virtual?params=' + encodeURIComponent(p);
+      },
+    },
+    '唯品会': { pkg: 'com.vipshop.iphone', url: function (q) { return 'vipshop://search?keyword=' + encodeURIComponent(q); } },
+  };
+  function shopOf(name) {
+    const s = String(name || '').trim();
+    if (!s) return null;
+    for (const k in SHOP) if (s.indexOf(k) >= 0 || k.indexOf(s) >= 0) return { key: k, d: SHOP[k] };
+    if (/商城|买|购/.test(s)) return { key: '淘宝', d: SHOP['淘宝'] };
+    return null;
+  }
+
+  def('shop_search',
+    '在购物软件里搜商品，搜完停在商品列表让老人自己挑。' +
+    '老人说「我想在淘宝买件羽绒服」「拼多多上看看电饭煲」「京东搜个血压计」时用。' +
+    '只搜不买：不要下单、不要付款、不要点「立即购买」。老人没说哪个平台就默认淘宝。',
+    {
+      app: { type: 'string', description: '哪个购物软件，如 淘宝、拼多多、京东。老人没说就留空' },
+      keyword: { type: 'string', description: '买什么，照老人原话抄，别加「买」「的」这类字，如 羽绒服、电饭煲' },
+    },
+    ['keyword'],
+    function (a, E) {
+      const nn = n(E); if (!nn || !nn.deeplink) return noNative();
+      const kw = String(a.keyword || '').trim()
+        .replace(/^(我想|我要|帮我|给我|想|要|买|购|看看|看一下|搜|搜索|一?[件个双台条瓶盒张本])+/, '')
+        .replace(/(买|购|看看|看一下|搜|搜索|的|吧|呢|啊|呀)+$/g, '')
+        .trim();
+      if (!kw) return { ok: false, detail: '没说买什么。' };
+      const hit = shopOf(a.app) || { key: '淘宝', d: SHOP['淘宝'] };
+      const pkg = hit.d.pkg;
+      if (nn.hasApp && !nn.hasApp(pkg)) {
+        /* 没装就换一个装了的，别直接说做不到 */
+        let alt = null;
+        for (const k in SHOP) if (SHOP[k].pkg !== pkg && (!nn.hasApp || nn.hasApp(SHOP[k].pkg))) { alt = { key: k, d: SHOP[k] }; break; }
+        if (!alt) return { ok: false, detail: '这台手机上没装购物软件。' };
+        const r2 = launchShop(nn, alt, kw);
+        if (r2.ok) r2.detail = '没装' + hit.key + '，用' + alt.key + '搜「' + kw + '」了。';
+        return r2;
+      }
+      return launchShop(nn, hit, kw);
+    });
+
+  /* 深链打开 → 停一下 → 顺手把开屏弹窗（双11 红包、升级提示）点掉。
+     弹窗不点掉，老人看到的就是一张广告，会以为搜错了。 */
+  function launchShop(nn, hit, kw) {
+    let r = null;
+    try { r = fromJava(nn.deeplink(hit.d.url(kw))); } catch (e) { r = { ok: false, detail: '打不开。' }; }
+    const say = '在' + hit.key + '上搜「' + kw + '」了，您慢慢挑。';
+    if (r && r.ok) {
+      try { if (nn.dismissCovers) nn.dismissCovers(); } catch (e) {}
+      return { ok: true, detail: say, fastReply: say };
+    }
+    /* 深链被拒（App 版本不认这个 scheme）：退一步只把 App 打开，如实说清楚 */
+    try {
+      if (nn.launchApp) nn.launchApp(hit.d.pkg);
+    } catch (e) {}
+    const say2 = '打开' + hit.key + '了，搜索框我没填上，您自己点一下搜「' + kw + '」。';
+    return { ok: true, detail: say2, fastReply: say2, partial: true };
+  }
+
+
   def('remember',
     '把老人交代的事长期记住。吃药时间、家里人的名字和事、他的喜好，都记。' +
     '老人说「记住…」「以后…」「我每天早上八点吃…」时用。',
@@ -1704,6 +1937,9 @@
   /* 🚫 2026-11-10 悟空正式下架：从名单和 schema 里都摘掉，
      模型看不见它就永远不会调。代码保留（T 里先删，需要回滚时恢复这行即可）。 */
   delete T.search_wukong;
+  /* 🚫 2026-11-12 一起下架：resume_show 的唯一实现是 resumeWukong()，
+     留在表里就等于给「我想看…」留了一条通往悟空的路。看剧统一走 play_video。 */
+  delete T.resume_show;
   function names() { return Object.keys(T); }
 
   /* 执行一个工具调用。永远 resolve，永远不抛 —— loop 不能因为一个工具挂了就崩 */
@@ -1819,7 +2055,11 @@
       const t = '现在 ' + hh + ' 点' + (mm === '00' ? '整' : ' ' + mm + ' 分') + '（' + when + '）';
       return {
         ok: true,
+        /* 2026-11-12：日期/农历/时间一律由本地算出来直接念，不再让模型复述。
+           真机实证模型会在复述时把「十月初四」说成「农历十月4号」，
+           甚至拐去讲阴历阳历怎么换算 —— 老人问的是今天初几。 */
         detail: t + '；' + (lun ? g + '，农历' + lun + '。' : g + '。'),
+        fastReply: t + '；' + (lun ? g + '，农历' + lun + '。' : g + '。'),
         date: g, lunar: lun, time: hh + ':' + mm,
       };
     });

@@ -550,6 +550,17 @@
           <button class="act-btn ghost" id="locBtn" style="width:100%;margin-top:12px">打开定位（只为报准天气）</button>
         </div>
 
+        <!-- ⑨ 比赛演示（2026-11-12 菲尔特：「我怎么进入演示模式」）
+             放在设置组最下面 —— 家人找得到、老人平时不会误碰。
+             点进去只做三件事：复位到第一遍、屏幕角上挂提词、把三遍的
+             提问次数和耗时记成一张表。 -->
+        <p class="sec">比赛演示</p>
+        <div class="panel">
+          <div class="merow"><span class="ml">演示模式</span><span class="mr" id="demoTag">没开</span></div>
+          <button class="act-btn" id="demoBtn" style="width:100%;margin-top:12px">打开演示模式</button>
+          <p class="cp small" style="margin:10px 2px 0">同一个片子说三遍：第一遍问平台和片名，第二遍只问片名，第三遍一句不问直接放。</p>
+        </div>
+
       </div>
 
       <!-- 这一页底下不再放那句「家里的事，跟米粒说一声就能办」——
@@ -936,7 +947,7 @@
         </div>
         <div class="onb-card onb-safety">
           <div class="onb-safetyline"><svg><use href="#i-phone"></use></svg><b>紧急呼叫联系人电话号码</b></div>
-          <input id="onbSosPhone" class="onb-input" type="tel" inputmode="numeric" placeholder="例如 13800000000">
+          <input id="onbSosPhone" class="onb-input" type="tel" inputmode="numeric" placeholder="例如 13800138000">
           <div class="onb-safetyline" style="margin-top:16px"><svg><use href="#i-fall"></use></svg><b>摔倒检测</b>
             <button id="onbFallSw" class="onb-switch" type="button" aria-label="摔倒检测开关"></button></div>
           <p id="onbFallSub" class="onb-sub">开着：手机检测到摔倒，会自动打给上面这个号码</p>
@@ -1061,6 +1072,63 @@
 <script src="agent-tools.js"></script>
 <script src="agent.js"></script>
 <script type="module" src="app.js"></script>
+<!-- ============================================================
+     演示模式（2026-11-12）
+     ① demoHud —— 右上角提词条。只在演示模式打开时出现，不挡手。
+        它不是「第几步」的按钮，而是**照着当前记住多少**告诉他该说哪句：
+        平台和片名都忘了 → 第一遍；记得平台 → 第二遍；都记得 → 第三遍。
+        现场的进度由它自己走，不用人点，按错了也不会演成假的。
+     ② demoSheet —— 「我的 → 设置 → 比赛演示」点开的那张面板：
+        三步怎么说、三遍的结果表、复位。
+     ============================================================ -->
+<div id="demoHud" hidden>
+  <div class="dh-hd">
+    <span class="dh-step" id="dhStep">第 1 遍 / 共 3</span>
+    <span class="dh-dots" id="dhDots"><i class="on"></i><i></i><i></i></span>
+    <button class="dh-x" id="dhX" aria-label="收起提词">✕</button>
+  </div>
+  <div class="dh-say" id="dhSay">米粒，我想看天天耍大牌</div>
+  <div class="dh-ex"><span id="dhExpect">问两件：哪个平台、片子叫啥</span><span id="dhLast">还没开始</span></div>
+  <!-- 提词条自带复位（2026-11-12）。它右下角正好压着首页的「设置」，
+       演完想重来还得先去点设置，手一滑就点错。这里直接给一个。 -->
+  <button class="dh-rs" id="dhReset">复位 · 重演一遍</button>
+</div>
+
+<div id="demoSheet" hidden>
+  <div class="ds-wrap">
+    <div class="ds-hd">
+      <b>比赛演示</b>
+      <button class="dh-x" id="dsClose" aria-label="关掉">✕</button>
+    </div>
+    <p class="ds-lead">同一个片子说三遍。中间<strong>不用点任何按钮</strong> —— 它记得多少，就问多少。</p>
+
+    <div class="ds-list">
+      <div class="ds-row" data-n="1">
+        <span class="ds-n">1</span>
+        <div><b>你说：米粒，我想看天天耍大牌</b><i>它问两句：哪个平台、片子叫啥</i></div>
+      </div>
+      <div class="ds-row" data-n="2">
+        <span class="ds-n">2</span>
+        <div><b>你说：我想看耍大牌</b><i>平台记下了，只确认片名</i></div>
+      </div>
+      <div class="ds-row" data-n="3">
+        <span class="ds-n">3</span>
+        <div><b>你说：我要看打牌</b><i>两样都记住了，一句不问，直接全屏</i></div>
+      </div>
+    </div>
+
+    <p class="ds-cap">这三遍的实测</p>
+    <div class="ds-table" id="dsTable"></div>
+
+    <!-- 主按钮：一步进到现场。复位 → 回首页 → 挂提词。
+         现场最怕的是"还要再点两下"，所以这三个动作合成一次点击。 -->
+    <button class="act-btn" id="dsReset" style="width:100%;margin-top:16px">开始演 · 复位并回首页</button>
+    <button class="act-btn ghost" id="dsStop" style="width:100%;margin-top:10px">关掉演示模式（提词条收起）</button>
+    <p class="ds-tip" id="dsTip">复位会清掉它记住的平台和片名，然后从第一遍开始。</p>
+    <p class="ds-tip" style="margin-top:6px">每遍之间按一次返回键回到米粒 —— 抖音全屏时提词条看不到。</p>
+  </div>
+</div>
+
 <!-- 全屏电视层：放 body 直属，逃出 #phone 的 transform ——
      横屏转屏后 fixed 定位跟着真视口走，不会被手机壳框住。 -->
 <div id="tvfull" hidden>

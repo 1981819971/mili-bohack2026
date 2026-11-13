@@ -348,17 +348,47 @@ window.__petMode = petMode;   // 原生桥/调试也能切
 (function () {
   /* 走自己 ECS 的中继（9001/tv/）：手机 WebView 到境外 IP 全被墙，
      中继在阿里云上拉上游 + 分片预取缓存（实测冷 4s / 热 0.19s）。 */
-  const HOST = 'http://your-ecs-host.example.com:9001/tv/';
+  const HOST = 'http://YOUR_SERVER_HOST:9001/tv/';
+  /* ==========================================================================
+   * 2026-11-12 20:5x 换信源（菲尔特：CCTV 连不稳、加载太慢，要找更稳的）
+   *
+   * 老方案：所有频道走自己 ECS 的 /tv/ 中继，而中继上游在美国
+   *   （74.91.26.218 → 302 → 192.187.115.106）。同一台手机实测：
+   *     经中继拉 playlist        1820 ms
+   *     上游分片 10 秒一个，hls 至少等两个分片才出画
+   *
+   * 新方案：直连国内 CDN。同一台手机实测：
+   *   浙江广电 ali-m-l.cztv.com（阿里云 CDN）
+   *       playlist 80~170 ms，分片 2.06 MB / 288 ms ≈ 57 Mbps，5 秒一片
+   *   124.165.251.82（IPTV 转发）
+   *       80 ms，但分片 1.89 MB 要 10.6 秒 ≈ 1.43 Mbps —— 带宽不够，必然一直转圈
+   *
+   * 频道编号不是看 m3u 标签猜的：服务器上 ffmpeg 逐台截帧、拼图认台标确认过。
+   * 已验证 cztv channel21 = CCTV-13、channel15 = CCTV-1、channel10 = CCTV-5+。
+   *
+   * 每一项 srcs 按优先级排，前一个连不上自动换下一个，老人不用知道换过源。
+   * 中继留着当兜底 —— 它慢，但境外源覆盖的台比国内 CDN 全。
+   * ======================================================================== */
+  const CZ = (n) => 'http://ali-m-l.cztv.com/channels/lantian/channel' + n + '/1080p.m3u8';
+  const RL = (ch) => HOST + ch + '.m3u8';
   /* 每一项都实测过解码（2026-11-07），新增频道照这个格式加、先 ffprobe 验 */
   const TV_MAP = [
-    { k: ['新闻联播', '新闻频道', 'cctv13', '中央13', '新闻'], ch: 'cctv13hd', name: 'CCTV-13 新闻' },
-    { k: ['中央一台', '中央1台', 'cctv1', '综合频道'], ch: 'cctv1hd', name: 'CCTV-1 综合' },
-    { k: ['戏曲', '豫剧', '京剧', '唱戏', '戏台', 'cctv11'], ch: 'cctv11hd', name: 'CCTV-11 戏曲' },
-    { k: ['电视剧频道', 'cctv8', '中央8'], ch: 'cctv8hd', name: 'CCTV-8 电视剧' },
-    { k: ['体育', '球赛', '足球', 'cctv5'], ch: 'cctv5hd', name: 'CCTV-5 体育' },
-    { k: ['少儿', '动画', '卡通', '动画片'], ch: 'cctv14hd', name: 'CCTV-14 少儿' },
-    { k: ['音乐频道', 'cctv15'], ch: 'cctv15hd', name: 'CCTV-15 音乐' },
-    { k: ['电影频道', 'cctv6', '中央6'], ch: 'cctv6hd', name: 'CCTV-6 电影' },
+    { k: ['新闻联播', '新闻频道', 'cctv13', '中央13', '新闻'], name: 'CCTV-13 新闻',
+      srcs: [CZ('21'), CZ('20'), RL('cctv13hd')] },
+    { k: ['中央一台', '中央1台', 'cctv1', '综合频道'], name: 'CCTV-1 综合',
+      srcs: [CZ('15'), RL('cctv1hd')] },
+    { k: ['戏曲', '豫剧', '京剧', '唱戏', '戏台', '看戏', 'cctv11'], name: 'CCTV-11 戏曲',
+      srcs: [RL('cctv11hd')] },
+    { k: ['电视剧频道', 'cctv8', '中央8'], name: 'CCTV-8 电视剧',
+      srcs: [RL('cctv8hd')] },
+    { k: ['体育', '球赛', '足球', 'cctv5'], name: 'CCTV-5 体育',
+      srcs: [RL('cctv5hd')] },
+    { k: ['少儿', '动画', '卡通', '动画片'], name: 'CCTV-14 少儿',
+      srcs: [RL('cctv14hd')] },
+    { k: ['音乐频道', 'cctv15'], name: 'CCTV-15 音乐',
+      srcs: [RL('cctv15hd')] },
+    { k: ['电影频道', 'cctv6', '中央6'], name: 'CCTV-6 电影',
+      srcs: [RL('cctv6hd')] },
   ];
   /* 2026-11-08 菲尔特定路由：视频类一律走真 App，不碰浏览器、不碰悟空。
        · CCTV / 卫视频道 → 自家中继直连（横屏全屏，已实测首帧 4.8s）
@@ -387,7 +417,9 @@ window.__petMode = petMode;   // 原生桥/调试也能切
     const s = String(q || '').toLowerCase().replace(/\s+/g, '');
     if (!s) return null;
     for (const it of TV_MAP) {
-      if (it.k.some((k) => s.indexOf(k.toLowerCase()) >= 0)) return { type: 'tv', url: HOST + it.ch + '.m3u8', name: it.name };
+      if (it.k.some((k) => s.indexOf(k.toLowerCase()) >= 0)) {
+        return { type: 'tv', urls: it.srcs.slice(), url: it.srcs[0], name: it.name };
+      }
     }
     /* 短剧优先红果（「红果短剧」里两个词都命中，必须排在抖音前面） */
     if (HG_KEYS.some((k) => s.indexOf(k) >= 0)) return hongguo(q);
@@ -407,7 +439,11 @@ window.__petMode = petMode;   // 原生桥/调试也能切
     const m = s.match(/(?:cctv|央视|中央|频道)?(\d{1,2})\s*台?/) || s.match(/cctv(\d{1,2})/);
     if (m) {
       const n = +m[1];
-      if (n >= 1 && n <= 17) return { type: 'tv', url: HOST + 'cctv' + n + 'hd.m3u8', name: 'CCTV-' + n };
+      if (n >= 1 && n <= 17) {
+        const hit = TV_MAP.find(function (it) { return it.name.indexOf('CCTV-' + n + ' ') === 0; });
+        if (hit) return { type: 'tv', urls: hit.srcs.slice(), url: hit.srcs[0], name: hit.name };
+        return { type: 'tv', urls: [RL('cctv' + n + 'hd')], url: RL('cctv' + n + 'hd'), name: 'CCTV-' + n };
+      }
     }
     return null;
   }
@@ -417,41 +453,61 @@ window.__petMode = petMode;   // 原生桥/调试也能切
     const w = $('tvfull');
     const v = $('tvfullV');
     if (!w || !v) return { ok: false, detail: '播放层没准备好。' };
+    /* src 可以是单个地址，也可以是按优先级排好的候选列表 */
+    const list = (Array.isArray(src) ? src : [src]).filter(Boolean);
+    if (!list.length) return { ok: false, detail: '这个台这会儿没有可用的信号。' };
     /* 记住当前台，换台键（左右）靠它找下一个 */
-    const mm = String(src).match(/([a-z0-9]+)\.m3u8/i);
-    if (mm) curIdx = TV_MAP.findIndex(function (it) { return it.ch === mm[1]; });
+    curIdx = TV_MAP.findIndex(function (it) { return it.name === title; });
     const t = $('tvfullT');
     if (t) t.textContent = title || '';
     w.hidden = false;
     /* 看电视就是横屏：整个 Activity 转过去，关掉再回来 */
     try { const nn = NATIVE(); if (nn && nn.screenLand) nn.screenLand(); } catch (e) {}
     try { v.muted = false; v.volume = 1; } catch (e) {}
-    if (/\.m3u8/i.test(src) && window.Hls && window.Hls.isSupported()) {
-      try { if (window.__tvHls) window.__tvHls.destroy(); } catch (e) {}
-      /* 2026-11-08 真机三连坑（黑屏 20 秒的完整root cause）：
-         ① 中继白名单写死 81/82 端口 → 上游换到 :88 后所有分片 403；
-         ② hls.js 默认开 Web Worker，file:// 页面起不来，错误算成 networkError；
-         ③ 直播窗口只有 3 段（≈25s），liveSyncDurationCount 默认 3 段
-            算出来的起点越界 → 只拉 playlist 不拉分片，永远黑屏。
-         这套参数是逐项实测出来的，别再"优化"回去。 */
-      window.__tvHls = new window.Hls({
-        enableWorker: false,
-        lowLatencyMode: false,
-        liveSyncDurationCount: 1,
-        liveMaxLatencyDurationCount: 2,
-        maxBufferLength: 10,
-        startPosition: -1,
-        manifestLoadingTimeOut: 12000,
-        fragLoadingTimeOut: 25000,
-        fragLoadingMaxRetry: 4
-      });
-      window.__tvHls.loadSource(src);
-      window.__tvHls.attachMedia(v);
-      window.__tvHls.on(window.Hls.Events.MANIFEST_PARSED, function () { tvPlay(v); });
-    } else {
-      v.src = src;
-      tvPlay(v);
+
+    /* 多源降级：这个源连不上就安静地换下一个。
+       老人不需要知道换过源，他只需要这个台能出来。 */
+    function playAt(i) {
+      if (i >= list.length) return;
+      const one = list[i];
+      try { if (window.__tvHls) { window.__tvHls.destroy(); window.__tvHls = null; } } catch (e) {}
+      if (/\.m3u8/i.test(one) && window.Hls && window.Hls.isSupported()) {
+        /* 2026-11-08 真机三连坑（黑屏 20 秒的完整root cause）：
+           ① 中继白名单写死 81/82 端口 → 上游换到 :88 后所有分片 403；
+           ② hls.js 默认开 Web Worker，file:// 页面起不来，错误算成 networkError；
+           ③ 直播窗口只有 3 段（≈25s），liveSyncDurationCount 默认 3 段
+              算出来的起点越界 → 只拉 playlist 不拉分片，永远黑屏。
+           这套参数是逐项实测出来的，别再"优化"回去。 */
+        const h = new window.Hls({
+          enableWorker: false,
+          lowLatencyMode: false,
+          liveSyncDurationCount: 1,
+          liveMaxLatencyDurationCount: 2,
+          maxBufferLength: 10,
+          startPosition: -1,
+          manifestLoadingTimeOut: 12000,
+          fragLoadingTimeOut: 25000,
+          fragLoadingMaxRetry: 4
+        });
+        window.__tvHls = h;
+        let moved = false;
+        /* 2026-11-12：任何一个致命错误都直接换源，不再让它傻等到超时。
+           三个源串起来，"这个台能看"的概率就从"看运气"变成"基本能看"。 */
+        h.on(window.Hls.Events.ERROR, function (ev, d) {
+          if (moved || !d || !d.fatal) return;
+          moved = true;
+          try { console.log('[TV] 第 ' + (i + 1) + ' 个源不通(' + d.type + ')，换下一个'); } catch (e) {}
+          playAt(i + 1);
+        });
+        h.loadSource(one);
+        h.attachMedia(v);
+        h.on(window.Hls.Events.MANIFEST_PARSED, function () { tvPlay(v); });
+      } else {
+        v.src = one;
+        tvPlay(v);
+      }
     }
+    playAt(0);
     return { ok: true, detail: '打开啦，' + (title || '节目') + '。' };
   }
 
@@ -491,11 +547,12 @@ window.__petMode = petMode;   // 原生桥/调试也能切
     const name = (a && typeof a === 'object') ? a.name : b;
     if (!pkg) return { ok: false, detail: '没说要开哪个软件。' };
     const nn = NATIVE();
+    const done = '打开' + (name || '') + '啦。';
     if (nn && nn.launch) {
-      try { nn.launch(String(pkg)); return { ok: true, detail: '打开' + (name || '') + '啦。' }; } catch (e) {}
+      try { nn.launch(String(pkg)); return { ok: true, detail: done, fastReply: done }; } catch (e) {}
     }
     if (nn && nn.openAppByPkg) {
-      try { nn.openAppByPkg(String(pkg)); return { ok: true, detail: '打开' + (name || '') + '啦。' }; } catch (e) {}
+      try { nn.openAppByPkg(String(pkg)); return { ok: true, detail: done, fastReply: done }; } catch (e) {}
     }
     return { ok: false, detail: '这台手机上开不了这个软件。' };
   }
@@ -506,7 +563,7 @@ window.__petMode = petMode;   // 原生桥/调试也能切
     if (!TV_MAP.length) return { ok: false, detail: '没有台。' };
     let i = curIdx < 0 ? 0 : (curIdx + dir + TV_MAP.length) % TV_MAP.length;
     const it = TV_MAP[i];
-    const r = open(HOST + it.ch + '.m3u8', it.name);
+    const r = open(it.srcs, it.name);
     if (r.ok) { try { say(r.detail); } catch (e) {} }
     return r;
   }
@@ -523,7 +580,14 @@ window.__petMode = petMode;   // 原生桥/调试也能切
     if (kw && typeof nn.playDouyin === 'function') {
       try {
         const r = JSON.parse(nn.playDouyin(kw) || '{}');
-        if (r && r.ok) return { ok: true, detail: r.say || ('给您找着' + kw + '，点开就能看。') };
+        if (r && r.ok) {
+          /* 2026-11-12：点开全屏是一串原生动作，模型这一轮没有新信息可加工，
+             让它再复述一遍只会多花 1.5~2 秒，还容易把「正在点开」说成
+             「已经全屏了」（真机截图为证：当时还停在详情页）。
+             直接用原生那句当最终回复，说多少就是多少。 */
+          const s = '找到《' + kw + '》了，正给您点开。';
+          return { ok: true, detail: s, fastReply: s };
+        }
       } catch (e) {}
     }
     try { nn.openUrl(d.url); } catch (e) { return { ok: false, detail: '开不了。' }; }
@@ -1056,6 +1120,26 @@ const NATIVE = () => {
 };
 let speaking = false, voiceOn = true, zhVoice = null;
 
+/* ===== 2026-11-11：跨 App 自动化时的「等」 =====
+   真机实证：open_app 打开拼多多后，米粒 Activity 进后台，Chromium 把页面
+   定时器节流到每分钟一次 —— agent-tools.js 里每个 await wait(2600) 变成
+   永久等待，工具超时（8 秒）也一起失效。实测 open_app 20:32:31 成功，
+   search_in_app 20:36:11 才报超时，中间挂了 220 秒。老人看到的就是
+   「一直在想」+ 从此不再理人（_busy 卡死）。
+   前端可见时照旧用 setTimeout（不卡渲染）；页面隐藏时改走 Java 线程的
+   MiliNative.sleepMs —— 它不受页面生命周期节流。 */
+window.__NAP = function (ms) {
+  const n = (function () { try { return NATIVE(); } catch (e) { return null; } })();
+  try {
+    if (n && typeof n.sleepMs === 'function' && document.hidden) {
+      n.sleepMs(Math.max(0, Math.min(ms || 0, 15000)));
+      return Promise.resolve();
+    }
+  } catch (e) {}
+  return new Promise(function (r) { setTimeout(r, ms || 0); });
+};
+
+
 function pickVoice() {
   if (!('speechSynthesis' in window)) return;
   const vs = speechSynthesis.getVoices();
@@ -1466,6 +1550,8 @@ function speak(text, opts) {
   const o = opts || {};
   if (!text) return;
   latMark('audio');
+  /* 演示模式：第一声出口。跟 turn 起点一对，就是「说完到听见回应」的秒数。 */
+  try { window.__DEMO_AUDIO && window.__DEMO_AUDIO(); } catch (e) {}
   /* 整段说出场，流式那边就得让位 —— 否则两路声音叠在一起，
      老人会以为手机坏了在重影。
      三路都要按死：流式队列、<audio>、系统 TTS。漏一路都会听见两个人在说话。 */
@@ -1505,12 +1591,22 @@ function speak(text, opts) {
      和豆包的 24kHz PCM 撞在一起，老人听到的就是两个人在同时说话。
      twice（「记不住」要重复两遍）走不了豆包这条路，还是用片段。 */
   const nS = NATIVE();
-  if (!o.twice && nS && typeof nS.ttsSay === 'function') { nativeTTS(text, o); return; }
+  if (!o.twice && nS && typeof nS.ttsSay === 'function') {
+    /* 🚨 2026-11-12 21:14 修「两个嗓子」。
+       这一行原来写的是 nativeTTS(text, o) —— 也就是系统 TTS（小米的成年女声），
+       可上一段注释写的是「整段也交给豆包，全站只留一个嗓子」，代码跟注释是反的。
+       后果：凡走整段播报的句子（「外婆，回来啦」「哎，我在这儿呢」）全是那个
+       冰冷女声，跟流式回复的奶气萌娃撞在一起，听起来像两个人在说话。
+       现在整段也交给豆包；播完由 miliTtsEnd → ssGate(false) 把麦克风还回去。 */
+    const gid = 'g' + (++SS.uid);
+    SS.wait[gid] = function () { ssGate(false); };
+    ssGate(true);
+    try { nS.ttsSay(text, gid); return; } catch (e) { delete SS.wait[gid]; ssGate(false); }
+  }
 
-  /* 只用一个声音：预生成童声 → 云端同款童声 → 系统 TTS（最后兜底）。
-     之前这里写死「在手机上直接走系统 TTS」，把童声整个跳过了，声音就变冰冷。 */
-  if (clip && voiceOn) { if (playClip(clip, o)) return; }
-
+  /* 🚨 预生成片段（app/assets/voice/*.mp3）是 edge-tts 的 XiaoyiNeural —— 卡通女声，
+     跟豆包的奶气萌娃不是一个嗓子，一播就是「换人说话了」，所以不再用它。
+     保留云端同款童声（server/doubao_tts.py 里也是 naiqimengwa），最后才退系统 TTS。 */
   if (voiceOn && typeof ttsFetch === 'function' && cloudOK()) {
     let done = false;
     ttsFetch(text).then((url) => {
@@ -2206,6 +2302,9 @@ function callEnter(why, graceMs) {
        首页那颗胶囊会一直写「待机」——老人以为米粒没在听。这里补上。 */
     try { setPetState('listen'); } catch (e) {}
     try { startCv(); } catch (e) {}
+    /* 把模型那条连接提前焐热。老人这会儿正在想第一句说什么，
+       这 2~3 秒正好用来握手，等他真开口时省下的就是实打实的地板延迟。 */
+    try { window.MILI_AGENT && window.MILI_AGENT.prewarm && window.MILI_AGENT.prewarm(); } catch (e) {}
   }
   if (CALL.tick) clearInterval(CALL.tick);
   CALL.tick = setInterval(callTick, 1000);
@@ -3110,7 +3209,11 @@ function wireAgent() {
 /* 从内核的 trace 里抠出「这次真的办成了哪几件事」。
    只留 ok:true 的，而且只留会改世界的工具 —— 查天气、查药箱这类
    没有副作用，重放没意义，还容易把过期数据当新数据。 */
-const SIDE_EFFECT = /^(call_phone|wechat_message|wechat_call|wechat_redpacket|send_sms|ir_power|open_map|play_video|watch_news|open_app|open_url|set_alarm|pet_toggle)$/;
+/* 🚨 2026-11-12 修：原来这张表漏了 search_in_app / shop_search / watch_video，
+   导致 goodCalls() 把它们全过滤掉 → calls 为空 → did 恒为 false → skill 从不落库。
+   表现就是「三遍演示第二遍还得问」，而日志里一切正常、查不出错。
+   判据：凡是对手机屏幕产生真实改变、且值得下次直接重放的，都要进来。 */
+const SIDE_EFFECT = /^(call_phone|wechat_message|wechat_call|wechat_redpacket|send_sms|ir_power|open_map|play_video|watch_video|search_in_app|shop_search|watch_news|open_app|open_url|set_alarm|pet_toggle|grab_redpacket|register_hospital|scan_pay|wechat_pay_code)$/;
 
 function goodCalls(results, trace) {
   const out = [];
@@ -3122,6 +3225,65 @@ function goodCalls(results, trace) {
     }
   }
   return out;
+}
+
+/* ==========================================================================
+ * 本地算日期 —— 老人问「今天农历几号」不该进模型
+ *
+ * 真机实证（2026-11-12）：LOCAL_FIRST 里明明写了「几号」要本地先办，
+ * 但下面根本没有任何分支真正接住它，整句话一路掉到兜底，老人听到的是
+ * 「这个我一时没弄明白」。而本地 Intl 一算就有：2026 丙午年 十月初四。
+ *
+ * 不进模型的三个理由：
+ *   ① 慢 —— 一趟模型 2~5 秒，本地 0 毫秒；
+ *   ② 会错 —— 模型复述时把「十月初四」说成「农历十月4号」；
+ *   ③ 会跑偏 —— 问一次农历，它能拐去讲阴历阳历怎么换算。
+ * ======================================================================== */
+function lunarCNOf(d) {
+  try {
+    const s = new Intl.DateTimeFormat('zh-CN-u-ca-chinese', { dateStyle: 'long' }).format(d);
+    /* 输出形如「2026丙午年十月初四」，砍掉年份干支，只留月日 */
+    const i = s.indexOf('年');
+    return i >= 0 ? s.slice(i + 1) : s;
+  } catch (e) { return ''; }
+}
+function localDateSay(raw) {
+  const d = new Date();
+  const q = String(raw || '');
+  const wk = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'][d.getDay()];
+  const md = (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 号';
+  const lun = lunarCNOf(d);
+  const hh = d.getHours();
+  const mm = ('0' + d.getMinutes()).slice(-2);
+  const clock = hh + ' 点 ' + (mm === '00' ? '整' : mm + ' 分');
+  const askLunar = /农历|阴历/.test(q);
+  const askWeek = /星期|礼拜|周几/.test(q);
+  const askDay = /几号|几月几|\d+\s*月/.test(q);
+  const askTime = /几点|什么时候了|现在时间/.test(q);
+
+  if (askTime && !askLunar && !askDay && !askWeek) return '现在 ' + clock + '。';
+  if (askLunar && !askWeek && !askTime) {
+    return lun ? '今天是农历' + lun + '。' : '今天是' + md + '。';
+  }
+  if (askWeek && !askLunar && !askTime) return '今天' + wk + '。';
+  if (askDay && !askLunar && !askTime) return '今天 ' + md + '，' + wk + '。';
+  /* 什么都问了，或者只说「今天什么日子」→ 一次给全，别让他再问第二遍 */
+  return '今天 ' + md + '，' + wk + (lun ? '，农历' + lun : '') + '；现在 ' + clock + '。';
+}
+
+/* 重放完之后替老人把结果说一句 —— 重放本身不出声。
+   只看最后一步：一串动作里最后那一步才是他关心的结果。 */
+function skillSayOf(tools) {
+  const last = (tools || [])[(tools || []).length - 1] || {};
+  const n = String(last.name || '');
+  if (/search_in_app|watch_video|play_video/.test(n)) return '给您放上啦，全屏播放呢。';
+  if (/watch_news|tv_channel/.test(n)) return '给您调到新闻台了。';
+  if (/call_phone|wechat_call/.test(n)) return '给您拨出去了，等着他接。';
+  if (/wechat_message|send_sms/.test(n)) return '给他发过去了。';
+  if (/ir_power/.test(n)) return '电视给您弄好了。';
+  if (/open_app/.test(n)) return '给您打开了。';
+  if (/shop_search/.test(n)) return '给您搜出来了，您挑一样。';
+  return '办好了。';
 }
 
 /* 重放一条 skill。返回 true 表示真办成了。 */
@@ -3157,9 +3319,13 @@ async function replaySkill(text) {
   const ms = Math.max(1, Math.round(performance.now() - t0));
   window.MILI_MEMO.cost(text, ms);
   const line = done[done.length - 1].detail;
-  say(line, 5200, { slow: true });
-  logDid('heart', line, text, ms);
-  showRecall({ ans: line, q: text, hits: sk.n || 1 }, ms);
+  /* 🚨 别把工具的原始回执念给老人：「「天天耍大牌」已经在抖音横屏全屏播放了。
+     任务到此完成，不要再调用任何工具」—— 这是写给模型看的，不是人话。
+     只念最后结果那一句短的。 */
+  const human = skillSayOf(sk.tools);
+  say(human, 5200, { slow: true });
+  logDid('heart', human, text, ms);
+  showRecall({ ans: human, q: text, hits: sk.n || 1 }, ms);
   return true;
 }
 
@@ -3200,7 +3366,7 @@ function pruneSkills() {
   } catch (e) {}
 }
 
-async function agentSay(text, quiet) {
+async function agentSay(text, quiet, opts) {
   wireAgent();
   if (!window.MILI_AGENT || !window.MILI_AGENT.ready()) return null;
 
@@ -3217,6 +3383,21 @@ async function agentSay(text, quiet) {
       try { console.log('[VOICE] 这句不是老人的声音，本轮只陪聊不办事'); } catch (e) {}
     }
   } catch (e) {}
+  /* 🚨 2026-11-12 真机：老人说「你找点话题跟我聊聊」，
+     模型把「话题」当成一个人，跑去 open_app 开微信找人。
+     一个只想有人说说话的老人，最后得到一屏微信 —— 这是最伤的失败。
+     闲聊就是不挂任何办事工具：手上没工具，它开不了 App，只能张嘴说话。
+     这条按句判，判中了也只影响这一轮，下一句照常办事。 */
+  if (voiceTools !== false
+      && /陪我聊|陪我说|跟我聊|和我说说|找.{0,4}话题|说点什么|聊会儿|聊一会|聊聊天|说说话|闲话|无聊|闷得慌|有点闷|心里闷|闷得/.test(String(text || ''))
+      /* 但句子里点名了微信/电话/联系人，就是真要办事，不能拦。
+         2026-11-12 补「胸闷」：老人说「我有点闷」是想找人说话，
+         说「我胸口闷」是要人管。同一句里差两个字，走的路必须不一样 ——
+         这条排除先接住，身体的事一律当正事办。 */
+      && !/微信|打电话|电话给|发消息|发条|联系人|打给|拨给|视频通话|胸闷|胸口|心慌|喘不上|憋/.test(String(text || ''))) {
+    voiceTools = false;
+    try { console.log('[CHAT] 这句是纯闲聊，本轮不挂工具'); } catch (e) {}
+  }
   /* 2026-11-09 菲尔特：「不要搞其他的声音出来」。
      原来中途会念「我看看啊」/「我还找着呢」，把「还没想好」伪装成「已经答了」，
      老人听到一句垫话就以为说完了，接着又来一句，反而更乱。
@@ -3280,6 +3461,9 @@ async function agentSay(text, quiet) {
        不是边想边说。等流式稳定了再开（代码留着）。 */
     onDelta: null,
     onStreamEnd: null,
+    /* 日新页 RUN 1 专用：头一回听到这个说法，先真问一句再办。
+       产品平时不带这个标记，仍然是「能办就直接办」。 */
+    askFirst: !!(opts && opts.askFirst),
   });
 
   /* 🚨 2026-11-10 20:0x 「卡在哪一个任务之后就一直卡住在想了」：
@@ -3305,8 +3489,16 @@ async function agentSay(text, quiet) {
      老人问「电视关了没」，答的是「没关」，但记忆里记成办成过。
      判据改成：只要有任何一个工具失败，就不算办成，不记 skill。
      skill 是「下次直接重放」的东西，记错了下次会照着错的做。 */
+  /* 2026-11-12 修：原来「只要有任何一个工具失败就不算办成」太严。
+     真机实测第一遍答「抖音」：模型先 recall 查了一下（空），再 search_in_app 成功，
+     整轮被判成没办成 → skill 不记 → 下一回还得从头问，学了等于没学。
+     绕了弯路最后办成了，就是办成了。判据改成看**最后一步**：
+     最后一步失败才算没办成 —— 注释里那个「天气成功、关电视失败」的反例照样挡得住，
+     因为那次的最后一步正是失败的 ir_power。 */
   const anyFail = (r.results || []).some((x) => x.ok === false);
-  const did = !anyFail && calls.length > 0;
+  const _lastRes = (r.results || []).length ? r.results[r.results.length - 1] : null;
+  const _lastOk = !!_lastRes && _lastRes.ok !== false;
+  const did = calls.length > 0 && (_lastOk || !anyFail);
 
   /* 失败也要记下来 —— 这是「进化」的另一半。
      以前只记成功，等于下一次还从同一面墙开始撞。
@@ -3324,8 +3516,14 @@ async function agentSay(text, quiet) {
   /* 办成了就把成功序列记下来。同一句话再办成一次，就升格成 skill，
      下次 0ms 命中 —— 这就是「第一次慢、下次快」。 */
   if (did) {
-    window.MILI_MEMO.note(text, calls);
-    window.MILI_MEMO.bump(text);
+    /* 2026-11-12：这一句如果是「追问后的回答」，skill 的钥匙要用原始请求。
+       否则存进去的是「抖音，对」，老人下回再说原话命中不了 —— 追问一次换来的记忆就废了。 */
+    const _ao = window.__askOrigin;
+    const _fresh = !!(_ao && (Date.now() - _ao.t) < 120000);
+    const _key = _fresh ? String(_ao.text || text) : text;
+    if (_fresh) window.__askOrigin = null;
+    window.MILI_MEMO.note(_key, calls);
+    window.MILI_MEMO.bump(_key);
   }
 
   /* 这一轮是不是已经边生成边念过了。
@@ -3445,7 +3643,7 @@ function accPhoneMask(p) {
 }
 
 /* ============================================================================
- * 米粒自己的服务器（阿里云 your-ecs-host.example.com:9001，跟语音识别同一个进程）
+ * 米粒自己的服务器（阿里云 YOUR_SERVER_HOST:9001，跟语音识别同一个进程）
  *
  * 为什么换了：原来用第三方 BaaS，2026-11-05 一换登录账号，整个 App 的云端就废了。
  * 数据不在自己手里，就是这样。现在账号、配对、药箱全在 `/root/mili-data/mili.db`，
@@ -3467,7 +3665,7 @@ const MILI_API = (function () {
     const o = q.get('api');
     if (o && /^https?:\/\//i.test(o)) return o.replace(/\/+$/, '');
   } catch (e) {}
-  return 'http://your-ecs-host.example.com:9001';
+  return 'http://YOUR_SERVER_HOST:9001';
 })();
 
 /* 一张票走天下。角色存在 S.accRole 里（'elder' / 'fam'）。
@@ -4575,8 +4773,45 @@ function clockReply() {
   return '现在' + d.getHours() + '点' + (m === 0 ? '整' : m + '分') + '。';
 }
 
-async function handleSay(text, quiet) {
+/* 从「我想看天天耍大牌」里抠出片名，追问话术要用。
+   「我要看」不是称呼也不是片名的一部分，剥掉；剥三轮是因为老人常说
+   「麻烦您给我开一下空调」这种叠了三层前缀的话。抠不出来就不问，直接办。 */
+function askTitleOf(t) {
+  let s = String(t || '').replace(/[，。？！、,.?!~～\s]/g, '');
+  for (let i = 0; i < 3; i++) {
+    s = s.replace(/^(米粒|小鸡|哎|诶|那个|这个|麻烦|帮我|给我|您|你|我要|我想看|我想听|我想|我要看|我要听|看看|看|听听|听|搜|找|放|打开|开|一下|来|要)+/, '');
+  }
+  s = s.replace(/(吧|啊|呀|哦|啦|呢|呗|嘛|喽|一下|点儿|点)+$/g, '');
+  return (s.length >= 2 && s.length <= 14) ? s : '';
+}
+
+/* 追问后的那一句回答，是接在上一句后面的。
+   用户答「抖音，对」——单看这五个字，模型只能回「这个我这儿没记着」（实测 26.8 秒白跑）。
+   把原话拼回去，「我要看天天耍大牌，抖音，对」，它就知道该开哪个 App、搜什么。
+   两分钟内、且回答本身很短，才当追问的答案处理；说了一长句就说明他自己换话题了。 */
+function _askMerge(raw) {
+  const a = window.__askOrigin;
+  const s = String(raw || '');
+  if (!a || !a.text) return raw;
+  if (Date.now() - a.t > 120000) return raw;
+  if (s.length > 12) return raw;
+  /* 纯确认就是一句「对」—— 直接当原话办，别把「对」拼进片名里
+     （实测拼出来是「天天耍大牌对」，模型照着搜，搜不到）。 */
+  if (/^(对|是|是的|对的对的|好|行|嗯|恩|没错|就这个|就是这个|是的呀|对的)[，,。！!？?~～\s]*$/.test(s)) return a.text;
+  return a.text + '，' + s;
+}
+
+async function handleSay(text, quiet, opts) {
   window.__lat = { at: Date.now(), text: String(text || '').slice(0, 30) };
+  /* 演示模式：这一遍从「老人说完」开始计时。整段的起点只有这里一处，
+     别在 say() 里另起 —— 那是出声，不是开始。 */
+  try { window.__DEMO_ROUND && window.__DEMO_ROUND(text); } catch (e) {}
+  /* 趁模型在想（实测首字 243ms，够握手了），把豆包那条 ws 提前推到「就等文本」。
+     不这么做的话，每句话都要先付一遍 ws 握手 + 两次往返，实测 1.5 秒。 */
+  try {
+    const _n = NATIVE();
+    if (_n && _n.ttsPrepare) _n.ttsPrepare();
+  } catch (e) {}
   $('listen').hidden = true;
   /* 喊「米粒」把它叫醒的那一下，也要顺手把通话接起来 ——
      不然老人说完一句，它答完就散了，下一句还得再喊一次。
@@ -4725,13 +4960,39 @@ async function handleSay(text, quiet) {
   /* ---- ① skill 缓存 ---- */
   if (window.MILI_MEMO && window.MILI_TOOLS) {
     const hit = window.MILI_MEMO.hit(raw);
-    if (hit && skillSane(hit.tools)) {
+    /* 演示模式：前两遍不许走 skill 重放（详见文件末尾 DEMO 的 blockSkill 注释）。
+       没有这一道，第 1 遍会被上次学会的序列 0 毫秒重放，一声都不问。 */
+    var _demoBlk = false;
+    try { _demoBlk = !!(window.__DEMO && window.__DEMO.blockSkill(raw, hit)); } catch (e) {}
+    if (hit && skillSane(hit.tools) && !_demoBlk) {
       const ok = await replaySkill(raw);
       if (ok) {
         if (window.EVO) { try { EVO.hit(raw, hit.tools[0].name); } catch (e) {} }
         if (grown) announceGrow(grown);
-        return;
+        /* 2026-11-12：给「日新·两次运行」页一个明确的回执。
+           这一句根本没进模型，trace 必须是空的 —— 0 轮 0 token 才是真证据。
+           🚨 不能只说「办好了」就完：重放是静默执行的，不出一声，老人对着屏幕
+           一片安静，会以为没听懂。这里必须替他把结果讲出来。 */
+        const _say = skillSayOf(hit.tools);
+        /* 演示模式：这一遍一句都没问、模型也没起（0 轮），是从记忆里直接重放的。
+           窗口要能把「0 次提问」这个事实记下来。 */
+        try { window.__DEMO_DID && window.__DEMO_DID('skill'); } catch (e) {}
+        return { did: true, said: _say, ms: 0, trace: [], skillHit: true };
       }
+    }
+  }
+
+  /* ---- ①.0 日期 / 农历 / 星期 / 时间：本地算完直接念 ---- */
+  const DATE_Q = /农历|阴历|几号|几月几|星期几|礼拜几|周几|几点|什么日子/;
+  if (DATE_Q.test(raw)
+      && !/提醒|闹钟|叫我|药|挂号|预约|看|播|节目|电影/.test(raw)) {
+    const line = localDateSay(raw);
+    if (line) {
+      playAnim('nod', 1.2);
+      say(line, 7200, { slow: true });
+      logDid('heart', line, raw, 0);
+      if (grown) announceGrow(grown);
+      return { did: false, said: line, ms: 0, trace: [] };
     }
   }
 
@@ -4741,13 +5002,58 @@ async function handleSay(text, quiet) {
   const LOCAL_FIRST = /药|难受|不舒服|疼|头晕|恶心|摔|跌倒|急救|120|救命|喘不上|胸闷|心慌|几号|星期几|礼拜几|周几|几点|今天.{0,2}日子/;
   if (!LOCAL_FIRST.test(raw) && window.MILI_AGENT && window.MILI_AGENT.ready()) {
     playAnim('tilt', 1.4);
-    const r = await agentSay(raw, quiet);
+    /* 🚨 2026-11-12：头一回听他说要看什么，先问一句再动手。
+       能走到这里说明上面 skill 那条没命中 —— 这句话确实是头一回。
+       问不问由「它已经知道了多少」决定，不是由遍数决定：
+         平台不知道  → 问（一次问清平台 + 片名）
+         平台知道、片名不知道 → 只问片名
+         都知道        → 一个字都不问，直接办 */
+    const _memos = (window.MILI_MEMO && window.MILI_MEMO.memo) ? window.MILI_MEMO.memo() : [];
+    const _hasPlat = _memos.some((m) => /看视频用/.test(String(m && m.text || '')));
+    const _hasTitle = _memos.some((m) => /上次看的是/.test(String(m && m.text || '')));
+    const _isWatch = /看|听|播|放/.test(raw)
+      && !/抖音|快手|红果|爱奇艺|腾讯视频|优酷|B站|哔哩|头条|央视|CCTV|电视|新闻联播/.test(raw)
+      && !/[?？]|怎么样|多少|是不是|有没有|啥时候|几号|几点/.test(raw);
+    const _needWatch = _isWatch && (!_hasPlat || !_hasTitle);
+    /* 这句话如果是上一条追问的回答（两分钟内、很短），就不要再追问一次 ——
+       否则老人答「对」，它又问「是在抖音看吧」，成了绕圈。 */
+    const _isAnswer = !!(window.__askOrigin && (Date.now() - window.__askOrigin.t) < 120000
+      && String(raw).length <= 12);
+    const needAsk = !_isAnswer && (!!(opts && opts.askFirst) || _needWatch);
+    /* 🚨 2026-11-12：追问不走模型了。
+       实测两种都不行：把工具摘掉，模型退回通用聊天模型，按版权策略拒答
+       「我无法提供视频播放」；把工具挂着，它光顾着 recall 查记忆，
+       一句话不说就结束，老人听到「我没听清，您再说一遍？」。
+       改成固定话术：问哪一项由「它已经知道多少」决定，句子每次都一样 ——
+       老人同一句疑问听第二回不用重新理解，这本来也比每次换个说法强。 */
+    if (needAsk) {
+      const _title = askTitleOf(raw);
+      if (_title) {
+        const _q = _needWatch
+          ? (_hasPlat ? '是「' + _title + '」吧？' : '在抖音看吧？是「' + _title + '」吗？')
+          : ('您是说「' + _title + '」吗？');
+        /* 追问时把「原始请求」压在这里。他答完「抖音，对」办成的那一刻，
+           存进 skill 的钥匙必须是原话「我要看天天耍大牌」，不能是「抖音，对」——
+           否则下回他再说原话，一个字都命中不了，学的等于白学。 */
+        window.__askOrigin = { text: raw, t: Date.now() };
+        /* 演示模式：这一遍问了几个问题，现场要数得出来。
+           第一遍是「在抖音看吧？是「天天耍大牌」吗」一句问两件事，
+           第二遍只剩「是「天天耍大牌」吧」一句。 */
+        try { window.__DEMO_ASK && window.__DEMO_ASK(_q, !_hasPlat); } catch (e) {}
+        if (!quiet) say(_q, 2600);
+        return { did: false, said: _q, ms: 0, trace: [], ask: true };
+      }
+    }
+    const r = await agentSay(_askMerge(raw), quiet, opts);
     if (r && r.err !== 'busy') {
       if (r.said || r.did) {
         if (window.EVO && r.did) { try { EVO.hit(raw, 'agent'); } catch (e) {} }
+        if (r.did) { try { window.__DEMO_DID && window.__DEMO_DID('agent', r); } catch (e) {} }
         if (r.did) await showAgentCards(raw, r);
         if (grown) announceGrow(grown);
-        return;
+        /* 2026-11-12：日新页要拿真 trace / said 出数字与对话实录。
+           原来这里 return; 什么都不给，验收页只能去猜，现场必翻车。 */
+        return r;
       }
       /* 它真的想过了，但一个字都没说出来（超时 / 工具全失败 / 被截断）。
          这里必须停住 —— 再往下就是「查必应」，会把老人整句原话丢给搜索引擎：
@@ -4755,7 +5061,7 @@ async function handleSay(text, quiet) {
          是「我」这个汉字的字义。他等到的是驴唇不对马嘴的一段，还以为是它胡说。
          说一句「没弄明白」远好过答非所问。 */
       if (!quiet) say('这个我一时没弄明白，您再说一遍？', 5200);
-      return;
+      return r;
     }
     /* 智能体在、但这会儿正忙（上一句还在办）——
        到这儿就停，绝不能往下面的兜底走。
@@ -10741,11 +11047,20 @@ window.MILI_FALL_NOW = function(by){
       '</h4><div class="ph">还没跑</div><div class="ph">现场第一句真跑出来才有数字</div></div>';
     var tools = (r.tools || []).join('、') || '无工具';
     var asks = (r.trace || []).filter(function(x){ return /吗|是不是|您是说/.test(x.said || ''); }).length;
+    /* 2026-11-12：三列硬读数。trace 里每轮都带 tok（agent.js:1177），
+       命中 skill 时 trace 为空 → 0 轮 0 token，这正是「它记得住」的现场证据。
+       不许预填、不许估算，全部来自当场这一句真跑。 */
+    var toks = (r.trace || []).reduce(function(s, x){ return s + (Number(x && x.tok) || 0); }, 0);
+    var rounds = (r.trace || []).length;
     return '<div class="f7run" data-run="' + k + '"><h4>' + title + '</h4>' +
       '<div class="big">' + r.ms + '<small> ms</small></div>' +
       '<div class="ln">原话：' + h(r.text) + '</div>' +
       '<div class="ln">工具：' + h(tools) + '</div>' +
       '<div class="ln">追问：' + asks + ' 次</div>' +
+      /* 384×853 窄卡实测：「本轮 token：10969」会被 word-break 劈成 toke/n，
+         所以标签压到最短、单位用 3 字母 tok，中文在前不会被拦腰截断。 */
+      '<div class="ln">模型 ' + rounds + ' 轮 · ' + toks + ' tok</div>' +
+      (r.skillHit ? '<div class="ln">命中记忆 · 没问模型</div>' : '') +
       (r.note ? '<div class="ln warn">' + h(r.note) + '</div>' : '') + '</div>';
   }
   function refreshRun(k){
@@ -10832,40 +11147,96 @@ window.MILI_FALL_NOW = function(by){
           '</div></div>' + list;
     },
     renew: function(){
-      var evo = window.EVO, st = null, ver = 1, pass = 0, total = 0;
+      var evo = window.EVO, st = null, ver = 1;
+      /* 现场接口状态：默认读智能体内核，不预填任何额度，只显示当前真值。 */
+      var li = { base:'', model:'', key:'', saved:false };
+      try { li = (window.MILI_AGENT && window.MILI_AGENT.llmInfo()) || li; } catch(e){}
       try { st = evo && evo.state ? evo.state() : null; } catch(e){}
       if (st) ver = st.ver || 1;
-      try { pass = evo && evo.passNow ? evo.passNow() : 0; total = evo ? evo.total : 0; } catch(e){}
-      var memoN = 0, rulesN = 0, failsN = 0;
-      try { memoN = window.MILI_MEMO ? window.MILI_MEMO.skillCount() : 0; } catch(e){}
-      try { rulesN = (S.rules || []).length; failsN = (S.fails || []).length; } catch(e){}
+      /* 🚨 2026-11-12：本地考卷（28 句正则 BENCH）从主叙事下线。
+         eval/heldout.json 标注过时，改口前后都是 22/31、9 句失败完全一致；
+         手册 §0 也写了「考卷涨分不作进化证据」。摆着既过期又自相矛盾，
+         直接删，也不再每次 render 白跑一遍 28 句。 */
+      var M = window.MILI_MEMO, factN = 0, skillN = 0;
+      try {
+        factN = M ? M.memoCount() : 0;
+        skillN = M ? M.skillReady() : 0;
+      } catch(e){}
+      /* 🚨 2026-11-12：「它学到了什么」原来直接打印 S.rules 的内部 key
+         （avoid:read_screen / stuck:com.ss.android.ugc.aweme …）——
+         那是失败负样本，不是学到的东西，还满屏代码。
+         改成只显示真学到的三类：记住的事、学会办的事、听懂的说法。 */
       var learned = [];
       try {
-        (S.rules || []).slice(-4).reverse().forEach(function(r){
-          learned.push('<div class="f7learnrow">' + h(r.k || r.src || '一条说法') +
-            (r.ans ? ' → ' + h(String(r.ans).slice(0, 24)) : '') + '</div>');
+        (M ? M.memo() : []).slice(0, 3).forEach(function(m){
+          if (m && m.text) learned.push('<div class="f7learnrow">记住：' + h(String(m.text).slice(0, 26)) + '</div>');
+        });
+        (M ? M.skills() : []).filter(function(s){ return s && s.on; }).slice(0, 3).forEach(function(s){
+          if (s.text) learned.push('<div class="f7learnrow">学会办：' + h(String(s.text).slice(0, 24)) + '</div>');
+        });
+        (S.rules || []).filter(function(r){ return r && r.ans; }).slice(0, 2).forEach(function(r){
+          learned.push('<div class="f7learnrow">听懂「' + h(String(r.q || r.src || '一句土话').slice(0, 14)) +
+            '」→ ' + h(String(r.ans).slice(0, 20)) + '</div>');
         });
       } catch(e){}
       if (!learned.length) learned.push('<div class="f7learnrow dim">还没学到东西 · 现场第一句之后这里会出现原话</div>');
+      /* 对话实录：只显示这一句真跑出来的原话，没跑就是没有，不编。 */
+      var dialog = [];
+      try {
+        var runs = window.__F7_RUNS || {};
+        ['a','b'].forEach(function(k){
+          var d = (runs[k] || {}).dialog || [];
+          if (!d.length) return;
+          dialog.push('<div class="f7learnrow dim">' + (k === 'a' ? 'RUN 1' : 'RUN 2') + '</div>');
+          d.slice(0, 4).forEach(function(x){ dialog.push('<div class="f7learnrow">' + h(x) + '</div>'); });
+        });
+      } catch(e){}
+      if (!dialog.length) dialog.push('<div class="f7learnrow dim">还没开口 · 跑第 1 次之后这里会出现真问句</div>');
       return nav('日新 · 两次运行') +
         '<div class="f7quote">「一次运行是尝试，第二次运行是进化」<small>官方主赛道口径</small></div>' +
-        '<div class="f7ver">当前 v' + ver + ' <span>本地考卷 ' + pass + '/' + total +
-          '（离线佐证，不作进化证据）</span><span>技能记忆 ' + memoN + ' 条</span></div>' +
+        '<div class="f7ver">当前 v' + ver + ' <span>记住的事 ' + factN +
+          ' 条</span><span>能直接办 ' + skillN + ' 条</span><span>数字全部现场产生</span></div>' +
         '<div class="f7run2">' + runCard('a') + runCard('b') + '</div>' +
         '<div class="f7renewin">' +
           '<input id="f7renewText" class="field" value="米粒，给我开新闻台" aria-label="同一句话">' +
           '<div class="f7runbtns">' +
             '<button data-act="run1">跑第 1 次</button>' +
             '<button data-act="run2">跑第 2 次 · 同一句</button>' +
-          '</div></div>' +
+          '</div>' +
+          /* RUN 1 会真问一句，得有地方让老人把话答回去 —— 不然只有问没有答，
+             不是对话。答完这一句才真的动手（打开新闻页面）。 */
+          '<input id="f7answerText" class="field" value="对，就这个" aria-label="老人回一句" placeholder="老人回一句，例如：对，就这个">' +
+          '<div class="f7runbtns"><button data-act="answer">答这一句（真办）</button></div>' +
+          '</div>' +
+        '<div class="f7sec"><i></i>现场对话实录</div>' +
+        '<div class="f7learn">' + dialog.join('') + '</div>' +
         '<div class="f7sec"><i></i>它学到了什么</div>' +
         '<div class="f7learn">' + learned.join('') +
-          '<div class="f7learnrow dim">规则 ' + rulesN + ' 条 / 没走通的 ' + failsN +
-          ' 条 · 全部现场产生，不带预灌数据</div></div>' +
+          '<div class="f7learnrow dim">这些都能单条删、能整页清空，退回去就等于没学过</div></div>' +
+        '<div class="f7sec"><i></i>现场接口 · 组委会发的额度</div>' +
+        '<div class="f7renewin">' +
+          '<div class="ln" style="font-size:12px;color:#9A9FBA;line-height:1.6">当前：' +
+            h(li.model || '未配置') + ' · ' + h(li.base || '—') + ' · key ' + h(li.key || '无') +
+            ' · ' + (li.saved ? '本机已填现场额度' : '用内置默认') + '</div>' +
+          '<div class="f7runbtns">' +
+            '<button data-act="llmPreset" data-p="siliconflow">硅基流动</button>' +
+            '<button data-act="llmPreset" data-p="qingcheng">清程极智</button>' +
+            '<button data-act="llmPreset" data-p="deepseek">官方备路</button>' +
+          '</div>' +
+          '<input id="f7llmBase" class="field" value="' + h(li.base) + '" placeholder="Base URL（组委会给的地址）" aria-label="Base URL">' +
+          '<input id="f7llmModel" class="field" value="' + h(li.model) + '" placeholder="模型名" aria-label="模型名">' +
+          '<input id="f7llmKey" class="field" type="password" placeholder="现场发的 Key · 只存本机，留空不覆盖" aria-label="API Key">' +
+          '<div class="f7runbtns">' +
+            '<button data-act="llmSave">用这个额度</button>' +
+            '<button data-act="llmReset">清掉本机配置</button>' +
+          '</div>' +
+        '</div>' +
         '<button class="f7rollback" data-act="rollback">回到上一版（连记忆一起退）</button>' +
         '<p class="f7note" style="font-size:13px;color:#9A9FBA;line-height:1.6;margin:12px 2px">' +
           '回退会同时撤掉 EVO 快照与刚写入的一条技能记忆；退完请用同一句原话再跑一次验证。' +
-          '跑第 1/2 次走真实智能体入口，现场需要真机与 key，本机不代跑、不预填数字。</p>';
+          '跑第 1/2 次走真实智能体入口，现场需要真机与 key，本机不代跑、不预填数字。' +
+          '卡片上 tok 是模型计费用量单位，0 表示这一句压根没走模型。' +
+          '跑第 1 次会真问一句，答完再点第 2 次，同一句原话直达。</p>';
     },
     guard: function(){
       var d = D(), dt = new Date();
@@ -11271,25 +11642,120 @@ window.MILI_FALL_NOW = function(by){
         var slot0 = q('[data-run="' + k + '"]', root);
         if (slot0) slot0.innerHTML = '<h4>' + (k === 'a' ? 'RUN 1 · 尝试' : 'RUN 2 · 进化') +
           '</h4><div class="ph">正在跑…</div>';
+        /* 🚨 2026-11-12 现场级修复：日新页原来只认 window.MILI_DEBUG，
+           而它仅在 ?debug=1 时挂载；APK 走 file:///android_asset/web/index.html，
+           没有 debug 参数 → 点「跑第 1 次」直接显示「没接上智能体」。
+           现在直接用同一闭包里现成的 handleSay，不另起链路、不加能力。
+           有 debug 口时仍优先用它，方便探针。 */
         var D = window.MILI_DEBUG;
+        var sayFn = (D && D.handleSay) ? D.handleSay
+                  : (typeof handleSay === 'function' ? handleSay : null);
         var finish = function(extra){
           window.__F7_RUNS = window.__F7_RUNS || {};
-          var o = { text: txt, ms: Date.now() - t0, tools: [], trace: [] };
+          var o = { text: txt, ms: Date.now() - t0, tools: [], trace: [], dialog: [] };
           if (extra) for (var z in extra) o[z] = extra[z];
           window.__F7_RUNS[k] = o; refreshRun(k);
         };
-        if (!D || !D.handleSay){ finish({ note: '没接上智能体（现场需真机 + key）' }); return; }
+        if (!sayFn){ finish({ note: '没接上智能体（现场需真机 + key）' }); return; }
         try {
-          Promise.resolve(D.handleSay(txt, {})).then(function(){
+          /* quiet 必须传 false：原来写 handleSay(txt, {})，{} 是 truthy，
+             等于开了静音自测模式 —— 真追问对话在真机上根本不会出声。
+             RUN 1 带 askFirst → 模型先真问一句、不调工具；RUN 2 不带，走原链路。 */
+          Promise.resolve(sayFn(txt, false, k === 'a' ? { askFirst: true } : null)).then(function(ret){
             var tr = [];
-            try { tr = (D.lastTrace && D.lastTrace()) || []; } catch(e){}
+            try {
+              if (ret && Array.isArray(ret.trace)) tr = ret.trace;
+              else {
+                var lt = (D && D.lastTrace && D.lastTrace()) ||
+                         (window.MILI_AGENT ? window.MILI_AGENT.trace() : null);
+                tr = Array.isArray(lt) ? lt
+                   : (lt && Array.isArray(lt.rounds) ? lt.rounds : []);
+              }
+            } catch(e){ tr = []; }
             var tools = [];
             tr.forEach(function(x){ (x.calls || []).forEach(function(c){ tools.push(c.name); }); });
-            finish({ trace: tr, tools: tools });
+            /* 对话实录：只取这一句真跑出来的原话，不预填、不编。 */
+            var dlg = ['老人：' + txt];
+            tr.forEach(function(x){ if (x && x.said) dlg.push('米粒：' + String(x.said).slice(0, 46)); });
+            if (!tr.length) dlg.push('米粒：' + (ret && ret.skillHit
+              ? '（命中记忆，没再问，直接办了）' : '（这次没走模型）'));
+            finish({ trace: tr, tools: tools, dialog: dlg, skillHit: !!(ret && ret.skillHit) });
           }).catch(function(e){
             finish({ note: '这次没跑通：' + ((e && e.message) || '未知') });
           });
         } catch(e){ finish({ note: '调用失败：' + ((e && e.message) || '未知') }); }
+        return;
+      }
+      /* 2026-11-12：RUN 1 真问一句之后，老人得能把话答回去。
+         答句走同一个 handleSay（不带 askFirst），会真调工具、真办事。
+         办成了再把这一串动作记到 RUN 1 那句原话名下 ——
+         下一句原话再来才能 0ms 直达，否则记的是「对，就这个」，
+         RUN 2 根本命中不了。 */
+      if (n.dataset.act === 'answer'){
+        var ai = q('#f7answerText', root);
+        var ans = ai ? String(ai.value || '').trim() : '';
+        if (!ans){ f7toast('先写一句老人会怎么答'); return; }
+        var D2 = window.MILI_DEBUG;
+        var say2 = (D2 && D2.handleSay) || (typeof handleSay === 'function' ? handleSay : null);
+        if (!say2){ f7toast('没接上智能体'); return; }
+        var run1 = (window.__F7_RUNS || {}).a || null;
+        f7toast('它在办了…');
+        Promise.resolve(say2(ans, false, null)).then(function(ret){
+          var calls = [];
+          try {
+            var tr2 = (ret && Array.isArray(ret.trace)) ? ret.trace : [];
+            tr2.forEach(function(rd){ (rd.calls || []).forEach(function(c){
+              calls.push({ name: c.name, args: c.args || {} });
+            }); });
+          } catch(e){}
+          if (calls.length && run1 && window.MILI_MEMO && window.MILI_MEMO.note){
+            try { window.MILI_MEMO.note(String(run1.text || ''), calls); } catch(e){}
+          }
+          try {
+            window.__F7_RUNS = window.__F7_RUNS || {};
+            window.__F7_RUNS.a = window.__F7_RUNS.a || { dialog: [] };
+            var dlg = window.__F7_RUNS.a.dialog = window.__F7_RUNS.a.dialog || [];
+            dlg.push('老人：' + ans);
+            if (ret && ret.said) dlg.push('米粒：' + String(ret.said).slice(0, 46));
+          } catch(e){}
+          render('renew');
+          f7toast(calls.length ? '办成了，这句原话已经记住' : '这句没调起工具，没记');
+          return;
+        }).catch(function(e){ f7toast('没跑通：' + ((e && e.message) || '未知')); });
+        return;
+      }
+      /* 2026-11-12：现场换组委会发的 token 额度。
+         只改运行时配置，不改代码、不重打包、不预灌任何数字。 */
+      if (n.dataset.act === 'llmPreset'){
+        var P = {}, pp = {};
+        try { P = (window.MILI_AGENT && window.MILI_AGENT.llmPresets) ? window.MILI_AGENT.llmPresets() : {}; } catch(e){}
+        pp = P[n.dataset.p] || {};
+        var eb = q('#f7llmBase', root), em = q('#f7llmModel', root);
+        if (eb) eb.value = pp.base || '';
+        if (em) em.value = pp.model || '';
+        f7toast(n.dataset.p === 'qingcheng'
+          ? '清程极智的地址现场找主办拿，填进 Base URL 再贴 Key'
+          : '预设已填好，把现场发的 Key 贴进去');
+        return;
+      }
+      if (n.dataset.act === 'llmSave'){
+        var vBase  = ((q('#f7llmBase', root)  || {}).value || '').trim();
+        var vModel = ((q('#f7llmModel', root) || {}).value || '').trim();
+        var vKey   = ((q('#f7llmKey', root)   || {}).value || '').trim();
+        if (!vBase || !vModel){ f7toast('Base URL 和模型名都要填'); return; }
+        var lcfg = { base: vBase, model: vModel };
+        if (vKey) lcfg.key = vKey;
+        var lr = (window.MILI_AGENT && window.MILI_AGENT.setLLM)
+          ? window.MILI_AGENT.setLLM(lcfg) : { ok:false, err:'智能体没起来' };
+        render('renew');
+        f7toast(lr.ok ? ('已切到 ' + lr.model + ' · 下一句就走这个额度')
+                      : ('没切成功：' + (lr.err || '未知')));
+        return;
+      }
+      if (n.dataset.act === 'llmReset'){
+        try { if (window.MILI_AGENT && window.MILI_AGENT.setLLM) window.MILI_AGENT.setLLM({ reset:true }); } catch(e){}
+        render('renew');
+        f7toast('本机额度已清掉，回到内置默认');
         return;
       }
       if (n.dataset.act === 'rollback'){
@@ -11346,7 +11812,7 @@ window.MILI_FALL_NOW = function(by){
         var note = { t: Date.now(), text: nt, sent: false };
         try { localStorage.setItem('mili.note', JSON.stringify(note)); } catch(err){}
         try {
-          fetch('http://your-ecs-host.example.com:9001/state?k=YOUR_STATE_KEY&dev=note', {
+          fetch('http://YOUR_SERVER_HOST:9001/state?k=YOUR_STATE_KEY&dev=note', {
             method:'PUT', headers:{ 'Content-Type':'application/json' },
             body: JSON.stringify(note)
           }).then(function(){ note.sent = true;
@@ -11942,13 +12408,19 @@ window.MILI_FALL_NOW = function(by){
          '</span><span class="tx">录老人的声音<div class="sb">进引导第 8 步录，点一下开始、自己点一下结束</div></span><span class="go">›</span></button>';
     h += '<button class="v9row" data-do="openRhythm"><span class="ic" style="color:#5B4DF0">' + ic9('spark') +
          '</span><span class="tx">它记住了什么<div class="sb">不是您教的，是它看出来的 · 可删可清空</div></span><span class="go">›</span></button>';
-    h += '<button class="v9row" data-do="renew"><span class="ic" style="color:#5B4DF0">' + ic9('spark') +
-         '</span><span class="tx">日新 · 两次运行<div class="sb">现场演示进化与回退</div></span><span class="go">›</span></button>';
+    /* 2026-11-12 菲尔特：「把日新板块换成演示模式」。
+       日新那页是给家人端看的两次运行对照，评委在台上没法跟着点；
+       这里换成一台手机就能演完的三遍。 */
+    h += '<button class="v9row" data-do="demo"><span class="ic" style="color:#5B4DF0">' + ic9('spark') +
+         '</span><span class="tx">比赛演示<div class="sb">说三遍：问两件 → 问一件 → 不问</div></span>' +
+         '<span class="v9tag" style="background:#EFEDFF;color:#4A3ED6">' +
+         ((window.__DEMO && window.__DEMO.on && window.__DEMO.on()) ? '已开' : '没开') + '</span>' +
+         '<span class="go">›</span></button>';
     h += '<div class="v9sec"><i></i>安全求助</div>';
     h += '<div class="v9card" style="padding:14px 16px">' +
          '<div class="v9row" style="padding:0 0 8px"><span class="tx">紧急呼叫联系人电话号码</span></div>' +
          '<input id="v9sosPhone" class="v9input" type="tel" inputmode="numeric" ' +
-           'placeholder="例如 13800000000" value="' + E9(S.sosPhone || '') + '">' +
+           'placeholder="例如 13800138000" value="' + E9(S.sosPhone || '') + '">' +
          '<button class="v9row" data-do="saveSos" style="border-top:1px solid #EDEDF7;margin-top:10px">' +
            '<span class="tx">保存号码</span><span class="go">›</span></button>' +
          '<div class="sb" style="font-size:12px;color:#9A9FBA;padding:0 0 4px">' +
@@ -12415,6 +12887,16 @@ window.MILI_FALL_NOW = function(by){
       else page = 'hub';
       render(); return;
     }
+    /* 比赛演示（2026-11-12）。点了就：关设置 → 回首页 → 开提词 + 面板。
+       复位放在面板里，这样"从设置进来"和"演完重来"走的是同一个动作。 */
+    if (d === 'demo') {
+      try { close(); } catch(e) {}
+      try { goPage('home'); } catch(e) {}
+      setTimeout(function(){
+        try { if (window.__DEMO) window.__DEMO.start(true); } catch(e) {}
+      }, 240);
+      return;
+    }
     if (d === 'login' || d === 'switch' || d === 'setup' || d === 'sync' || d === 'renew') {
       if (d === 'renew') { close(); try { goPage('famhome'); } catch(err2){}
         const t = document.querySelector('#fam7 [data-go="mine"]'); if (t) t.click();
@@ -12862,7 +13344,7 @@ window.MILI_FALL_NOW = function(by){
           }
         } catch(e){}
         try {
-          fetch('http://your-ecs-host.example.com:9001/state?k=YOUR_STATE_KEY&dev=note')
+          fetch('http://YOUR_SERVER_HOST:9001/state?k=YOUR_STATE_KEY&dev=note')
             .then(function(r){ return r.json(); })
             .then(function(j){
               if (j && j.t && j.t > noteSeen && j.t > Date.now() - 10*60*1000 && j.text){
@@ -13042,5 +13524,332 @@ setTimeout(function () {
   } catch (e) {}
 }, 2600);
 
+
+/* ============================================================================
+ * 演示模式（2026-11-12 菲尔特：「我怎么进入演示模式，帮我做好入口和全流程」）
+ * ----------------------------------------------------------------------------
+ * 要演的是一句话的三遍：
+ *   ① 「米粒，我想看天天耍大牌」→ 问两件事（哪个平台、片子叫啥）
+ *   ② 「我想看耍大牌」        → 平台记住了，只问片名
+ *   ③ 「我要看打牌」          → 一句不问，直接横屏全屏
+ *
+ * 三条设计决定，都是为了让现场不出假：
+ *
+ * 1. **进度不靠按钮推进，靠它自己记住了多少。**
+ *    我本来想做成「下一遍 ⟶」按钮，但那样演的是按钮，不是米粒。
+ *    现在第几遍由 localStorage 里那两条记忆算：
+ *       没有「看视频用抖音」          → 第 1 遍
+ *       有平台、没有「上次看的是《X》」→ 第 2 遍
+ *       两条都有                      → 第 3 遍
+ *    记忆是自己长出来的，所以演到第几遍也是自己走到的。
+ *
+ * 2. **复位只清两条记忆，不清 skill。**
+ *    skill 是「这次 0 秒」的来源 —— 第 3 遍要靠它。
+ *    可它一旦在，第 1 遍说「我想看天天耍大牌」就会被 0 毫秒重放，
+ *    一个字都不问，三遍演成一遍。所以复位清记忆，另外加一道闸
+ *    （blockSkill）：前两遍不许走 skill，第三遍才放行。
+ *
+ * 3. **数据只记它自己吐出来的，不按脚本写死。**
+ *    问了几个问题、说完到出声多少毫秒、有没有真办成，全部从
+ *    handleSay 的实际执行里取（__DEMO_ROUND / ASK / AUDIO / DID 四个钩子）。
+ *    表里填的是真跑出来的数，不是排练时的数。
+ * ========================================================================== */
+(function () {
+  'use strict';
+
+  var D = {
+    on: false,
+    /* 演示者自己按 ✕ 收起的。跟"因为设置页挡着先藏一下"不是一回事 ——
+       前者要记住，后者随时恢复。2026-11-12 就是把两者混成一个 hidden，
+       结果设置页一逛，提词条再也不回来了。 */
+    muted: false,
+    runs: { 1: null, 2: null, 3: null },
+    cur: null,          // 当前这一遍：{ step, ask, round:{t0,text,audio} }
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  /* ---------------- 它现在知道多少 ---------------- */
+  function know() {
+    var ms = [];
+    try { ms = (window.MILI_MEMO && window.MILI_MEMO.memo()) || []; } catch (e) {}
+    var plat = false, title = false;
+    for (var i = 0; i < ms.length; i++) {
+      var t = String((ms[i] && ms[i].text) || '');
+      if (/看视频用/.test(t)) plat = true;
+      if (/上次看的是/.test(t)) title = true;
+    }
+    return { plat: plat, title: title };
+  }
+  function stepNow() {
+    var k = know();
+    if (!k.plat) return 1;
+    if (!k.title) return 2;
+    return 3;
+  }
+
+  /* 提词。第一遍那句话里头带着「米粒」—— 现场手机可能是锁屏被叫醒的，
+     带称呼最稳；后两遍已经在对话里，不用再喊。 */
+  var SAY = {
+    1: { say: '米粒，我想看天天耍大牌', ex: '问两件：哪个平台、片子叫啥' },
+    2: { say: '我想看耍大牌', ex: '平台记住了，只问片名' },
+    3: { say: '我要看打牌', ex: '一句不问，直接横屏全屏' },
+  };
+
+  function allDone() { return !!(D.runs[1] && D.runs[2] && D.runs[3]); }
+
+  /* ---------------- 钩子：由 handleSay / speak 调 ---------------- */
+  function round(text) {
+    if (!D.on) return;
+    var s = stepNow();
+    if (!D.cur || D.cur.step !== s) D.cur = { step: s, ask: 0, round: null };
+    D.cur.round = { t0: Date.now(), text: String(text || '').slice(0, 40), audio: 0 };
+    paint();
+  }
+  function ask(q, askedBoth) {
+    if (!D.on || !D.cur) return;
+    /* 一句话问两件事（平台 + 片名）算两件。现场对比的是「要问几件」，
+       不是「说了几句话」—— 第 1 遍 2 件、第 2 遍 1 件、第 3 遍 0 件。 */
+    D.cur.ask += askedBoth ? 2 : 1;
+    paint();
+  }
+  function audio() {
+    if (!D.on || !D.cur || !D.cur.round || D.cur.round.audio) return;
+    D.cur.round.audio = Date.now();
+  }
+  /* 结算一遍。两条路都会走到这里，所以必须幂等：
+     ① __DEMO_DID —— 模型自己报了「办成了」
+     ② watchStep —— 记忆变了（第 1 遍办完，平台那条突然出现在 memo 里）
+     真机实测：① 有时不触发（模型的 did 判据看最后一步，重放/被截断时会给 false），
+     结果表就空着 —— 现场最难看的就是一张全是「—」的表。
+     ② 不依赖任何回调：它记住的东西变了，就是这一遍办成了，这个事实骗不了人。 */
+  function settle(cur, kind) {
+    if (!cur || cur.__done) return false;
+    cur.__done = true;
+    var rd = cur.round || {};
+    var end = rd.audio || rd.did || Date.now();
+    D.runs[cur.step] = {
+      ask: cur.ask, ms: Math.max(0, end - (rd.t0 || end)),
+      kind: kind || '', text: rd.text || '', at: Date.now(),
+    };
+    return true;
+  }
+
+  function did(kind) {
+    if (!D.on || !D.cur) return;
+    var cur = D.cur;
+    var rd = cur.round || (cur.round = { t0: Date.now(), text: '' });
+    rd.did = Date.now();
+    /* 声音通常比「办成」晚几十毫秒才出口（say 在返回之后调），
+       等一小会儿再结算，取到的才是老人真正听见的那一下。 */
+    setTimeout(function () {
+      if (settle(cur, kind)) {
+        if (D.cur === cur) D.cur = null;
+        paint(); table();
+      }
+    }, 700);
+  }
+
+  /* 这一遍演完没有？两个判据，任一个成立就算：
+     ① 原生报「真开播了」（__MILI_WATCH_OK）—— 最硬，第 3 遍只有这个能证明；
+     ② 它记住的东西变了 —— 第 1、2 遍办成时必然发生。
+     一秒看一次（paint 里调），不另起定时器。 */
+  function watchStep() {
+    var w = window.__MILI_WATCH_OK;
+    if (w && D.cur && !D.cur.__done && D.cur.round && w.at >= D.cur.round.t0 - 500) {
+      if (settle(D.cur, 'play')) { D.cur = null; table(); }
+    }
+    var s = stepNow();
+    if (D.lastStep && D.lastStep !== s) {
+      var prev = D.cur;
+      if (prev && prev.step === D.lastStep && settle(prev, 'memo')) {
+        D.cur = null;
+        table();
+      }
+    }
+    D.lastStep = s;
+  }
+
+  /* ---------------- 闸：前两遍不许走 skill 重放 ----------------
+     没有这道闸，第 1 遍「我想看天天耍大牌」会被上次学会的序列 0 毫秒重放，
+     一次都不问 —— 三遍演示当场变成一遍。第 3 遍放行，因为那正是要演的东西。 */
+  function blockSkill(text, hit) {
+    if (!D.on) return false;
+    var names = ((hit && hit.tools) || []).map(function (t) { return String(t && t.name || ''); }).join(',');
+    if (!/search_in_app|watch_video/.test(names)) return false;   // 别的能力照旧
+    return stepNow() < 3;
+  }
+
+  /* ---------------- 画面 ---------------- */
+  function paint() {
+    var h = $('demoHud');
+    if (!h) return;
+    if (!D.on) { h.hidden = true; return; }
+    /* 设置页一开就把提词收起来（2026-11-12）。它蹲在右上角，
+       正好压住设置页第一行 —— 要上去看数字、要退出演示，先得躲开自己。 */
+    if (D.muted) { h.hidden = true; return; }
+    var _v9 = document.getElementById('v9');
+    if (_v9 && _v9.classList.contains('on')) { h.hidden = true; return; }
+    h.hidden = false;
+    watchStep();
+    var s = stepNow();
+    var done = allDone();
+    var c = SAY[s];
+    var st = $('dhStep'), sy = $('dhSay'), ex = $('dhExpect'), last = $('dhLast');
+    if (st) st.textContent = done ? '三遍演完' : ('第 ' + s + ' 遍 / 共 3');
+    if (sy) sy.textContent = done ? '重新演一遍？点「复位」' : c.say;
+    /* 第三行只放一句话。两条并排会互相挤成省略号 —— 真机上看到的是
+       「问两件：哪个平台、… 这遍已经问…」，两头都没说完，等于什么都没说。
+       有实测数据就先说数据（现场要的就是那个数），没有再说这一遍会问什么。 */
+    var rr = D.runs[s];
+    var caa = (D.cur && D.cur.step === s) ? D.cur.ask : 0;
+    if (ex && last) {
+      if (done) { ex.textContent = '数字在「我的 · 比赛演示」里'; last.textContent = ''; }
+      else if (rr) { ex.textContent = ''; last.textContent = '刚这遍：' + (rr.ask ? '问 ' + rr.ask + ' 件' : '没问') + ' · ' + (rr.ms / 1000).toFixed(1) + ' 秒'; }
+      else if (caa) { ex.textContent = ''; last.textContent = '这遍已经问了 ' + caa + ' 件'; }
+      else { ex.textContent = c.ex; last.textContent = ''; }
+    }
+    var dots = $('dhDots');
+    if (dots) {
+      var ch = dots.children;
+      for (var i = 0; i < ch.length; i++) {
+        var n = i + 1;
+        ch[i].className = (D.runs[n] || n < s) ? 'on' : (n === s ? 'now' : '');
+      }
+    }
+
+    var tag = $('demoTag');
+    if (tag) tag.textContent = '已开';
+    var rows = document.querySelectorAll('#demoSheet .ds-row');
+    for (var j = 0; j < rows.length; j++) {
+      rows[j].className = 'ds-row' + (Number(rows[j].getAttribute('data-n')) === s ? ' now' : '');
+    }
+  }
+
+  function table() {
+    var box = $('dsTable');
+    if (!box) return;
+    var html = '<div class="ds-tr hd"><span>遍</span><span>问了几件</span><span>说完到出声</span><span>结果</span></div>';
+    var any = false;
+    for (var n = 1; n <= 3; n++) {
+      var r = D.runs[n];
+      if (r) any = true;
+      html += '<div class="ds-tr">'
+        + '<span>第 ' + n + ' 遍</span>'
+        + '<b class="ds-q">' + (r ? (r.ask ? r.ask + ' 件' : '0') : '—') + '</b>'
+        + '<b>' + (r ? (r.ms / 1000).toFixed(1) + ' 秒' : '—') + '</b>'
+        + '<span>' + (r ? (r.did === false ? '没办成' : '开播') : '—') + '</span>'
+        + '</div>';
+    }
+    if (!any) html += '<div class="ds-empty">还没跑过。复位之后回首页说第一句。</div>';
+    box.innerHTML = html;
+  }
+
+  /* ---------------- 复位 ---------------- */
+  function reset() {
+    var cut = 0;
+    try {
+      var M = window.MILI_MEMO;
+      if (M) {
+        var ms = M.memo().slice();
+        for (var i = 0; i < ms.length; i++) {
+          var t = String((ms[i] && ms[i].text) || '');
+          if (/看视频用|上次看的是/.test(t) && M.del(ms[i].id)) cut++;
+        }
+      }
+    } catch (e) {}
+    D.runs = { 1: null, 2: null, 3: null };
+    D.cur = null;
+    D.lastStep = 0;
+    try { window.__askOrigin = null; } catch (e) {}
+    try { if (window.MILI_MEMO) MILI_MEMO.save(); } catch (e) {}
+    paint(); table();
+    var tip = $('dsTip');
+    if (tip) tip.textContent = cut
+      ? ('清掉了 ' + cut + ' 条记忆，现在它什么都不记得，从第一遍开始。')
+      : '本来就没记住平台和片名，直接说第一句就行。';
+    return cut;
+  }
+
+  /* ---------------- 开关 ---------------- */
+  function start(openSheet) {
+    D.on = true;
+    D.muted = false;
+    try { localStorage.setItem('mili_demo_on', '1'); } catch (e) {}
+    paint(); table();
+    if (openSheet) sheet(true);
+  }
+  function stop() {
+    D.on = false;
+    try { localStorage.removeItem('mili_demo_on'); } catch (e) {}
+    paint();
+    var tag = $('demoTag'); if (tag) tag.textContent = '没开';
+  }
+  function sheet(on) {
+    var s = $('demoSheet'); if (!s) return;
+    s.hidden = !on;
+    if (on) { table(); paint(); }
+  }
+
+  function boot() {
+    var btn = $('demoBtn');
+    if (btn && !btn.__wired) {
+      btn.__wired = true;
+      btn.onclick = function () { start(true); };
+    }
+    var cl = $('dsClose'); if (cl) cl.onclick = function () { sheet(false); };
+    var sh = $('demoSheet');
+    if (sh) sh.addEventListener('click', function (e) { if (e.target === sh) sheet(false); });
+    var rs = $('dsReset');
+    if (rs) rs.onclick = function () {
+      reset();
+      sheet(false);
+      try { goPage && goPage('home'); } catch (e) {}
+      paint();
+    };
+    var sp = $('dsStop');
+    if (sp) sp.onclick = function () {
+      stop();
+      sheet(false);
+    };
+    var x = $('dhX');
+    if (x) x.onclick = function () { D.muted = true; var h = $('demoHud'); if (h) h.hidden = true; };
+    var hr = $('dhReset');
+    if (hr) hr.onclick = function () {
+      D.muted = false;
+      reset();
+      try { goPage && goPage('home'); } catch (e) {}
+      paint(); table();
+    };
+
+    /* 上次没关的演示模式，重开页面自动接着 —— 现场手机被系统杀掉重开时，
+       提词条不能没了（那就真成瞎演了）。 */
+    try {
+      if (localStorage.getItem('mili_demo_on') === '1') { D.on = true; paint(); }
+    } catch (e) {}
+
+    /* 记忆是异步长出来的（agent 执行完才写），提词条要跟着它走。
+       一秒看一次，只在演示模式开着的时候。 */
+    setInterval(function () {
+      if (!D.on) return;
+      paint();
+    }, 1000);
+  }
+
+  window.__DEMO = {
+    on: function () { return D.on; },
+    start: start, stop: stop, reset: reset,
+    step: stepNow, know: know, runs: function () { return D.runs; },
+    blockSkill: blockSkill,
+    sheet: sheet,
+  };
+  window.__DEMO_ROUND = round;
+  window.__DEMO_ASK = ask;
+  window.__DEMO_AUDIO = audio;
+  window.__DEMO_DID = did;
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else setTimeout(boot, 0);
+})();
 
 };

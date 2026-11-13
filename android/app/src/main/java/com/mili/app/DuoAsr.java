@@ -42,7 +42,9 @@ public class DuoAsr {
     private static final String TAG = "MiliDuoAsr";
     private static final String URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel";
     private static final String RES = "volc.seedasr.sauc.duration";
-    private static final String KEY = "3e69f173-f76c-4ee9-94c4-a46c33571e7e";
+    /* 2026-11-12 20:44：菲尔特在火山控制台开通了「流式语音识别大模型」，
+       本钥匙握手 101，与 TTS 共用同一把，旧钥匙已彻底停用。 */
+    private static final String KEY = "aa9030d2-b42b-4056-9545-25a4cf9a7c51";
 
     private static final int SR = 16000;
     private static final int CHUNK = 1600;          // 100ms @16k/16bit/mono = 3200 字节

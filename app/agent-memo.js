@@ -168,11 +168,37 @@
    * 二、skill 复用 —— 「下次快」落地的地方
    *
    * 一条 skill = 一句老人原话 + 一串成功办过的工具调用。
-   * 触发条件比 memo 严：必须归一化后完全相同，才敢直接重放。
-   * 差一个字都可能意思相反（「开电视」/「关电视」），不能模糊。
+   *
+   * 2026-11-12 改：原来是「归一化后必须完全相同」。真机上老人说
+   * 「我要看打牌」，存的是「我要看天天耍大牌」—— 字面一个都对不上，
+   * 直接重放不了。可这两句在他嘴里是同一件事。
+   * 所以加两级容错，但方向字（开/关/停）绝不放宽：
+   *   ① 精确（原逻辑，最可信）
+   *   ② 同音归一后精确（打/大、刷/耍、瞅/看这类口误）
+   *   ③ 尾部 2~4 字重叠（漏字、多说几个字）
+   * 「开电视」和「关电视」方向相反，靠 dirOf() 挡住，不许互相认。
    * ======================================================================== */
 
   function skillKey(text) { return norm(text); }
+
+  /* 只归并「说错了也不改意思」的字。方向字一个都不进来。 */
+  const HOMO = {
+    '打': '大', '刷': '耍', '据': '剧', '句': '剧',
+    '瞅': '看', '瞧': '看', '厅': '听', '抬': '台',
+    '坐': '做', '作': '做', '圆': '元', '份': '分'
+  };
+  function homoKey(k) {
+    let s = '';
+    const str = String(k || '');
+    for (let i = 0; i < str.length; i++) s += (HOMO[str[i]] || str[i]);
+    return s;
+  }
+  /* 开/关 必须一致，否则「开电视」会被「关电视」认走 —— 那是事故 */
+  function dirOf(k) {
+    if (/关|停|别|不要|取消/.test(k)) return 'off';
+    if (/开|启动|播|放|来一个|来个/.test(k)) return 'on';
+    return '';
+  }
 
   /* 记一次成功的执行序列。tools = [{name, args}, ...] */
   function skillNote(text, tools) {
@@ -210,13 +236,42 @@
     return rec;
   }
 
-  /* 找一条能直接重放的 */
+  /* 找一条能直接重放的：精确 → 同音 → 尾部重叠，三级依次退 */
   function skillFind(text) {
     ensure();
     const k = skillKey(text);
-    if (!k) return null;
-    const s = ST.skill.find((x) => x.k === k && x.on);
-    return s || null;
+    if (!k || k.length < 2) return null;
+
+    /* ① 原话一字不差 */
+    let s = ST.skill.find((x) => x.k === k && x.on);
+    if (s) return s;
+
+    const hk = homoKey(k);
+    const d = dirOf(k);
+
+    /* ② 同音归一后一字不差 */
+    if (hk !== k) {
+      s = ST.skill.find((x) => x.on && homoKey(x.k) === hk && dirOf(x.k) === d);
+      if (s) return s;
+    }
+
+    /* ③ 尾部重叠 —— 只在「差一两个字」时兜底，超过 2 字不认。
+       2026-11-12 实测踩到：老人说「我想看耍大牌」和「我要看打牌」，
+       相对「我要看天天耍大牌」都缺“天天”两字 —— 字面分不出哪个更接近。
+       所以这里只做最保守的一档（差 ≤1 字），跨说法不靠字面猜，
+       靠记忆里记住的片名去认（见 agent-tools 里 search_in_app 的片名记忆）。 */
+    if (hk.length >= 4) {
+      const tail = hk.slice(-2);
+      for (let i = 0; i < ST.skill.length; i++) {
+        const x = ST.skill[i];
+        if (!x.on || !x.k) continue;
+        const xh = homoKey(x.k);
+        if (dirOf(x.k) !== d) continue;
+        if (Math.abs(xh.length - hk.length) > 1) continue;
+        if (xh.indexOf(tail) >= 0) return x;
+      }
+    }
+    return null;
   }
 
   /* 记这次的耗时，用来在界面上显示「1600ms → 0ms」 */

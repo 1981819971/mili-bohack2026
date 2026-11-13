@@ -71,8 +71,13 @@ public class Asr implements Runnable {
          ② 至少 2 个字（单个「嗯」「啊」不是一句话）
        并且「模型出字」也算人声 —— 它在往外吐字，就说明人还在说。 */
     /* 1.6 秒：比原来引擎的 1.2 宽容三成，老人想词、换气都够；
-       再往上（1.8/2.0）听感就开始"说完还得愣一下"，菲尔特已经两次说慢。 */
-    private static final long END_SILENCE_MS = 1600;
+       再往上（1.8/2.0）听感就开始"说完还得愣一下"，菲尔特已经两次说慢。
+       2026-11-12 再降到 1.2：菲尔特「打电话第一句话回话太慢」。
+       这 1.6 秒是「老人闭嘴」到「米粒开始想」之间唯一空转的一段，
+       后面模型和 TTS 再快也补不回来。日志里他换气的停顿是 0.28 秒，
+       1.2 仍有四倍余量；同时把「出字即续命」两侧都保留 ——
+       只要引擎还在吐字，计时就一直被刷新，不会拦腰砍断一句话。 */
+    private static final long END_SILENCE_MS = 1200;
     private static final int END_MIN_CHARS = 2;
 
     public interface OnText { void onText(String text, boolean isFinal); }

@@ -1161,6 +1161,10 @@ public class MainActivity extends Activity {
     }
 
     private void speakSystem(final String text, final boolean slow) {
+        /* 2026-11-12 21:18：这条是「冰冷女声」的唯一来源（小米系统 TTS）。
+           加一行日志，现场一听到声音不对就能立刻判断是不是兜底到这儿了 ——
+           正常情况下一句都不该出现。 */
+        android.util.Log.i("MiliSysTts", "系统TTS兜底: " + text);
         ui.post(new Runnable() {
             @Override public void run() {
                 if (tts == null || !ttsReady) { MicGate.open(); return; }
@@ -1588,6 +1592,14 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public boolean ttsReady() { return true; }
+
+        /* 预连接（2026-11-12）。老人刚说完一句、模型还在想的那一两秒里，
+           把豆包的 ws 一路握手到「就等文本」，省掉每句话都要付的 1.5 秒往返。
+           重复调用无副作用，25 秒没过期就直接复用。 */
+        @JavascriptInterface
+        public void ttsPrepare() {
+            try { Doubao.prepare(); } catch (Throwable ignored) {}
+        }
 
         @JavascriptInterface
         public void ttsVoice(String v) { if (v != null && v.length() > 3) Doubao.voice = v; }
@@ -2383,40 +2395,61 @@ public class MainActivity extends Activity {
                    旧代码三档 y=0.594/0.55/0.63 全擦着按钮边缘点空，
                    而且只用 getRealSize 一套基准 —— 换屏必废。
                    现在：文字优先 → 多基准比例 → 每点一次查横屏，命中即停。 */
-                uiH.postDelayed(new Runnable() { @Override public void run() {
-                    try { MiliAccessibilityService.tapAt(0.5f, 0.43f); } catch (Throwable t) {}
-                } }, 5500);
-                uiH.postDelayed(new Runnable() { @Override public void run() {
-                    try { MiliAccessibilityService.tapAtScaled1080(540, 1030); } catch (Throwable t) {}
-                } }, 7000);
-                /* 全屏候选：按文字找 → 物理比例 → 可用区比例 → 1080 标定，
-                   每轮先查横屏，没成才点。总窗口拉到 25 秒，慢机器也够。 */
-                /* 20:0x 提速：真机实测第一档 y=0.572 一次就命中，
-                   6 档 × 2.2 秒 = 最坏 25 秒纯属陪跑。砍到 3 档 / 1.1 秒。 */
-                final float[] YS = { 0.572f, 0.580f, 0.550f };
-                for (int i = 0; i < YS.length; i++) {
-                    final float y = YS[i];
-                    final int idx = i;
-                    uiH.postDelayed(new Runnable() { @Override public void run() {
-                        if (landNow()) douyinLanded = true;
-                        if (myShot != douyinShot || douyinLanded) return;
-                        android.util.Log.i("MiliDouyin", "全屏尝试 " + idx + " y=" + y);
-                        /* ① 按钮上的字最可靠，坐标随 App 改版也不怕 */
-                        try {
+                /* 🚨 2026-11-12 真机复测：写死的 y=0.572 在新版抖音上点空 ——
+                   截图实证停在 UltraDetailActivity，「全屏观看」按钮亮着没被点。
+                   改成「找字为主、坐标为辅」的轮询：
+                     · 每 1.2 秒看一次，横屏了就立刻全部停手
+                     · 「全屏观看」按文字点，点中一次就不再点第二次（防来回切）
+                     · 文字连点两次没反应，才用坐标兜底两档
+                   ⚠ 坐标只作兜底，别再当成主路径讲。 */
+                final long t0 = android.os.SystemClock.uptimeMillis();
+                final int[] card = {0}, textTap = {0}, coord = {0};
+                final float[] YS = { 0.572f, 0.480f };
+                final Runnable[] step = new Runnable[1];
+                step[0] = new Runnable() { @Override public void run() {
+                    long el = android.os.SystemClock.uptimeMillis() - t0;
+                    if (myShot != douyinShot || douyinLanded) return;
+                    if (landNow()) {
+                        douyinLanded = true;
+                        android.util.Log.i("MiliDouyin", "已横屏全屏 ✓ @" + el + "ms");
+                        return;
+                    }
+                    if (el > 16000) {
+                        android.util.Log.i("MiliDouyin", "16 秒仍未横屏，如实报没做到");
+                        return;
+                    }
+                    try {
+                        if (el < 6200) {
+                            /* 第一步：把搜索结果的第一张卡点开 */
+                            if (card[0] == 0) {
+                                MiliAccessibilityService.tapAt(0.5f, 0.43f);
+                                card[0] = 1;
+                            }
+                        } else if (textTap[0] == 0) {
+                            /* 第二步：按文字找「全屏观看」。找到点一次就锁住，
+                               避免来回点把视频点成暂停。 */
                             String r = MiliAccessibilityService.tapTextAny("全屏观看", "全屏");
-                            if (r != null && r.contains("\"ok\":true")) return;
-                        } catch (Throwable ignored) {}
-                        /* ② 三套基准各点一次，总有一套对得上 */
-                        try { MiliAccessibilityService.tapAt(0.5f, y); } catch (Throwable ignored) {}
-                        try { MiliAccessibilityService.tapAtMetrics(0.5f, y); } catch (Throwable ignored) {}
-                        try { MiliAccessibilityService.tapAtScaled1080(540, Math.round(y * 2400)); } catch (Throwable ignored) {}
-                    } }, 5500 + i * 1100L);
-                }
-                uiH.postDelayed(new Runnable() { @Override public void run() {
-                    if (landNow()) douyinLanded = true;
-                    android.util.Log.i("MiliDouyin", douyinLanded
-                            ? "已进入横屏全屏 ✓，后续点击全部停手" : "12 秒仍未横屏，如实报没做到");
-                } }, 12000);
+                            if (r != null && r.indexOf("\"ok\":true") >= 0) {
+                                textTap[0] = 1;
+                                android.util.Log.i("MiliDouyin", "点到「全屏观看」@" + el + "ms");
+                            } else if (el > 8200 && coord[0] < YS.length) {
+                                /* 文字一直没出现（无障碍读不到自绘按钮）：坐标兜底 */
+                                float y = YS[coord[0]];
+                                coord[0] = coord[0] + 1;
+                                android.util.Log.i("MiliDouyin", "坐标兜底 y=" + y + " @" + el + "ms");
+                                MiliAccessibilityService.tapAt(0.5f, y);
+                                MiliAccessibilityService.tapAtMetrics(0.5f, y);
+                            }
+                        } else if (el > 11000 && coord[0] == 0) {
+                            /* 文字点过了但仍没横屏：再用一次坐标兜底 */
+                            coord[0] = 1;
+                            MiliAccessibilityService.tapAt(0.5f, YS[0]);
+                            MiliAccessibilityService.tapAtMetrics(0.5f, YS[0]);
+                        }
+                    } catch (Throwable ignored) {}
+                    uiH.postDelayed(step[0], 1200);
+                } };
+                uiH.postDelayed(step[0], 5200);
                 return "{\"ok\":true,\"say\":\"给您找着了，正在点开全屏。\"}";
             } catch (Throwable t) {
                 return "{\"ok\":false,\"say\":\"抖音没打开。\"}";
@@ -2634,7 +2667,7 @@ public class MainActivity extends Activity {
                 java.util.Collections.sort(out, new java.util.Comparator<String[]>() {
                     @Override public int compare(String[] a, String[] b) { return a[0].compareTo(b[0]); }
                 });
-                for (int i = 0; i < out.size() && i < 80; i++) {
+                for (int i = 0; i < out.size() && i < 400; i++) {
                     org.json.JSONObject o = new org.json.JSONObject();
                     o.put("name", out.get(i)[0]);
                     o.put("pkg", out.get(i)[1]);
@@ -2986,6 +3019,35 @@ public class MainActivity extends Activity {
                 Intent i = getPackageManager().getLaunchIntentForPackage(pkg);
                 if (i != null) { i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i); }
             } catch (Exception ignored) {}
+        }
+
+        /** 按中文名打开 App（2026-11-12 菲尔特：不管什么软件都要认得）。
+            走 Actions.findAppByLabel：PackageManager 全量扫标签，不靠写死名单。 */
+        @JavascriptInterface
+        public String openByName(String name) {
+            return actions.openAppByName(name).toString();
+        }
+
+        /** 点掉开屏弹窗（淘宝双11 红包、升级提示这类）。
+            只认死几个「关闭」类文字，命中一个就停；点不到就什么都不做，
+            绝不按比例乱点 —— 购物页上乱点一下可能就下单了。
+            延迟两次：深链跳过去，弹窗一般 1~2.5 秒后才盖上来。 */
+        @JavascriptInterface
+        public String dismissCovers() {
+            final String[] WORDS = {"开心收下", "我知道了", "以后再说", "暂不更新", "跳过", "关闭"};
+            final Runnable once = new Runnable() {
+                @Override public void run() {
+                    for (String w : WORDS) {
+                        try {
+                            String r = MiliAccessibilityService.tapText(w);
+                            if (r != null && r.indexOf("\"ok\":true") >= 0) return;
+                        } catch (Throwable ignored) {}
+                    }
+                }
+            };
+            ui.postDelayed(once, 1200);
+            ui.postDelayed(once, 2600);
+            return "{\"ok\":true}";
         }
 
         /* ---- 眼睛 ---- */

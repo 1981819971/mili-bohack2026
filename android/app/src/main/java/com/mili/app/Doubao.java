@@ -36,7 +36,7 @@ public class Doubao {
     private static final String URL = "wss://openspeech.bytedance.com/api/v3/tts/bidirection";
     private static final String RESOURCE = "seed-tts-2.0";
     /* 2026-11-06 菲尔特在豆包语音控制台「API Key 管理」建的 */
-    private static final String KEY = "3e69f173-f76c-4ee9-94c4-a46c33571e7e";
+    private static final String KEY = "aa9030d2-b42b-4056-9545-25a4cf9a7c51";
 
     /* 音色：童声。基频实测 348Hz，六个候选里最高（成人女声约 200Hz，童声 300Hz 以上）。 */
     public static volatile String voice = "zh_male_naiqimengwa_uranus_bigtts";
@@ -201,6 +201,64 @@ public class Doubao {
         return new Object[] {type, event, payload};
     }
 
+    /* ==========================================================================
+     * 预连接（2026-11-12 菲尔特：「打电话第一句话回话太慢」）
+     * --------------------------------------------------------------------------
+     * 实测拆出来是这样的（真机，文字到出声 1.7~2.3 秒）：
+     *     模型吐第一个字        243 ms
+     *     TTS 握手 → 出声       ~1500 ms   ← 全在这里
+     * 而那 1.5 秒里，真正在合成的时间只有几百毫秒，其余全是往返：
+     *     ws 握手 → START_CONN → CONN_STARTED → START_SESSION →
+     *     SESSION_STARTED → 才轮到发文本。
+     * 关键观察：**前三步跟要念什么字一点关系都没有**。
+     * 所以它们可以提前做掉 —— 老人还在说话、模型还在想的时候，
+     * 就把这条连接一路推到 SESSION_STARTED，停在门口等着。
+     * 真要开口时只剩「发文本 + 等首包」，把 1.5 秒砍成 0.4 秒上下。
+     *
+     * 三条保险（宁可退回老路，也不许没声音）：
+     *   ① 预连接只活 25 秒；过期就关掉，不占服务端连接数
+     *   ② 音色/语速一变（params 不相等）就不用它
+     *   ③ 任何一步出错只把这条标死，say() 照走原来那条路
+     * ======================================================================== */
+    private static volatile Ready ready = null;
+
+    /** 一条已经握手到 SESSION_STARTED、还没发文本的连接。 */
+    private static final class Ready {
+        WebSocketClient ws;
+        String sid;
+        String params;
+        volatile boolean sess = false;   // 服务端说 SESSION_STARTED 了
+        volatile boolean dead = false;
+        long at = System.currentTimeMillis();
+    }
+
+    /* ws → 这一句的 Ctx。预连阶段还没有 Ctx，就是空的。 */
+    private static final java.util.Map<WebSocketClient, Ctx> OWNER =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<WebSocketClient, Ctx>());
+
+    /**
+     * 提前把连接推到「就等文本」那一步。重复调用无副作用；过期会重建。
+     * 只该在进通话/准备开口的前一刻调 —— 平时调等于挂着一条闲连接。
+     */
+    public static void prepare() {
+        Ready r = ready;
+        long now = System.currentTimeMillis();
+        if (r != null && !r.dead && (r.sess || now - r.at < 6000)) {
+            if (now - r.at < 25000) return;      // 还新鲜，正等着用
+        }
+        if (r != null) {
+            try { r.ws.close(); } catch (Throwable ignored) {}
+            ready = null;
+        }
+        final Ready nr = new Ready();
+        nr.sid = "mili" + now;
+        nr.params = buildParams(speechRate);
+        ready = nr;
+        WebSocketClient ws = openWs(nr.sid, nr.params, nr, null);
+        if (ws == null) { ready = null; return; }
+        nr.ws = ws;
+    }
+
     /* ---------------- 说一句 ---------------- */
 
     /**
@@ -235,41 +293,107 @@ public class Doubao {
              audio_params 内 42 → 7.06 秒（快 1.39 倍）
              audio_params 内 100 → 4.81 秒（快 2.04 倍）
            探针留在 dup/rate-test.mjs，改语速前后都能重跑对账。 */
-        final String params = "{\"speaker\":\"" + voice + "\","
-                + "\"audio_params\":{\"format\":\"pcm\",\"sample_rate\":" + SR
-                + ",\"speech_rate\":" + rate + "}}";
+        final String params = buildParams(rate);
         /* 打出来，以后老人再说「语速没变」第一眼就能看出发出去的到底是什么。
            2026-11-06 就是缺这一行，才让「顶层写 42」这个错一直藏着。 */
         Log.i(TAG, "say rate=" + rate + " params=" + params);
 
-        WebSocketClient ws;
+        /* 预连接正好走到「就等文本」、音色语速也没变 → 直接把文本发过去。
+           握手、START_CONN、START_SESSION 三步已经在老人说话那会儿做完了。 */
+        Ready r = ready;
+        if (r != null && r.sess && !r.dead && params.equals(r.params)
+                && System.currentTimeMillis() - r.at < 25000) {
+            ready = null;
+            OWNER.put(r.ws, ctx);
+            try {
+                r.ws.send(frame(EV_TASK,
+                        "{\"event\":" + EV_TASK + ",\"req_params\":" + insertText(params, ctx.text) + "}", r.sid));
+                r.ws.send(frame(EV_FINISH_SESSION, "{\"event\":" + EV_FINISH_SESSION + "}", r.sid));
+                Log.i(TAG, "say on prewired conn sid=" + r.sid);
+                return;
+            } catch (Throwable e) {
+                OWNER.remove(r.ws);
+                try { r.ws.close(); } catch (Throwable ignored) {}
+                Log.w(TAG, "prewired send fail, fallback: " + e);
+            }
+        }
+        WebSocketClient ws = openWs(sid, params, null, ctx);
+        if (ws == null) { ctx.fail(); return; }
+        /* 看门狗：连上了也把文本发出去了，但十秒内一个音频字节都没回来。
+           以前这种情况会一直挂着 —— 不出声、不报错、麦克风还被 ttsSay 关着，
+           整台机器看起来就是死了。宁可退回系统 TTS，也不能让老人对着哑巴手机等。 */
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try { Thread.sleep(10000); } catch (InterruptedException ignored) { return; }
+                if (!ctx.heard && !ctx.done.get()) {
+                    Log.w(TAG, "10 秒没收到音频，兜底失败");
+                    ctx.fail();
+                }
+            }
+        }).start();
+    }
+
+    /** 一句话的参数。预连接要用同一份去比对，所以抽出来。 */
+    private static String buildParams(int rate) {
+        return "{\"speaker\":\"" + voice + "\","
+                + "\"audio_params\":{\"format\":\"pcm\",\"sample_rate\":" + SR
+                + ",\"speech_rate\":" + rate + "}}";
+    }
+
+    /**
+     * 开一条 ws。ctx 为 null 就是预连接（还没决定要念什么）。
+     * 预连接阶段收到的几个事件由 preMsg 处理；一旦 say() 把 ctx 挂进 OWNER，
+     * 后面所有消息都按正常那一套走 —— 同一条连接，前后两段身份不同而已。
+     */
+    private static WebSocketClient openWs(final String sid, final String params,
+                                          final Ready pre, final Ctx ctx) {
         try {
-            ws = new WebSocketClient(new URI(URL)) {
+            WebSocketClient ws = new WebSocketClient(new URI(URL)) {
                 @Override public void onOpen(ServerHandshake h) {
-                    if (GEN.get() != ctx.gen) { closeQs(); return; }
+                    Log.i(TAG, "ws open sid=" + sid + " ctx=" + (ctx != null));
+                    if (ctx != null && GEN.get() != ctx.gen) {
+                        try { close(); } catch (Throwable ignored) {}
+                        return;
+                    }
+                    /* 🚨 2026-11-12 21:05 补上的一个致命遗漏。
+                       onMessage 靠 OWNER.get(ws) 找「这条连接的回包该谁处理」：
+                       预连接那条在 say() 里 put 过，所以一直好用；
+                       而 say() 新建的连接**从来没 put 过** —— 服务端回的
+                       ConnectionStarted 进来，OWNER 里查不到，pre 也是 null，
+                       两边都不认，消息就直接丢了：START_SESSION 永远发不出去，
+                       老人听到的是「一句话都不说」，而 MicGate 已经在 ttsSay 第一行
+                       把麦克风关了 —— 于是连「叫我」也不应。
+                       现场表现就是「打开不说话、叫它也不理」，一句错都不报。 */
+                    if (ctx != null) OWNER.put(this, ctx);
                     send(frame(EV_START_CONN, "{\"event\":" + EV_START_CONN + "}", null));
                 }
 
                 @Override public void onMessage(ByteBuffer buf) {
                     byte[] raw = new byte[buf.remaining()];
                     buf.get(raw);
-                    handleMessage(raw, this, sid, params, ctx);
+                    Ctx c = OWNER.get(this);
+                    if (raw.length > 0) {
+                        int t0 = (raw[1] >> 4) & 0x0f, e0 = raw.length > 7 ? ((raw[6] & 0xff) << 8) | (raw[7] & 0xff) : -1;
+                        if (t0 != M_AUDIO_SERVER) Log.i(TAG, "msg type=" + t0 + " event=" + e0 + " len=" + raw.length);
+                    }
+                    if (c != null) { handleMessage(raw, this, sid, params, c); return; }
+                    if (pre != null) preMsg(pre, this, sid, params, raw);
                 }
 
                 @Override public void onMessage(String s) { /* 不该出现，忽略 */ }
 
                 @Override public void onClose(int code, String reason, boolean remote) {
+                    Log.i(TAG, "ws close code=" + code + " remote=" + remote + " reason=" + reason);
+                    if (pre != null) pre.dead = true;
+                    if (ctx == null) return;
                     if (GEN.get() != ctx.gen) { return; }   // 被打断：这是正常收场，别回调
                     ctx.fail();
                 }
 
                 @Override public void onError(Exception e) {
                     Log.w(TAG, "ws error: " + e);
-                    if (GEN.get() == ctx.gen) ctx.fail();
-                }
-
-                private void closeQs() {
-                    try { close(); } catch (Throwable ignored) {}
+                    if (pre != null) pre.dead = true;
+                    if (ctx != null && GEN.get() == ctx.gen) ctx.fail();
                 }
             };
             ws.addHeader("X-Api-Key", KEY);
@@ -277,9 +401,30 @@ public class Doubao {
             ws.addHeader("X-Api-Connect-Id", sid);
             ws.setConnectionLostTimeout(20);
             ws.connect();
+            return ws;
         } catch (Throwable e) {
             Log.w(TAG, "connect fail: " + e);
-            ctx.fail();
+            return null;
+        }
+    }
+
+    /** 预连阶段：握手 → 建会话 → 就绪。就绪后停在门口，等 say() 把文本交过来。 */
+    private static void preMsg(Ready pre, WebSocketClient ws, String sid, String params, byte[] raw) {
+        Object[] m = parse(raw);
+        if (m == null) return;
+        int type = (Integer) m[0];
+        int event = (Integer) m[1];
+        if (type == M_ERROR || event == EV_CONN_FAILED || event == EV_SESSION_FAILED) {
+            pre.dead = true;
+            try { ws.close(); } catch (Throwable ignored) {}
+            return;
+        }
+        if (event == EV_CONN_STARTED) {
+            ws.send(frame(EV_START_SESSION,
+                    "{\"event\":" + EV_START_SESSION + ",\"req_params\":" + params + "}", sid));
+        } else if (event == EV_SESSION_STARTED) {
+            pre.sess = true;
+            Log.i(TAG, "prewired ready sid=" + sid);
         }
     }
 
@@ -291,7 +436,7 @@ public class Doubao {
         final Sink sink;
         final java.util.concurrent.atomic.AtomicBoolean done =
                 new java.util.concurrent.atomic.AtomicBoolean(false);
-        boolean heard = false;
+        volatile boolean heard = false;
         /* 这一句自己的播放器，别人碰不到 */
         AudioTrack at;
         /* 已经灌进播放器的字节数，用来判断「是不是真播完了」 */
@@ -391,8 +536,15 @@ public class Doubao {
         }
 
         if (event == EV_CONN_STARTED) {
-            ws.send(frame(EV_START_SESSION,
-                    "{\"event\":" + EV_START_SESSION + ",\"req_params\":" + params + "}", sid));
+            String sj = "{\"event\":" + EV_START_SESSION + ",\"req_params\":" + params + "}";
+            ByteBuffer fb = frame(EV_START_SESSION, sj, sid);
+            int flen = fb.remaining();
+            try {
+                ws.send(fb);
+                Log.i(TAG, "START_SESSION 已发 len=" + flen + " sid=" + sid);
+            } catch (Throwable e) {
+                Log.w(TAG, "START_SESSION 发送异常 " + e);
+            }
         } else if (event == EV_SESSION_STARTED) {
             ws.send(frame(EV_TASK,
                     "{\"event\":" + EV_TASK + ",\"req_params\":" + insertText(params, ctx.text) + "}", sid));

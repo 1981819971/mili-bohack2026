@@ -978,7 +978,10 @@ public class MiliAccessibilityService extends AccessibilityService {
                 o.put("name", label);
                 o.put("pkg", ai.packageName);
                 arr.put(o);
-                if (arr.length() >= 80) break;
+                /* 2026-11-12：原来卡在 80 个 —— 老人装了 100+ 个应用时，
+                   「网易云音乐」这种排后面的就查不到，米粒会说「没装」。
+                   列全量也就几 KB，别省这个。 */
+                if (arr.length() >= 400) break;
             }
             JSONObject out = new JSONObject();
             out.put("ok", true);

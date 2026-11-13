@@ -32,19 +32,74 @@
      每次切换都会在 console 里留一行，现场一眼能看出走的哪条路。 */
   const DS = {
     on: true,
-    base: 'https://6.6666166.xyz/v1',
+    /* 2026-11-12 20:0x 换成官方直连做主路（菲尔特给的官方 key）。
+       原因：聚合站首字地板 5.4 秒且抖动大；官方实测 1.4~3.1 秒，且支持 tools。
+       🚨 2026-11-12 20:35 菲尔特明确「以后都走官方 key，不走中转站」——
+       备路已清空，主路挂了就地报错，不再把老人的话偷偷转给第三方。 */
+    base: 'https://api.deepseek.com',
     key: 'sk-REPLACE_WITH_YOUR_OWN_KEY',
-    model: 'deepseek-v4.1-flash',
-    /* 备路：官方按量计费，只在主路挂掉时兜底，平时一分不花 */
-    backup: {
-      base: 'https://api.deepseek.com',
-      key: 'sk-REPLACE_WITH_YOUR_OWN_KEY',
-      model: 'deepseek-flash',
-    },
+    model: 'deepseek-flash',
+    backup: { base: '', key: '', model: '' },
   };
   /* 这一轮实际走的哪条路，给日志和界面用 */
   let _dsRoute = 'main';
   const dsRoute = () => _dsRoute;
+
+  /* ==========================================================================
+   * 2026-11-12：现场接口可配（BoHack 组委会现场发 token 额度）
+   *
+   * 手册口径：不发 GPU，发 token 额度（硅基流动 + 清程极智，找主办「谂.」领）。
+   * 之前 base_url / model / key 全写死在源码里，现场换额度要改代码重打包，
+   * 等于把「delta 现场产生」做成假。现在改成运行时填、落 localStorage。
+   * ⚠ 现场填的密钥只留在本机，不进 APK、不进公开仓库（仓库是脱敏版）。
+   * ======================================================================== */
+  const LLM_KEY = 'mili.llm';
+  const LLM_PRESETS = {
+    deepseek:    { base: 'https://api.deepseek.com',     model: 'deepseek-flash' },
+    dpflash:     { base: 'https://6.6666166.xyz/v1',    model: 'deepseek-v4.1-flash' },
+    siliconflow: { base: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+    qingcheng:   { base: '', model: '' },
+    custom:      { base: '', model: '' }
+  };
+  function applyLLM(c) {
+    if (!c) return;
+    if (c.base)  DS.base  = c.base;
+    if (c.model) DS.model = c.model;
+    if (c.key)   DS.key   = c.key;
+    if (c.backupBase)  DS.backup.base  = c.backupBase;
+    if (c.backupModel) DS.backup.model = c.backupModel;
+    if (c.backupKey)   DS.backup.key   = c.backupKey;
+  }
+  /* 初始值先存一份：现场「清掉本机配置」要能立刻还原，不该逼人重装 APK。 */
+  const LLM_DEFAULTS = {
+    base: DS.base, model: DS.model, key: DS.key,
+    backupBase: DS.backup.base, backupModel: DS.backup.model, backupKey: DS.backup.key
+  };
+  try { applyLLM(JSON.parse(localStorage.getItem(LLM_KEY) || 'null')); } catch (e) {}
+  function llmInfo() {
+    return {
+      base: DS.base, model: DS.model,
+      key: DS.key ? DS.key.slice(0, 6) + '****' + DS.key.slice(-4) : '',
+      hasKey: !!DS.key, route: _dsRoute,
+      backupBase: (DS.backup && DS.backup.base) || '',
+      backupModel: (DS.backup && DS.backup.model) || '',
+      saved: !!localStorage.getItem(LLM_KEY)
+    };
+  }
+  function setLLM(c) {
+    try {
+      if (c && c.reset) {
+        localStorage.removeItem(LLM_KEY);
+        applyLLM(LLM_DEFAULTS);
+        return Object.assign({ ok: true }, llmInfo());
+      }
+      const cur = JSON.parse(localStorage.getItem(LLM_KEY) || '{}') || {};
+      const next = Object.assign({}, cur, c || {});
+      localStorage.setItem(LLM_KEY, JSON.stringify(next));
+      applyLLM(next);
+      return Object.assign({ ok: true }, llmInfo());
+    } catch (e) { return { ok: false, err: String((e && e.message) || e) }; }
+  }
 
   /* 把 SSE 流翻成和云端 SDK 一样的 chunk 结构，上层代码一个字都不用改。
      DeepSeek 的 delta 里除了 content 还有 reasoning_content（思维链）——
@@ -169,13 +224,20 @@
     /* 2026-11-12 接无限卡后改：官方单轮 1.5~2.5s，聚合站要 4.5~5.2s 才吐完 tool_calls，
        4.5 秒正好卡在最后一刻被 abort（真机实证：三次都是 4503ms 无工具返回）。
        8 秒是「还能忍」和「别掐断」的平衡点；总时限跟着放到 24 秒。 */
-    turnTimeout: 8000,
-    
+    /* 🚨 2026-11-12 15:5x 真机实证：8 秒不够，必须抬到 15 秒。
+       现场复现「今天农历几月几号」→ err:"timeout"，8.0 秒整点断，
+       老人听到的就是「这下没办成，您再说一遍？」—— 他以为它答非所问，
+       其实是模型还没开口就被我们掐了。同一条提示词在本机压测：
+       首字 3.1~7.0s（缓存命中与否差 4 秒），8 秒是站在悬崖边上做判断。
+       现在的权衡：宁可多等几秒，也不能给一句「没办成」。
+       真实的提速靠 fastReply（单动作工具不再多跑一轮），不靠砍超时。 */
+    turnTimeout: 15000,
+
     /* 2026-11-10 订正：11-09 把总上限压到 11 秒，是按「一轮工具」算的。
        但「打开抖音搜一部剧点开全屏」是一串 UI 自动化，真机实测就要 20 秒以上，
        总上限一到整个任务被腰斩 —— 老人看到的就是「做到一半没下文」。
        交代语已经说了「稍等啊」，多步任务给 60 秒；单轮超时仍是 6 秒不变。 */
-    totalTimeout: 24000,     // 8000×3 轮；聚合站慢，留够但别让老人等太久
+    totalTimeout: 40000,     // 15000×2 轮 + 余量；多步自动化走完，闲聊仍是一轮就回
     sayMaxChars: 46,         // 老人一句话别超过这个字数
   };
 
@@ -382,7 +444,7 @@
    *   · 「先说人话再动手」是给老人一个「它听见了」的即时反馈
    *   · 「不超过 46 字」是因为老人耳朵跟不上长句
    * ======================================================================== */
-  function systemPrompt(text) {
+  function systemPrompt(text, opts) {
     const me = (E.me() || '').trim();
     const toolList = window.MILI_TOOLS.names().join('、');
     /* 老人没填名字时不能硬塞一个「老人家」。
@@ -475,6 +537,15 @@
       '   绝不要用 look_screen / ui_map / press_key 去猜他想点哪儿 —— 猜错了他还得再解释一遍，',
       '   而且屏幕上会被你点乱。真问到具体的东西（哪个 App、哪个按钮）再动手。',
       '   例外：他说「手机卡了」可以直接建议重启、或者帮他清一下后台，别自己乱按。',
+      '',
+      '【看片看剧：平台这一次要问，问过就永远别再问】',
+      '   他只说片名（「我想看天天耍大牌」）→ 先翻记忆里有没有用惯的平台，比如「看视频用抖音」。',
+      '   记忆里有 → 直接去那个平台搜，平台一个字都别再问。',
+      '   记忆里没有 → 一句话里把两件事一起问清：「您是在抖音看吧？是天天耍大牌吗？」',
+      '   平台记住了、片名又拿不准（说法变了、像是另一部）→ 只问片名，别再问平台。',
+      '   记忆里已经有「上次看的是《XX》」，他这回说的又像同一个（漏字、说错字都算）→',
+      '   别再问，直接按记忆里那个片名去搜。他已经记住的东西，不许再让他重复一遍。',
+      '   猜错平台要白等二十秒，比问一句贵得多。但他答过一次，就是记住的时候，不许再问第二回。',
       '',
       '【填参数时最容易错的一件事】',
       '老人说的是一整句家常话，参数只要「那件事里的那个值」。',
@@ -603,6 +674,16 @@
       '要问就问一句，而且先把他已经说了的重复一遍，再问差的那一项。',
       '能自己办掉的就自己办掉 —— 他点头一次，比点五次按钮省事得多。',
       '',
+      /* 2026-11-12 菲尔特：「不管什么软件它都要认得」「说买件羽绒服要自己跳过去搜」。
+         这两条必须写在提示词里，光加工具它不一定挑得中。 */
+      '【开软件 / 买东西】',
+      '老人说「打开X」，不管 X 是什么（游戏、购物、银行、地图、视频），一律直接调 open_app，',
+      '名字照原话抄，别换成别的名字、别反问「是哪个」，也别先 list_apps 核对、别先看屏幕。' +
+      'open_app 会自己去系统里按名字找，它说没装才是真没装。',
+      '老人说要买东西（「在淘宝买件羽绒服」「拼多多上看看电饭煲」），调 shop_search：',
+      'app 填他点名的平台（没说就留空，默认淘宝），keyword 只填买什么（如 羽绒服）。',
+      '只帮他搜到商品页让他自己挑 —— 不下单、不付款、不点「立即购买」。',
+      '',
       '【怎么说话】',
       '像五六岁小孩：短句、口语、常带「呀、哦、啦、呢」。',
       '一次只回一两句，总共不超过 ' + CFG.sayMaxChars + ' 个字。宁可少说不要长篇大论。',
@@ -614,6 +695,15 @@
       '老人说心里难受、孤单、觉得自己没用的时候，先接住他的情绪，别说「找点事干」「别闷着」。',
       '老人问身体不舒服、吃什么药，只给最保守的话（坐下、歇会儿、喝温水、去医院问医生），',
       '绝对不给具体药量、不诊断。不知道就说不知道，然后说「要不问问家里人」。',
+      '',
+      '【想聊天就是聊天，一个字都别动手】',
+      '他说「找点话题跟我聊聊」「陪我说说话」「咱俩聊会儿」「说点什么吧」「无聊」「闷得慌」——',
+      '这是要你张嘴陪他说话，不是要你去办什么事。',
+      '「话题」是聊天的内容，不是一个人名，更不是微信里的谁 —— 绝对不许打开微信、通讯录、',
+      '任何 App，也不许搜索。你一开 App，他就只剩一个亮着的屏幕和没人陪。',
+      '正确做法：直接从他的话里挑一件小事聊下去。问他今天吃了什么、屋里冷不冷、',
+      '窗外的树有没有落叶、他年轻时候干过什么活。一次问一件，等他答了再接。',
+      '实在接不上，就说说你自己：今天看到了什么、听见了什么。别讲道理、别背养生知识。',
       '',
       '【参数怎么填】',
       '【老人可能说方言】语音转写出来的字可能带同音错字（四川话、重庆话、粤语、闽南语、上海话、陕西话都可能）。',
@@ -635,7 +725,11 @@
          老人问「我血压怎么样」「我该吃哪几种药」时，模型以前只能含糊安慰，
          因为它手上根本没有数。现在把本机真记下来的血压/血糖/药箱喂进来，
          让它答得出具体数字。只在老人聊到身体时才注入，不占平时首句延迟。 */
-      + (E.healthHints ? (E.healthHints(text) || '') : '');
+      + (E.healthHints ? (E.healthHints(text) || '') : '')
+      /* 🚨 2026-11-12 修：这里原来多了一个分号，下面三段提示词
+         变成独立的 `+ '字符串'` 表达式语句，结果全被丢弃 ——
+         「动作优先级」「开口规则」写了两年（11-08 起）压根没进过模型。
+         去掉分号，让它们真正接回 return 的拼接链。 */
       /* 2026-11-08：同一句教学，模型一会儿调 emergency、一会儿调 vital_report
          （只记体征不叫人）。「通知家人」必须落成同一个动作，演示和真实场景都输不起。
          这是提示词层的优先级约定，不是正则抢句子。 */
@@ -645,7 +739,23 @@
       + '\n· 只有在没有任何相关记忆时，才按普通意图判断。'
       /* 2026-11-08 提速：首句越短，TTS 越快出声。老人没耐心听铺垫。 */
       + '\n【开口规则】第一句话不超过 10 个字，先说结论/动作，再补细节。'
-      + '不要用「好的」「当然可以」「让我来帮您」这种开场白。';
+      + '不要用「好的」「当然可以」「让我来帮您」这种开场白。'
+      /* 只在「日新 · 两次运行」的 RUN 1 注入：老人第一次这么说，
+         让它真问一句、不调工具；上面「别反问」这一条本次不适用。
+         RUN 2 与产品日常都不带这个标记，照旧「能办就直接办」。 */
+      + (opts && opts.askFirst
+        ? '\n【本次例外 · 先确认一次】这句话是头一回听到，你还没把握。'
+          + '\n🚨 你的本事一样没少：你能打开他手机上的 App、能搜东西、能播放视频、能打电话、能调设置。'
+          + '\n这一轮只是先把没定下来的问清楚，他答一句你下一轮就真去办。'
+          + '\n绝对不许说「我没法播放」「我不能打开 App」「我只能处理…」这类话 —— 你能办，只是先问一句。'
+          + '\n这一轮只问一句：先别动手、别调工具、别说办好了、别复述他的话。他不答你就先等着。'
+          + '\n把还没定下来的项一次问清，不要分两回问：'
+          + '\n· 片名没说在哪个 App 看，记忆里也没有平台 → 一句里同时问平台和片名，'
+          + '例如「您是在抖音看吧？是天天耍大牌吗？」'
+          + '\n· 记忆里已经有平台了（比如「看视频用抖音」）→ 只确认片名，例如「是天天耍大牌吧？」'
+          + '\n· 只是普通动作（开电视、打电话）→ 一句最短的确认，例如「您是说打开新闻吗？」'
+          + '\n上面「别反问」这条本次不适用。等他答一句，再真的动手。'
+        : '');
   }
 
   /* 🚨 2026-11-10 菲尔特截图实证：气泡里直接显示
@@ -752,6 +862,20 @@
     /* 流式放行门：默认关着，攒够一个句号才开。见下面 onDelta 那段的解释。 */
     let gateOn = !!opts.onDelta;
     let gateBuf = '';
+    /* 2026-11-12 菲尔特：「打电话第一句话回话太慢」。
+       量出来的账：模型首字 406ms、TTS 首包 300ms，可他从说完到听见回应是 1.8 秒。
+       多出来的一秒全在**这扇门上** —— 要等模型吐到第 10~14 个字（一个句号）才放行。
+       闲聊这一轮本来就不挂工具（opts.tools === false），不存在「说半句转头去办事」
+       的风险，可以四五个字就开口：老人听到的是「我在呢」先落地，后面接着往下说。
+       挂工具的那一轮仍然等句号 —— 那时候半句话的代价比慢一秒大。 */
+    /* 2026-11-12 二次实测：只给「闲聊」放宽不够 —— 老人随口一句「今儿天真好」
+       根本不命中闲聊词表，仍要等 14 字，实测 1.6 秒。
+       所以这条门对所有轮次都开，只是门槛不同：
+         不挂工具（纯聊天）   逗号或 5 字就开口
+         挂工具（真办事）     逗号或 9 字 —— 留一点余地，让「好的，我这就给您开」
+                              这种交代先落地再动手，反而比闷着强
+       万一它转头调了工具，gateDead 照样把后面焊死，不会中途乱念。 */
+    const fastGate = true;
     /* 焊死：这一轮确认是在办事，从头到尾一句话都不往外念。 */
     let gateDead = false;
     /* usage 只在流末尾那个 choices 为空的 chunk 里出现，这里单独接住。 */
@@ -818,8 +942,12 @@
           if (opts.onDelta && !gateDead) {
             if (gateOn) {
               gateBuf += d.content;
-              /* 强句末才放行；退一步，攒够 14 字也放行 —— 老人不能为等一个句号干等着 */
-              const done = /[。！？!?；;\n]/.test(gateBuf) || gateBuf.length >= 14;
+              /* 强句末才放行；退一步，攒够 14 字也放行 —— 老人不能为等一个句号干等着。
+                 闲聊那条更快：逗号或 5 个字就张嘴（见上面 fastGate 的账）。 */
+              const _lim = (opts.tools === false) ? 5 : 9;
+              const done = /[。！？!?；;\n]/.test(gateBuf)
+                || (fastGate && (/[，,、：:]/.test(gateBuf) || gateBuf.length >= _lim))
+                || gateBuf.length >= 14;
               if (done) {
                 gateOn = false;
                 const out = gateBuf;
@@ -1107,7 +1235,7 @@
     let dupFinal = '';
 
     try {
-      const messages = [{ role: 'system', content: systemPrompt(text) }]
+      const messages = [{ role: 'system', content: systemPrompt(text, opts) }]
         .concat(histMessages())
         .concat([{ role: 'user', content: text.slice(0, 300) }]);
 
@@ -1125,6 +1253,12 @@
            DeepSeek 就直接把调用写进正文（实测吐出 `<|DSML|> invoke name="tap_text"`）——
            老人耳朵里听到的就是这堆符号。
            现在一直挂着，靠轮数上限和「同一工具连败两次就封」来控制不乱来。 */
+        /* RUN 1 的「先确认一次」：原来是把工具整个摘掉，逼它只能说话。
+           2026-11-12 真机实测这条路走不通 —— 摘掉工具后模型退回成通用聊天模型，
+           看到「我想看天天耍大牌」直接按版权策略拒答：「我无法提供视频播放」
+           「你需要自己查一下版权方」。它不知道自己是个能操作这台手机的助手。
+           现在改成：工具照挂（保住能力感），但这一轮只要它张嘴的时候返回了调用，
+           全部丢弃（见下面 tcs 分支的 askFirst 拦截）。它问，但动不了手。 */
         const useTools = (opts.tools === false) ? false : (r < CFG.maxRounds - 1);
         /* 第 2 轮起收窄工具集：66 个清单 8K tokens，重发一次就是一次白花钱。
            返回 null 时 turn 会退回全量（工具太少就不冒险）。 */
@@ -1192,6 +1326,18 @@
           break;
         }
 
+        /* ---- askFirst 第一轮：只当它在问，任何工具调用一律丢弃 ----
+           工具挂着是为了让它知道自己有这个本事（不挂它会说「我没法播放」），
+           但这一轮绝不能真动手 —— 追问必须是真追问，不能一边问一边把事办了。 */
+        if (opts.askFirst && r === 0) {
+          if (t.tcs && t.tcs.length) {
+            trace[trace.length - 1].ignoredCalls = t.tcs.map(function (x) { return x.name; });
+            try { console.log('[ASK] 追问轮丢弃了 ' + t.tcs.length + ' 个调用：' + t.tcs.map(function (x) { return x.name; }).join(',')); } catch (e) {}
+          }
+          finalText = t.text || '';
+          break;
+        }
+
         /* ---- 有工具调用：执行、回填、再来一轮 ---- */
         if (t.tcs && t.tcs.length) {
           const calls = t.tcs.map(function (x, i) {
@@ -1211,6 +1357,10 @@
 
           /* 失败反思提示先攒着，所有回执收齐后再放（根治 400 的另一半） */
           let nudge = null;
+          /* 🚨 2026-11-12：模型会并列调好几个平台的 search_in_app（实测一条话里调 4 个：
+             爱奇艺/腾讯/优酷/芒果TV）。每一条都真去开 App，老人手机上四个 App 轮流
+             弹出来，白等二十秒以上，屏幕上还乱跳。同一轮只放行第一个。 */
+          let _searchThisRound = false;
           /* 同一步（工具名 + 参数完全相同）在同一句话里第二次出现就当原地打转。
               2026-11-11 真机实证：「打开拼多多搜拖鞋」连调两次 ui_map，
               同一屏同样的 23 个节点，第二次照样真跑一遍、照样进 messages
@@ -1244,6 +1394,25 @@
               continue;
             }
             _seenSig[sig] = 1;
+
+            /* 同一轮只许搜一个平台 —— 见 _searchThisRound 说明 */
+            if (call.function.name === 'search_in_app') {
+              if (_searchThisRound) {
+                messages.push({
+                  role: 'tool',
+                  tool_call_id: call.id,
+                  content: JSON.stringify({
+                    ok: false,
+                    detail: '（系统提示，不要念给老人）这一轮已经在搜了，不许同时开第二个 App。' +
+                            '先等这一个的结果，没搜到再说。',
+                  }),
+                });
+                results.push({ ok: false, detail: '同一轮重复搜，已跳过。' });
+                try { console.log('[TOOL] 并列 search_in_app 已拦截'); } catch (e) {}
+                continue;
+              }
+              _searchThisRound = true;
+            }
 
             /* 状态可见化：执行哪个工具就让屏幕写哪个动作，别让她干瞪眼 */
             try { window.__onAgentPhase && window.__onAgentPhase('doing', call.function.name, args); } catch (e) {}
@@ -1422,7 +1591,13 @@
            push「你必须真的调工具」再 continue，16 轮 × 单轮 6 秒 →
            通话条一直停在「在说」到 60 秒（菲尔特截图 00:58 实证）。
            现在最多逼一次；第二次还不动手就如实说办不了，立刻收工。 */
-        if (noToolYet && wantsAct && _retries < 1 && r < CFG.maxRounds - 1) {
+        /* 🚨 2026-11-12 修：askFirst 那一轮的追问被这条「逼它动手」吃掉了。
+           实测「我要看天天耍大牌」带 askFirst：第一轮说了话（本该是追问），
+           含「看」→ 判成「跳过工具直接邀功」→ 逼它第二轮真调工具 →
+           老人听到的是「找到《天天耍大牌》了，正给您点开」，一句都没问。
+           所以 askFirst 的第一轮必须豁免：它就是只问一句、不动手。 */
+        if (noToolYet && wantsAct && _retries < 1 && r < CFG.maxRounds - 1
+            && !(opts.askFirst && r === 0)) {
           _retries++;
           trace[trace.length - 1].skipped = true;
           if (said) messages.push({ role: 'assistant', content: said });
@@ -1693,6 +1868,11 @@
     /* 今天的 token 账本（calls / input / hit / miss / output），自测和界面都能读 */
     usageToday: usageToday,
     CFG: CFG,
+    /* 现场换组委会发的额度：setLLM({base,model,key})，落 localStorage 立即生效 */
+    setLLM: setLLM,
+    llmInfo: llmInfo,
+    llmPresets: () => JSON.parse(JSON.stringify(LLM_PRESETS)),
+    dsRoute: dsRoute,
     /* 看图：直接走 deepseek-flash 自己。
        它 input_modalities 是 ["text","image"]，官方 API 实测收 image_url，
        所以不需要再绕道云 SDK 去挑一个 supportsImages 的模型 —— 一条路，一个脑子。
@@ -1753,6 +1933,29 @@
         reason: String((m && m.reasoning_content) || ''),
         ms: Date.now() - t0,
       };
+    },
+    /* 预热（2026-11-12 菲尔特：「打电话第一句话回话太慢」）。
+       首句慢有一大截不在模型上，在 DNS + TCP + TLS 上 —— 手机刚亮屏、
+       射频刚从休眠爬起来，一次握手能吃掉三四百毫秒，而这段是纯空转。
+       通话一开就发一个只要 1 个 token 的极小请求把连接焐热，
+       fetch 的 keep-alive 会把这条连接留给紧接着那次真正的请求。
+       一分钟内只做一次；不挂定时器、不常驻，不为了快而白烧钱。 */
+    prewarm: function () {
+      const now = Date.now();
+      if (now - (api.__pwAt || 0) < 60000) return Promise.resolve(false);
+      api.__pwAt = now;
+      try {
+        return fetch(DS.base + '/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DS.key },
+          body: JSON.stringify({
+            model: DS.model,
+            messages: [{ role: 'user', content: '在' }],
+            max_tokens: 1,
+            stream: false,
+          }),
+        }).then(function (r) { return !!r.ok; }).catch(function () { return false; });
+      } catch (e) { return Promise.resolve(false); }
     },
     /* 自测用：只问一句，不碰工具执行、不落历史。
        返回必须把 tcs / firstMs / fin 都带出来，否则探针看到的是假象
