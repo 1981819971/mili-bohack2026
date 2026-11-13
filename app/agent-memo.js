@@ -142,10 +142,20 @@
    * 一、事实记忆（ADD-only + validity window）
    * ======================================================================== */
 
+  /* 事实质量门：拒收系统说明、元叙述、提示词片段。
+     真机曾把「聊天的记忆分四类：第一类是聊天历史」当成老人事实写进画像，
+     之后每轮都注入 systemPrompt，把模型行为带偏。宁可少记，不许记错。 */
+  var FACT_NOISE = /(记忆分四类|第一类是|第二类是|系统提示|systemPrompt|引擎|正则|schema|prompt|TODO|调试|function\s*\()/i;
+  function factSane(t) {
+    if (FACT_NOISE.test(t)) return false;
+    if (t.length > 30 && /[{}[\]<>;=]/.test(t)) return false;  // 代码片段不是事实
+    return true;
+  }
+
   function memoAdd(kind, text, src, meta) {
     ensure();
     var t = String(text || '').trim();
-    if (t.length < 2) return null;
+    if (t.length < 2 || !factSane(t)) return null;
     var k = norm(t);
     if (!k) return null;
 
