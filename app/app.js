@@ -12437,9 +12437,9 @@ window.MILI_FALL_NOW = function(by){
          '</span><span class="tx">它记住了什么<div class="sb">不是您教的，是它看出来的 · 可删可清空</div></span><span class="go">›</span></button>';
     /* 2026-11-12 菲尔特：「把日新板块换成演示模式」。
        日新那页是给家人端看的两次运行对照，评委在台上没法跟着点；
-       这里换成一台手机就能演完的三遍。 */
+       这里换成一台手机就能演完的两遍。 */
     h += '<button class="v9row" data-do="demo"><span class="ic" style="color:#5B4DF0">' + ic9('spark') +
-         '</span><span class="tx">比赛演示<div class="sb">说三遍：问两件 → 问一件 → 不问</div></span>' +
+         '</span><span class="tx">比赛演示<div class="sb">说两遍：问两件 → 不问</div></span>' +
          '<span class="v9tag" style="background:#EFEDFF;color:#4A3ED6">' +
          ((window.__DEMO && window.__DEMO.on && window.__DEMO.on()) ? '已开' : '没开') + '</span>' +
          '<span class="go">›</span></button>';
@@ -13558,7 +13558,7 @@ setTimeout(function () {
 /* ============================================================================
  * 演示模式（2026-11-12 菲尔特：「我怎么进入演示模式，帮我做好入口和全流程」）
  * ----------------------------------------------------------------------------
- * 要演的是一句话的三遍：
+ * 要演的是一句话的两遍：
  *   ① 「米粒，我想看天天耍大牌」→ 问两件事（哪个平台、片子叫啥）
  *   ② 「我想看耍大牌」        → 平台记住了，只问片名
  *   ③ 「我要看打牌」          → 一句不问，直接横屏全屏
@@ -13568,16 +13568,15 @@ setTimeout(function () {
  * 1. **进度不靠按钮推进，靠它自己记住了多少。**
  *    我本来想做成「下一遍 ⟶」按钮，但那样演的是按钮，不是米粒。
  *    现在第几遍由 localStorage 里那两条记忆算：
- *       没有「看视频用抖音」          → 第 1 遍
- *       有平台、没有「上次看的是《X》」→ 第 2 遍
- *       两条都有                      → 第 3 遍
+ *       平台或片名缺一条              → 第 1 遍
+ *       两条都有                      → 第 2 遍（放行 skill，直达）
  *    记忆是自己长出来的，所以演到第几遍也是自己走到的。
  *
  * 2. **复位只清两条记忆，不清 skill。**
- *    skill 是「这次 0 秒」的来源 —— 第 3 遍要靠它。
+ *    skill 是「这次 0 秒」的来源 —— 第 2 遍要靠它。
  *    可它一旦在，第 1 遍说「我想看天天耍大牌」就会被 0 毫秒重放，
- *    一个字都不问，三遍演成一遍。所以复位清记忆，另外加一道闸
- *    （blockSkill）：前两遍不许走 skill，第三遍才放行。
+ *    一个字都不问，两遍演成一遍。所以复位清记忆，另外加一道闸
+ *    （blockSkill）：第 1 遍不许走 skill，第 2 遍才放行。
  *
  * 3. **数据只记它自己吐出来的，不按脚本写死。**
  *    问了几个问题、说完到出声多少毫秒、有没有真办成，全部从
@@ -13593,7 +13592,7 @@ setTimeout(function () {
        前者要记住，后者随时恢复。2026-11-12 就是把两者混成一个 hidden，
        结果设置页一逛，提词条再也不回来了。 */
     muted: false,
-    runs: { 1: null, 2: null, 3: null },
+    runs: { 1: null, 2: null },
     cur: null,          // 当前这一遍：{ step, ask, round:{t0,text,audio} }
   };
 
@@ -13613,20 +13612,19 @@ setTimeout(function () {
   }
   function stepNow() {
     var k = know();
-    if (!k.plat) return 1;
-    if (!k.title) return 2;
-    return 3;
+    /* 2026-11-13 改两遍制：平台和片名没都记下就是第 1 遍；
+       两条齐了直接进第 2 遍，放行 skill 重放。 */
+    return (k.plat && k.title) ? 2 : 1;
   }
 
   /* 提词。第一遍那句话里头带着「米粒」—— 现场手机可能是锁屏被叫醒的，
      带称呼最稳；后两遍已经在对话里，不用再喊。 */
   var SAY = {
     1: { say: '米粒，我想看天天耍大牌', ex: '问两件：哪个平台、片子叫啥' },
-    2: { say: '我想看耍大牌', ex: '平台记住了，只问片名' },
-    3: { say: '我要看打牌', ex: '一句不问，直接横屏全屏' },
+    2: { say: '我要看天天耍大牌', ex: '一句不问，直接跳转' },
   };
 
-  function allDone() { return !!(D.runs[1] && D.runs[2] && D.runs[3]); }
+  function allDone() { return !!(D.runs[1] && D.runs[2]); }
 
   /* ---------------- 钩子：由 handleSay / speak 调 ---------------- */
   function round(text) {
@@ -13639,7 +13637,7 @@ setTimeout(function () {
   function ask(q, askedBoth) {
     if (!D.on || !D.cur) return;
     /* 一句话问两件事（平台 + 片名）算两件。现场对比的是「要问几件」，
-       不是「说了几句话」—— 第 1 遍 2 件、第 2 遍 1 件、第 3 遍 0 件。 */
+       不是「说了几句话」—— 第 1 遍 2 件、第 2 遍 0 件。 */
     D.cur.ask += askedBoth ? 2 : 1;
     paint();
   }
@@ -13681,7 +13679,7 @@ setTimeout(function () {
   }
 
   /* 这一遍演完没有？两个判据，任一个成立就算：
-     ① 原生报「真开播了」（__MILI_WATCH_OK）—— 最硬，第 3 遍只有这个能证明；
+     ① 原生报「真开播了」（__MILI_WATCH_OK）—— 最硬，第 2 遍只有这个能证明；
      ② 它记住的东西变了 —— 第 1、2 遍办成时必然发生。
      一秒看一次（paint 里调），不另起定时器。 */
   function watchStep() {
@@ -13702,12 +13700,12 @@ setTimeout(function () {
 
   /* ---------------- 闸：前两遍不许走 skill 重放 ----------------
      没有这道闸，第 1 遍「我想看天天耍大牌」会被上次学会的序列 0 毫秒重放，
-     一次都不问 —— 三遍演示当场变成一遍。第 3 遍放行，因为那正是要演的东西。 */
+     一次都不问 —— 两遍演示当场变成一遍。第 2 遍放行，因为那正是要演的东西。 */
   function blockSkill(text, hit) {
     if (!D.on) return false;
     var names = ((hit && hit.tools) || []).map(function (t) { return String(t && t.name || ''); }).join(',');
     if (!/search_in_app|watch_video/.test(names)) return false;   // 别的能力照旧
-    return stepNow() < 3;
+    return stepNow() < 2;
   }
 
   /* ---------------- 画面 ---------------- */
@@ -13726,7 +13724,7 @@ setTimeout(function () {
     var done = allDone();
     var c = SAY[s];
     var st = $('dhStep'), sy = $('dhSay'), ex = $('dhExpect'), last = $('dhLast');
-    if (st) st.textContent = done ? '三遍演完' : ('第 ' + s + ' 遍 / 共 3');
+    if (st) st.textContent = done ? '两遍演完' : ('第 ' + s + ' 遍 / 共 2');
     if (sy) sy.textContent = done ? '重新演一遍？点「复位」' : c.say;
     /* 第三行只放一句话。两条并排会互相挤成省略号 —— 真机上看到的是
        「问两件：哪个平台、… 这遍已经问…」，两头都没说完，等于什么都没说。
@@ -13761,7 +13759,7 @@ setTimeout(function () {
     if (!box) return;
     var html = '<div class="ds-tr hd"><span>遍</span><span>问了几件</span><span>说完到出声</span><span>结果</span></div>';
     var any = false;
-    for (var n = 1; n <= 3; n++) {
+    for (var n = 1; n <= 2; n++) {
       var r = D.runs[n];
       if (r) any = true;
       html += '<div class="ds-tr">'
@@ -13788,7 +13786,7 @@ setTimeout(function () {
         }
       }
     } catch (e) {}
-    D.runs = { 1: null, 2: null, 3: null };
+    D.runs = { 1: null, 2: null };
     D.cur = null;
     D.lastStep = 0;
     try { window.__askOrigin = null; } catch (e) {}
