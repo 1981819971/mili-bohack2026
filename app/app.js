@@ -1283,13 +1283,19 @@ window.miliOnBarge = function () {
                                     现场要能证明「它记住了」，所以次数够也算数） */
   const KINDS = ['wake', 'meal', 'med', 'tv', 'sleep', 'call', 'talk'];
 
-  function today() { return new Date().toISOString().slice(0, 10); }
+  /* 本地日期。toISOString() 取的是 UTC，北京时间 08:00 前会把事件记到昨天，
+     直接毁掉「跨 3 天」的计数。统一走总线。 */
+  function today() { return window.MILI_STORE.localDay(); }
   function load() {
     try { return JSON.parse(localStorage.getItem(KEY) || 'null') || { days: {}, nudges: {} }; }
     catch (e) { return { days: {}, nudges: {} }; }
   }
   let R = load();
-  function persist() { try { localStorage.setItem(KEY, JSON.stringify(R)); } catch (e) {} }
+  function persist() {
+    /* 不再空吞 QuotaExceededError：写失败由总线置 writeFailed，界面可以据此告警。 */
+    if (window.MILI_STORE) return window.MILI_STORE.put(KEY, R);
+    try { localStorage.setItem(KEY, JSON.stringify(R)); return true; } catch (e) { return false; }
+  }
 
   /* 记一笔。ts 不传就是现在。 */
   function note(kind, extra) {
@@ -1364,6 +1370,14 @@ window.miliOnBarge = function () {
   window.MILI_RHYTHM = { note: note, profile: profile, budget: budget,
                          noteNudge: noteNudge, wipe: wipe, drop: drop, dump: dump,
                          MIN_DAYS: MIN_DAYS, MIN_HITS: MIN_HITS };
+
+  /* 登记到统一记忆总线。一键清空必须连作息画像一起清。 */
+  if (window.MILI_STORE) {
+    window.MILI_STORE.register('rhythm', {
+      keys: [KEY, 'mili.rhythm'],
+      wipe: function () { R = { days: {}, nudges: {} }; }
+    });
+  }
 })();
 
 
@@ -5014,8 +5028,14 @@ async function handleSay(text, quiet, opts) {
          平台知道、片名不知道 → 只问片名
          都知道        → 一个字都不问，直接办 */
     const _memos = (window.MILI_MEMO && window.MILI_MEMO.memo) ? window.MILI_MEMO.memo() : [];
-    const _hasPlat = _memos.some((m) => /看视频用/.test(String(m && m.text || '')));
-    const _hasTitle = _memos.some((m) => /上次看的是/.test(String(m && m.text || '')));
+    /* 结构化查询，别再拿正则去 grep 自然语言记忆来推断状态。 */
+    const _M = window.MILI_MEMO;
+    const _hasPlat = _M && _M.query
+      ? _M.query({ contains: '看视频用' }).length > 0
+      : _memos.some((m) => String(m && m.text || '').indexOf('看视频用') >= 0);
+    const _hasTitle = _M && _M.query
+      ? _M.query({ contains: '上次看的是' }).length > 0
+      : _memos.some((m) => String(m && m.text || '').indexOf('上次看的是') >= 0);
     const _isWatch = /看|听|播|放/.test(raw)
       && !/抖音|快手|红果|爱奇艺|腾讯视频|优酷|B站|哔哩|头条|央视|CCTV|电视|新闻联播/.test(raw)
       && !/[?？]|怎么样|多少|是不是|有没有|啥时候|几号|几点/.test(raw);
@@ -5099,7 +5119,9 @@ async function handleSay(text, quiet, opts) {
   }
 
   // 正则没接住 —— 交给日新引擎：它学会的说法能不能认出来
-  const did2 = await evoTry(raw);
+  /* evolve.js 是 11-07 的旧意图正则引擎，只保留作断网兜底。
+     默认关闭，避免它和模型决策链路抢话；显式置位才启用。 */
+  const did2 = window.__MILI_LEGACY_EVO ? await evoTry(raw) : null;
   if (did2) {
     if (window.EVO) EVO.hit(raw, did2.id);
     /* 同上：演化那条也记不准参数，不写 skill */
@@ -13098,7 +13120,10 @@ window.MILI_FALL_NOW = function(by){
       render(); return;
     }
     if (d === 'rhythmWipe') {
-      if (window.MILI_RHYTHM) window.MILI_RHYTHM.wipe();
+      /* 全量清空：memo / rhythm / evo 三套一起退。
+         只调 MILI_RHYTHM.wipe() 时，旧 skill 仍会 0ms 重放，「清空」是假的。 */
+      if (window.MILI_STORE) window.MILI_STORE.clearAll();
+      else if (window.MILI_RHYTHM) window.MILI_RHYTHM.wipe();
       setMsg('清空了。它会重新看，不再猜。', false);
       render(); return;
     }
