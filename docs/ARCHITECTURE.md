@@ -225,3 +225,65 @@ query → 中文 char-bigram 分词 → BM25 打分（工具名 + 描述 + 参�
 真机 `?debug=1` 完整链路实测：`你好呀` 0ms / `在吗` 0ms / `今天农历几月几号` 0ms 且答「十月初六」/ `讲个笑话` 997ms / `陪我聊会儿天` 3008ms（单句波动，未深究）。
 
 **还没做的最大一块**：流式首字起播（`onDelta` 在 11-08 因「同一句念两遍」被关）。它能把感知延迟从整句生成完再送 TTS 压到首字就出声，但要改 `say()` 流式队列，风险高，等菲尔特拍板。
+
+
+---
+
+## 九、2026-11-14 凌晨：流式首句起播 + 演示模式可控化
+
+### 9.1 流式首句起播（菲尔特拍板「好，流式首字起播」）
+
+**先讲清 11-08 为什么关掉它**：不是 TTS 坏了，是三条出口没有一次性认领 ——
+`onDelta` 增量 → `onStreamEnd` 尾段 → `agentSay` 收尾补 `say(r.said)`；
+而 `streamed` 靠「队列里还有没有东西」猜，队列刚好播空就补播一次，
+于是「同一句念两遍 + 气泡重复」。此外 `onSaid` 交代语、`say()` → `speak()` → `ssHalt()`
+清队列，也是两条独立声音路径。
+
+**借鉴的成熟实现**（实际打开核实）：
+
+| 来源 | 抄了什么 |
+|---|---|
+| `YevheniiMiachyn/dsh-tts-live`（MIT，DSH 插件 fork） | `claimedEnd` 精确认领文本范围（修 live 尾部重复发布）；有序句子队列带稳定 id；session/turn/step 归属；落盘对账只发布未读尾部；live 路径可显式关闭 |
+| `KoljaB/RealtimeTTS` `docs/llm-streaming.md` | `minimum_first_fragment_length` 控制首句长度；过滤空 chunk / 非文本 delta；`stop()` 打断后重新 `feed()` |
+| `SorunEngineering/chat_audio_streamer` | 生成 / 合成 / 播放三段流水线，首句合成完就起播，不等全文 settle |
+| DSH 文档里的诚实结论 | **流式不解决 TTFT**，只消除「首句已存在之后仍等整段 settle」的等待；TTFT 仍由模型与网络决定 |
+
+**落地形态**：新增 `app/stream-speak.js`（纯逻辑、无 DOM、可跑 Node），把「切句 / 幂等 / 对账」从 `app.js` 的 `SS` 里剥离；`SS` 只保留播放队列、麦克风闸、气泡。
+
+| 机制 | 实现 |
+|---|---|
+| 首句门槛 | 中文 5 字无标点也切；逗号在 3 字位置优先切（避免切出「好嘞，我给」这种半截词）；后续句只认强标点，24 字硬切 |
+| 稳定 id | 每段 `turnId-seq`，同时作为原生 `miliTtsEnd(id)` 对账键，跨轮不撞号 |
+| turn 归属 | `SS.turnId` 单调递增，`onDelta` / `onStreamEnd` 闭包捕获；上一轮迟到增量直接丢弃（late-settle suppression） |
+| claimedEnd | `turn.end()` 只认领一次尾段，重复回调（内核重试 / 兜底）返回空数组 |
+| 落盘对账 | `finalText` 与已念文本一致 → 不补播，只定稿气泡；是「已念 + 未读尾部」→ 只补尾部；被 `guardHonest` 整体改写 → **不补播**，屏幕显示真话，宁可少念也不重念 |
+| 确定性 streamed | `agent.js` 的 `turn()` 累计 `emitted`，`_runInner` 累计 `streamedChars`，`run()` 回传 `streamed: >0`；前端只信 `r.streamed && SS.turn.segments.length`，不再猜队列状态 |
+| 开启条件 | **只在本轮 `!useTools`（不挂工具）时开**。挂工具的轮次模型可能说半句转头办事，那半句念出去就是一句没头没尾的话；纯说话轮不可能中途办事，`gateDead` 的顾虑整体消失，`guardHonest` 也不改写文本 |
+| 现场回退 | `window.__MILI_NO_STREAM = 1` 一行关掉，无需重打包 |
+
+**取舍**：流式只在纯说话轮开，工具链与「办完事报结果」若挂了工具仍走整段播报。
+流式已念出的文本是权威，`finalText` 只用于气泡与历史。这是用「绝不重念」换「极端情况下声音与屏幕可能不一致」。
+
+**验收（真机未装，纯 Node 契约）**：`tests/stream-e2e.test.mjs` 在 vm 里 mock 一条 DeepSeek SSE 流真跑 `MILI_AGENT.run()` —— 5/5 通过：`r.streamed=true`、增量拼接 == `r.said`、段 id 唯一、`onStreamEnd` 重复三次不多吐一个字、挂工具轮 `streamed=false`。`tests/stream-speak.test.mjs` 13 条覆盖首句切分、连标点、硬切、复读、幂等、对账、稳定 id。
+
+### 9.2 演示模式三条（菲尔特现场反馈）
+
+| 现象 | 根因 | 处理 |
+|---|---|---|
+| 首页一进去就是演示模式 | `boot()` 读 `localStorage.mili_demo_on` 自动恢复 `D.on=true`；`start()` 会写这个 key | 删掉自动恢复与写入，开机主动 `removeItem` 清历史遗留位。现在每次进 App 都是普通首页，要演示自己去点「我的 · 比赛演示」 |
+| 「还是 3 遍」 | **11-13 只改了 `app.js`，漏改 `index.html`**：提词条写「共 3」、三个圆点、面板有 `data-n="3"` 第三行、设置页还有「同一个片子说三遍」 | HTML 全部改成两遍：两圆点、两行说明、表格 2 行（JS 侧 11-13 已是两遍）。这是本助手的漏，已用静态断言焊死 |
+| 遍数不该自动跳 | `stepNow()` 按两条 memo 自动算，现场不可控 | 新增 `forceStep` + `setStep(1|2)`，HUD 与面板各一组按钮（`data-demostep` 专用属性，避开引导页 9 个同名 `data-step`）。`start()` / `reset()` 都锁第 1 遍；演示者点「第 2 遍」才放行 skill |
+
+按钮用 `#demoHud .dh-sw` / `#demoSheet .ds-sw` 两枚白色胶囊，选中态才是主色 `#5B4DF0`，不叠渐变、不用暖黄。
+
+⚠️ **按钮属性必须是 `data-demostep`**：引导页有 9 个 `.onb-step[data-step]`（九步向导），
+用 `[data-step]` 选择器会把向导按钮也绑成切遍、`paint()` 还会改它们的 `on` 高亮。
+`tests/demo-and-stream-safety.test.mjs` 专门断言这条。
+
+### 9.3 本轮验收与未完成
+
+- 61/61 纯 Node 测试、评测基线不变（工具 0.7419 / 记忆 1.0）、111 文件 0 敏感命中、
+  凭据护栏（公开仓脱敏 / 真机真实凭据）双向通过、三处源码语法全过、CSS 括号平衡 0。
+- **真机 APK 没重装**：菲尔特 01:04 说手机断了。`assets/web/` 源码已改，但 APK 内仍是
+  `2026-11-14 00:22` 那版。明天连上手机后必须 `assembleDebug + install -r` 才能生效；
+  首句起播的实际感知延迟、切遍按钮手型、有无重复念，都要真机截图 + 耳朵验收。

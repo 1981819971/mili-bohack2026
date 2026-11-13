@@ -99,3 +99,11 @@ npx promptfoo eval --assertions eval/assertions.yaml --model-outputs eval/output
    node tools/check-device-credentials.mjs "<真机 app 目录>" device          # 真机必须有真实凭据
    ```
    任一返回非 0 就停手，从 `_bak_*/` 回滚后再打补丁。`tests/safety.test.mjs` 也会拦回归。
+
+## 流式与演示模式（2026-11-14 新增）
+
+- 流式播报的切句 / 幂等 / 对账全在 `app/stream-speak.js`，`app.js` 的 `SS` 只管播放。
+  改之前先跑 `node --test tests/stream-speak.test.mjs tests/stream-e2e.test.mjs`。
+- 现场一句 `window.__MILI_NO_STREAM = 1` 可回退到整段播报，不用重打包。
+- 演示模式**默认不开**，遍数靠 `data-demostep` 按钮手动切，别改回自动按记忆跳。
+  引导页另有 9 个 `.onb-step[data-step]`，选择器别混用。
