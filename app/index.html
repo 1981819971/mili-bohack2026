@@ -1061,6 +1061,8 @@
 }}
 </script>
 <script src="assets/vendor/hls.min.js"></script>
+<!-- 统一记忆总线必须在所有记忆模块（含 evolve.js）之前加载 -->
+<script src="memory.js"></script>
 <script src="evolve.js"></script>
 <!-- 智能体内核。顺序不能乱：memo 与 tools 都是独立的 IIFE，只挂 window 上的全局；
      agent 在 init() 之后才用到它们，但它自己也在 createClient 时才读，所以其实

@@ -56,7 +56,7 @@
   const LLM_KEY = 'mili.llm';
   const LLM_PRESETS = {
     deepseek:    { base: 'https://api.deepseek.com',     model: 'deepseek-flash' },
-    dpflash:     { base: 'https://6.6666166.xyz/v1',    model: 'deepseek-v4.1-flash' },
+    /* 第三方中转站预设已移除：不再把老人的话转给未授权的第三方服务。 */
     siliconflow: { base: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
     qingcheng:   { base: '', model: '' },
     custom:      { base: '', model: '' }
@@ -214,7 +214,7 @@
     maxRounds: 4,
     maxTokens: 360,          // 原 700，工具参数本来就只有几十个字
     sayTokens: 560,          // 原 1600，老人一句话上限 46 字
-    effort: 'minimal',       // 只对 hy3 这类 onlyReasoning 模型起作用
+    effort: 'low',           // DeepSeek 合法档位：low / high / max
     /* 0.25 → 0.55（2026-11-06）。
        低温会退化成「同一句反复念」—— 菲尔特截图里那句星星的解释，
        整段在气泡里出现了两遍，就是典型的 n-gram 退化。
@@ -898,7 +898,7 @@
          就是因为 700 个 token 全被思维链吃了，老人一个字都没听见。
          所以给思维链单独压预算：调小 effort，别让它写论文。 */
       /* DeepSeek 只认 low / high / max。默认 low：先出声，不写论文。 */
-      body.reasoning = { effort: opts.effort || 'high' };
+      body.reasoning = { effort: opts.effort || 'low' };
       /* 工具只在需要时挂。闲聊不挂工具，模型就不会手痒去开电视。
          2026-11-11 省 token：opts.tools 可以是数组（本轮只挂这几个）。
          66 个工具的清单就有 8K tokens，每轮重发是账单最大的单笔；

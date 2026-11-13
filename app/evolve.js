@@ -1,4 +1,9 @@
-/* 米粒 · 日新引擎（evolve.js）
+/* ⚠ DEPRECATED（2026-11-13）：本文件是 11-07 的旧意图正则引擎，
+   仅作断网兜底，默认不进主决策链路（app.js 里 window.__MILI_LEGACY_EVO 控制）。
+   主链路是 agent.js 的模型工具选择，别再往这里加正则或拿它的考卷分数当进化证据。
+   保留原因：现场 DeepSeek key 或网络挂了，仍能靠纯 localStorage 跑两次、能回退。
+   ------------------------------------------------------------------
+ 米粒 · 日新引擎（evolve.js）
    ------------------------------------------------------------------
    赛题要求：现场跑两次，第二次必须比第一次好；说得清学到了什么；能回退。
 
@@ -367,6 +372,14 @@
     total: BENCH.length,
     benchList: BENCH
   };
+
+  /* 登记到统一记忆总线：一键清空时，旧版别名 / 虚词 / 版本快照也要一起清掉。 */
+  if (w.MILI_STORE) {
+    w.MILI_STORE.register('evo', {
+      keys: [KEY, 'mili_evo', 'mili_demo_evo'],
+      wipe: function () { E = JSON.parse(JSON.stringify(DEF)); }
+    });
+  }
 
   /* 给 app.js 用：进语音识别前先问一句"这句是不是学过的说法" */
   w.EVO.redirect = function (text) {

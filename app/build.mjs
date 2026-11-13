@@ -26,7 +26,21 @@ const R = (p) => fs.readFileSync(P(p), 'utf8');
 const threeSrc  = R('./vendor/three/three.module.js');
 const loaderSrc = R('./vendor/three/addons/loaders/GLTFLoader.js');
 const dataSrc   = R('./data_src.js');
-const bootSrc   = R('./app_boot.js');
+/* app_boot.js 曾经是 app.js 的手工副本：两份 13000 行，只差 35 行，
+   但其中几条是实质逻辑差异 —— boot 版还停在 11-12 之前的「满 3 天」，
+   线上版早改成「3 次或 3 天」。手工同步必然再次漂移。
+   现在 app.js 是唯一真源，构建时按四条规则现场生成 boot 版。 */
+function toBoot(src) {
+  const stripped = src
+    .replace(/^import \* as THREE from 'three';\s*$/m, '')
+    .replace(/^import \{ GLTFLoader \} from 'three\/addons\/loaders\/GLTFLoader\.js';\s*$/m, '')
+    .replace(/^import \{ MILI_DATA, greeting \} from '\.\/data\.js';\s*$/m, '')
+    .replace(/\bnew GLTFLoader\(/g, 'new THREE.GLTFLoader(');
+  return 'window.__boot = function(){\n'
+    + 'var MILI_DATA = window.MILI_DATA, greeting = window.greeting, THREE = window.THREE;\n'
+    + stripped + '\n};\n';
+}
+const bootSrc   = toBoot(R('./app.js'));
 const evolveSrc = R('./evolve.js');
 const html      = R('./index.html');
 
@@ -158,6 +172,11 @@ const js = [
   'window.__VBANK = ' + JSON.stringify(voiceBank) + ';',
   'window.__T2C = ' + JSON.stringify(text2clip) + ';',
   dataSrc,
+  /* 单文件版也要接上同一套记忆与 agent 内核，不能只带 old 正则引擎。 */
+  R('./memory.js'),
+  R('./agent-memo.js'),
+  R('./agent-tools.js'),
+  R('./agent.js'),
   bootSrc,
   'window.__boot && window.__boot();',
   evolveSrc,
