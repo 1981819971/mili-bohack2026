@@ -55,6 +55,11 @@ test('切换按钮有样式，且不碰全站配色', () => {
   assert.ok(!/#[0-9a-fA-F]{6}.*(?:暖黄|orange)/.test(css));
 });
 
+test('🔑 改口只记一次：learn() 重复调用会让 3 次阈值提前达成', () => {
+  assert.equal((app.match(/MILI_TOOL_ROUTER\.learn\(/g) || []).length, 1,
+    '一次改口被记两次 n，两次改口就凑满 3 次升稳定档');
+});
+
 test('流式首句起播：onDelta 接回、确定性 streamed、纯说话轮才开', () => {
   assert.ok(!app.includes('onDelta: null,'), '流式还关着');
   assert.ok(app.includes('window.__MILI_NO_STREAM'), '缺现场一键回退开关');

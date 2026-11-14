@@ -3523,13 +3523,9 @@ async function agentSay(text, quiet, opts) {
     window.MILI_MEMO.bump(_key);
     /* 改口驱动的进化落到检索正反馈，而不是 evolve.js 的正则别名：
        把「老人原话 → 第一个成功工具」记成一条检索样本，下次相似说法
-       BM25 排序自然上移；满 3 次或跨 3 天才升稳定档（对齐权威口径）。 */
-    if (window.MILI_TOOL_ROUTER && calls && calls.length) {
-      try { window.MILI_TOOL_ROUTER.learn(_key, String(calls[0].name || '')); } catch (e) {}
-    }
-    /* 改口驱动的进化落到检索正反馈，而不是 evolve.js 的正则别名：
-       把「老人原话 → 第一个成功工具」记成一条检索样本，下次相似说法
-       BM25 排序自然上移；满 3 次或跨 3 天才升稳定档（对齐权威口径）。 */
+       BM25 排序自然上移；满 3 次或跨 3 天才升稳定档（对齐权威口径）。
+       2026-11-14 修：这段原先整块复制了两遍，一次改口会被 learn() 记两次 n，
+       两次改口就凑满 3 次升稳定档 —— 阈值当场失真。 */
     if (window.MILI_TOOL_ROUTER && calls && calls.length) {
       try { window.MILI_TOOL_ROUTER.learn(_key, String(calls[0].name || '')); } catch (e) {}
     }
