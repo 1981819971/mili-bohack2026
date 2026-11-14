@@ -372,7 +372,7 @@ window.__petMode = petMode;   // 原生桥/调试也能切
       srcs: [CZ('21'), CZ('20'), RL('cctv13hd')] },
     { k: ['中央一台', '中央1台', 'cctv1', '综合频道'], name: 'CCTV-1 综合',
       srcs: [CZ('15'), RL('cctv1hd')] },
-    { k: ['戏曲', '豫剧', '京剧', '唱戏', '戏台', '看戏', 'cctv11'], name: 'CCTV-11 戏曲',
+    { k: ['戏曲', '豫剧', '京剧', '唱戏', '戏台', '看戏', '听戏', 'cctv11'], name: 'CCTV-11 戏曲',
       srcs: [RL('cctv11hd')] },
     { k: ['电视剧频道', 'cctv8', '中央8'], name: 'CCTV-8 电视剧',
       srcs: [RL('cctv8hd')] },
@@ -503,7 +503,10 @@ window.__petMode = petMode;   // 原生桥/调试也能切
       }
     }
     playAt(0);
-    return { ok: true, detail: '打开啦，' + (title || '节目') + '。' };
+    const _done = '打开啦，' + (title || '节目') + '。';
+    /* 单动作快通道：电视一开就是结果，不需要模型再写一轮。
+       实测第二轮要多 0.5~1.2 秒，老人感知就是「开个台也这么慢」。 */
+    return { ok: true, detail: _done, fastReply: _done };
   }
 
   /* WebView 自动播放策略：不带手势的出声播放会被拒。
@@ -3266,7 +3269,7 @@ async function replaySkill(text) {
      返回 false 后 handleSay 会自然落到 agentSay —— 不改路由顺序，只切基线。 */
   if (typeof S !== 'undefined' && S && S.skillOff) return false;
   const sk = window.MILI_MEMO.hit(text);
-  if (!sk || !skillSane(sk.tools)) return false;
+  if (!sk || !skillSane(sk.tools, text)) return false;
   if (!nativeReady()) return false;
 
   const t0 = performance.now();
@@ -3313,8 +3316,20 @@ async function replaySkill(text) {
 const NO_ARG_TOOLS = ['watch_news', 'get_weather', 'take_photo', 'check_meds',
   'read_screen', 'pet_toggle', 'recall'];
 
-function skillSane(tools) {
+function skillSane(tools, text) {
   if (!tools || !tools.length) return false;
+  /* 信源一致性：TV_MAP 认得的句子，技能必须落在电视类工具上。
+     真机实证：「我要看新闻」被学成 watch_video(CCTV)，之后每次 0ms
+     重放错源，TV_MAP 的 CCTV-13 根本没机会打开。 */
+  try {
+    if (text && window.MILI_TV && MILI_TV.resolve) {
+      const tv = MILI_TV.resolve(text);
+      if (tv && tv.type === 'tv') {
+        const okTools = ['watch_news','tv_channel','play_direct','ir_power','tv_next','media','player_control'];
+        if (!tools.some((t) => okTools.indexOf(t.name) >= 0)) return false;
+      }
+    }
+  } catch (e) {}
   return tools.every((t) => {
     if (!t || !t.name) return false;
     if (NO_ARG_TOOLS.indexOf(t.name) >= 0) return true;   // 这几个不带参数也有意义
@@ -3337,7 +3352,7 @@ function pruneSkills() {
        原来这里写 M.skillList，永远 undefined，启动清理从来没执行过。 */
     const list = M && M.skills;
     if (!list) return;
-    const bad = list().filter((x) => !skillSane(x.tools));
+    const bad = list().filter((x) => !skillSane(x.tools, x.text));
     bad.forEach((x) => { try { M.skillDel(x.id); } catch (e) {} });
     if (bad.length && window.console) console.log('清掉记错的 skill', bad.length);
   } catch (e) {}
@@ -4975,6 +4990,31 @@ async function handleSay(text, quiet, opts) {
      S.rules 问答缓存里存着一条旧规则（多半是当年 search_web 搜回来的农历换算百科），
      findRule 在 ①.0 日期直答之前抢答，而且这里裸 return 不给回执 ——
      老人听到的就是那段百科。日期/时间类一律跳过问答缓存，交给本地 0ms 直答。 */
+  const grown = bumpRepeat(raw);
+
+  /* ---- ⓪ 信源直达：TV_MAP 命中就不进模型、不看问答缓存、不重放 skill ----
+     新闻/戏曲在 TV_MAP 里已经有实测过的地址，没有理由让模型再想一轮
+     （实测多 0.9~2 秒，还可能选成 watch_video，绕开信源）。
+     必须排在 findRule 与 skill 之前：真机实证「我要看新闻」被旧问答缓存
+     和一条学错的 watch_video 技能先后劫持，根本走不到开台。
+     只认信源表 + 排除问句，不新增意图正则。 */
+  if (window.MILI_TV && MILI_TV.resolve
+      && !/[?？]|几点|什么时候|是什么|介绍|为什么|怎么|有什么|讲了什么|说了什么|内容|药|提醒|闹钟|挂号|预约/.test(raw)) {
+    let _tv = null;
+    try { _tv = MILI_TV.resolve(raw); } catch (e) {}
+    if (_tv && _tv.type === 'tv') {
+      const _r = MILI_TV.open(_tv.url, _tv.name);
+      if (_r && _r.ok) {
+        const _line = _r.fastReply || _r.detail || ('打开啦，' + _tv.name + '。');
+        playAnim('nod', 1.1);
+        say(_line, 5200, { slow: true });
+        logDid('tv', _line, raw, 0);
+        if (grown) announceGrow(grown);
+        return { did: true, said: _line, ms: 0, trace: [] };
+      }
+    }
+  }
+
   const DATE_SKIP_RULE = /农历|阴历|老历|初几|几号|几月几|星期几|礼拜几|周几|几点|什么日子/;
   const DATE_SKIP_BLOCK = /提醒|闹钟|叫我|药|挂号|预约/;
   const rule = (DATE_SKIP_RULE.test(raw) && !DATE_SKIP_BLOCK.test(raw)) ? null : findRule(raw);
@@ -4993,7 +5033,6 @@ async function handleSay(text, quiet, opts) {
   }
 
   // 0.5) 把它问到第几回记下来。已经会答的再问，就是要「慢慢说」
-  const grown = bumpRepeat(raw);
 
   /* ==================== 路由顺序（2026-11-04 翻过来）====================
      ⓪ skill 缓存        0ms       同一句话办成过一次，直接重放
@@ -5015,7 +5054,7 @@ async function handleSay(text, quiet, opts) {
        没有这一道，第 1 遍会被上次学会的序列 0 毫秒重放，一声都不问。 */
     var _demoBlk = false;
     try { _demoBlk = !!(window.__DEMO && window.__DEMO.blockSkill(raw, hit)); } catch (e) {}
-    if (hit && skillSane(hit.tools) && !_demoBlk) {
+    if (hit && skillSane(hit.tools, raw) && !_demoBlk) {
       const ok = await replaySkill(raw);
       if (ok) {
         if (window.EVO) { try { EVO.hit(raw, hit.tools[0].name); } catch (e) {} }

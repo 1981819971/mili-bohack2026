@@ -96,3 +96,14 @@ test('回退删的是最新技能，且同时撤掉检索样本', () => {
   assert.ok(!/if \(!M \|\| !M\.skillList\)/.test(app),
     'MILI_MEMO 导出的名字是 skills，M.skillList 恒为 undefined');
 });
+
+test('电视信源直达：排在问答缓存与技能之前，听戏映射 CCTV-11', () => {
+  const iFast = app.indexOf('⓪ 信源直达');
+  const iRule = app.indexOf('const DATE_SKIP_RULE');
+  const iSkill = app.indexOf('① skill 缓存');
+  assert.ok(iFast > 0 && iRule > 0 && iSkill > 0, '三个锚点必须都存在');
+  assert.ok(iFast < iRule && iFast < iSkill, '信源直达必须在问答缓存和 skill 之前');
+  assert.match(app, /'听戏'/, '听戏必须进 CCTV-11 的键，否则会掉到抖音兜底');
+  assert.match(app, /fastReply: _done/, '电视打开必须带 fastReply，否则工具后还要多跑一轮');
+  assert.match(app, /function skillSane\(tools, text\)/, '技能校验必须能看原话，才能挡住错源技能');
+});
