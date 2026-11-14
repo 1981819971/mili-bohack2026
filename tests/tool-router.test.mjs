@@ -138,3 +138,16 @@ test('样本淘汰：超过 200 条时保留最新的改口，不留下最早的
   assert.ok(us.includes('说法204'), '最新学会的说法被丢掉了');
   assert.ok(!us.includes('说法0'), '最早的说法没有被淘汰');
 });
+
+test('回退单条：forget 只删指定说法+工具，别的学习不动', () => {
+  const { sandbox } = makeEnv();
+  const R = sandbox.MILI_TOOL_ROUTER;
+  R.learn('把那个戏给我放上', 'play_video');
+  R.learn('给闺女发个消息', 'wechat_message');
+  assert.equal(R.stats().corrections, 2);
+  assert.equal(R.forget('把那个戏给我放上', 'play_video'), 1);
+  assert.equal(R.stats().corrections, 1);
+  assert.equal(R.corrections()[0].tool, 'wechat_message');
+  /* 工具名不匹配时不误删 */
+  assert.equal(R.forget('给闺女发个消息', 'play_video'), 0);
+});

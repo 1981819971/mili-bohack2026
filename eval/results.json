@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-14T01:23:00.706Z",
+  "at": "2026-11-14T01:49:35.250Z",
   "disclaimer": "只作不变量校验与回归门禁，不作进化证据；held-out cases 赛前冻结未改",
   "method": {
     "toolSelection": "BFCL 式首个工具命中 / Recall@k / MRR + RAG-MCP 检索前后体积",
@@ -9,9 +9,13 @@
     "cases": 31,
     "actCases": 26,
     "noToolCases": 5,
+    "metricScope": "retrieval-only",
+    "routerTop1Rate": 0.8846,
     "firstToolHitRate": 0.8846,
     "recallAtK": 1,
     "mrr": 0.8988,
+    "injectedHitRate": 0.9615,
+    "injectedTop1Rate": 0.8846,
     "avgToolsInjected": 12.87,
     "fallbackRate": 0,
     "fullToolCount": 67,

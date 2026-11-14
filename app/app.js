@@ -3333,8 +3333,11 @@ function pruneSkills() {
   _pruned = true;
   try {
     const M = window.MILI_MEMO;
-    if (!M || !M.skillList) return;
-    const bad = M.skillList().filter((x) => !skillSane(x.tools));
+    /* MILI_MEMO 导出的名字是 skills（内部函数叫 skillList）。
+       原来这里写 M.skillList，永远 undefined，启动清理从来没执行过。 */
+    const list = M && M.skills;
+    if (!list) return;
+    const bad = list().filter((x) => !skillSane(x.tools));
     bad.forEach((x) => { try { M.skillDel(x.id); } catch (e) {} });
     if (bad.length && window.console) console.log('清掉记错的 skill', bad.length);
   } catch (e) {}
@@ -11831,7 +11834,21 @@ window.MILI_FALL_NOW = function(by){
         try {
           var M = window.MILI_MEMO;
           if (M && M.skills && M.skillDel){
-            var sk = M.skills(); if (sk && sk.length) M.skillDel(sk[sk.length - 1].id);
+            var sk = M.skills();
+            /* skillNote 是 unshift：最新的在 [0]。原来删 [length-1]，
+               删掉的是最老那条，刚学的反而留着 —— 回退等于没退。 */
+            var target = sk && sk.length ? sk[0] : null;
+            if (target) {
+              M.skillDel(target.id);
+              /* correction 与 skill 是两份记录，只删 skill 的话
+                 BM25 里那条样本还在，路由照样被带偏。 */
+              try {
+                if (window.MILI_TOOL_ROUTER && window.MILI_TOOL_ROUTER.forget) {
+                  window.MILI_TOOL_ROUTER.forget(target.text || '',
+                    target.tools && target.tools[0] ? target.tools[0].name : '');
+                }
+              } catch (e) {}
+            }
           }
         } catch(e){}
         try {

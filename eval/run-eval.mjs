@@ -46,7 +46,7 @@ function toolSelection(s) {
   const allNames = all.map((t) => t.function.name);
   const fullChars = JSON.stringify(all).length;
   let firstHit = 0, recall = 0, rr = 0, toolsSum = 0, fallback = 0;
-  let actN = 0, noToolN = 0;
+  let actN = 0, noToolN = 0, injHit = 0, injTop1 = 0;
   const details = [];
   for (const c of held.cases) {
     const r = s.MILI_TOOL_ROUTER.select(c.q, { minScore: 0 });
@@ -59,14 +59,20 @@ function toolSelection(s) {
        它不是未命中，也不该进首个命中的分母 —— 否则 5 句必然算错，
        真实命中率被自己压低 14 个百分点。这类题单独记数量，
        由「不调工具」的专项测试去管，不混进工具选择准确率。 */
+    const inSelected = want.some((n) => r.names.includes(n));
+    /* 按真实注入集再排一次：用户/模型看到的是 r.names 这十几个工具，
+       完整 67 个里的第一名没有意义。injectedTop1 = 注入集里排第一且正确。 */
+    const rankedInjected = ranked.filter((n) => r.names.includes(n));
+    const rankInjected = rankedInjected.findIndex((n) => want.includes(n));
     if (want.length) {
       actN++;
       if (rank === 0) firstHit++;
       if (rank >= 0) { recall++; rr += 1 / (rank + 1); }
+      if (inSelected) injHit++;
+      if (rankInjected === 0) injTop1++;
     } else {
       noToolN++;
     }
-    const inSelected = want.some((n) => r.names.includes(n));
     details.push({ id: c.id, cat: c.cat, q: c.q, want: want,
                    top: ranked[0] || null, rank: rank < 0 ? null : rank + 1,
                    inSelected: inSelected, tools: r.tools.length, fallback: r.fallback });
@@ -75,8 +81,14 @@ function toolSelection(s) {
   const n = actN || 1;   // 分母只算「确实该调工具」的句子
   return {
     cases: allN, actCases: actN, noToolCases: noToolN,
+    /* 口径声明：这里测的是 BM25 检索排序，不是模型的端到端工具选择。
+       模型看到注入集后选哪个，需要真跑 MILI_AGENT.run() 才能测。 */
+    metricScope: 'retrieval-only',
+    routerTop1Rate: +(firstHit / n).toFixed(4),
     firstToolHitRate: +(firstHit / n).toFixed(4),
     recallAtK: +(recall / n).toFixed(4), mrr: +(rr / n).toFixed(4),
+    injectedHitRate: +(injHit / n).toFixed(4),
+    injectedTop1Rate: +(injTop1 / n).toFixed(4),
     avgToolsInjected: +(toolsSum / allN).toFixed(2),
     fallbackRate: +(fallback / allN).toFixed(4),
     fullToolCount: allNames.length,
@@ -152,7 +164,8 @@ const result = {
 fs.writeFileSync(path.join(EVAL, 'results.json'), JSON.stringify(result, null, 2));
 
 console.log(`=== 工具选择（held-out ${tools.cases} 句，其中该调工具 ${tools.actCases} 句；另有 ${tools.noToolCases} 句不该调，不计入分母）===`);
-console.log(`首个工具命中 ${tools.firstToolHitRate}  Recall@k ${tools.recallAtK}  MRR ${tools.mrr}`);
+console.log(`检索 Top1 ${tools.routerTop1Rate}  全量内 Recall ${tools.recallAtK}  MRR ${tools.mrr}`);
+console.log(`注入集命中 ${tools.injectedHitRate}  注入集 Top1 ${tools.injectedTop1Rate}  —— 只测检索排序，不是模型端到端`);
 console.log(`平均注入工具 ${tools.avgToolsInjected}/${tools.fullToolCount}  低置信度退回全量 ${tools.fallbackRate}`);
 console.log(`schema 体积 ${tools.fullSchemaChars} → 约 ${tools.approxCharsAfterRouting} 字符`);
 console.log('=== 长期记忆（LongMemEval 风格 10 题）===');

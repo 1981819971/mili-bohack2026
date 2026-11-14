@@ -30,6 +30,19 @@ ASR_TOKEN = os.environ.get("ASR_TOKEN", "").strip()   # 端口对公网开着，
 
 app = FastAPI(title="米粒 ASR", docs_url=None, redoc_url=None)
 
+# 账号 / 配对 / 药箱 / 体征与 ASR 同进程：远端一直是这样挂的，
+# 仓库这份之前只留了 init 没挂 router，导致本地起服务时 /auth/* 全部 404。
+try:
+    from mili_auth import router as _auth_router, init as _auth_init
+    app.include_router(_auth_router)
+    try:
+        _auth_init()
+    except Exception as _e:
+        print("账号表初始化跳过:", _e)
+    print("账号模块已挂载")
+except Exception as _e:
+    print("账号模块未挂载:", _e)
+
 _recognizer = None
 
 

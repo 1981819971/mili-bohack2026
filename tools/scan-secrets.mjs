@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SKIP_DIR = new Set(['.git', 'node_modules', 'build', 'dist']);
+const SKIP_DIR = new Set(['.git', 'node_modules', 'build', 'dist',
+  'analysis', '.venv', '__pycache__', '.pytest_cache', 'tmp']);
 const SELF = path.resolve(ROOT, 'tools', 'scan-secrets.mjs');
 /* 第三方库逐字节来自公开 npm 包，里面的长数字常量（lunar.js 农历表、
    three.js 矩阵数据）会被手机号规则误判，不按业务敏感串扫。 */

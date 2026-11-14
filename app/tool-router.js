@@ -177,6 +177,26 @@
 
   function stable(c) { return (c.n || 0) >= 3 || (c.days && c.days.length >= 3); }
 
+  /* 回退单条学习：删掉某句话对某个工具的样本。
+     回退是「skill + correction 两份记录一起退」，只删 skill 的话，
+     BM25 里那条真实原话还在，下次还会把同一个工具往上顶。
+     技能记录的 text 截到 60 字，所以按前 60 字比对，不做模糊包含。 */
+  function forget(utterance, toolName) {
+    var t = String(utterance || '').trim();
+    if (!t) return 0;
+    var n = String(toolName || '').trim();
+    var cut = t.slice(0, 60);
+    var before = corrections.length;
+    corrections = corrections.filter(function (c) {
+      var sameTool = !n || c.tool === n;
+      var sameText = c.u === t || String(c.u || '').slice(0, 60) === cut;
+      return !(sameTool && sameText);
+    });
+    var removed = before - corrections.length;
+    if (removed) saveCorrections();
+    return removed;
+  }
+
   /* ---------- 建索引 ---------- */
   function buildDocs() {
     var all = (w.MILI_TOOLS && w.MILI_TOOLS.schema) ? w.MILI_TOOLS.schema() : [];
@@ -271,6 +291,7 @@
     tokenize: tokenize,
     bm25: bm25,
     corrections: function () { return corrections.slice(); },
+    forget: forget,
     reset: function () { corrections = []; return saveCorrections(); },
   };
 

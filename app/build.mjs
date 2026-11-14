@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'url';
+import { pageModules } from '../tools/page-modules.mjs';
 
 /* 路径一律按脚本自身位置解析，跟从哪个目录执行无关 */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +44,11 @@ function toBoot(src) {
 const bootSrc   = toBoot(R('./app.js'));
 const evolveSrc = R('./evolve.js');
 const html      = R('./index.html');
+/* 页面模块清单只从 index.html 来，不再手写三份 —— 见 tools/page-modules.mjs 顶部说明。
+   app.js 是 type="module" 加载，也在这份清单里；单文件版要把它换成 bootSrc。 */
+const PAGE_MODULES = pageModules(html);
+if (!PAGE_MODULES.length) throw new Error('index.html 里没解析到任何页面模块');
+if (!PAGE_MODULES.includes('app.js')) throw new Error('index.html 没有引用 app.js，构建清单不完整');
 
 /* ---------------- 线上版：资源外置 ----------------
    原来这里是 base64 内嵌。现在改成相对路径，浏览器按需拉。
@@ -181,14 +187,12 @@ const js = [
   'window.__VBANK = ' + JSON.stringify(voiceBank) + ';',
   'window.__T2C = ' + JSON.stringify(text2clip) + ';',
   dataSrc,
-  /* 单文件版也要接上同一套记忆与 agent 内核，不能只带 old 正则引擎。 */
-  R('./memory.js'),
-  R('./agent-memo.js'),
-  R('./agent-tools.js'),
-  R('./agent.js'),
+  /* 单文件版要接上同一套记忆、检索、流式与 agent 内核。
+     清单来自 index.html（PAGE_MODULES），不再手写 —— 手写必漏。
+     app.js 换成 bootSrc（去 import、包成 __boot），其余原样按顺序拼。 */
+  ...PAGE_MODULES.filter((f) => f !== 'app.js').map((f) => R('./' + f)),
   bootSrc,
   'window.__boot && window.__boot();',
-  evolveSrc,
 ].join('\n;\n');
 
 const single = head + '<script>\n' + js.replace(/<\/script>/g, '<\\/script>') + '\n</script>\n</body>\n</html>\n';
@@ -321,16 +325,15 @@ if (fs.existsSync(serverDir)) {
      底色变透明、字变黑、卡片没圆角没阴影，整站塌成一张白纸。
      而且它不会报错（CSS 里未定义的 var 是静默失效），只会「看着不对劲」。 */
   put('design-tokens.css', tokensCss);
-  put('evolve.js', evolveSrc);
   put('data.js', R('./data.js'));
 
   /* 智能体内核三件套。
      ★ 之前这三行根本不存在 —— server/ 里那三个文件是手写进去的，
        从来没被 build 管过，也没被 index.html 引用过。现在正式纳入构建。
        少拷一个，wireAgent() 就直接 return，页面上退回老正则。 */
-  for (const f of ['agent-memo.js', 'agent-tools.js', 'agent.js']) {
+  for (const f of PAGE_MODULES.filter((x) => x !== 'app.js')) {
     if (!fs.existsSync(P('./' + f))) {
-      throw new Error('缺少内核文件 app/' + f + ' —— 智能体起不来，不能发布');
+      throw new Error('缺少页面模块 app/' + f + ' —— 线上版会静默退回旧行为，不能发布');
     }
     put(f, R('./' + f));
   }
@@ -419,9 +422,10 @@ console.log('单文件版 %s MB（离线用，不进 APK、不上线）',
  * ========================================================================== */
 const webAs = P('../android/app/src/main/assets/web');
 if (fs.existsSync(webAs)) {
-  const pageFiles = ['index.html', 'app.js', 'app.css', 'design-tokens.css',
-    'data.js', 'demo.html',
-    'evolve.js', 'agent.js', 'agent-tools.js', 'agent-memo.js', 'requirements.txt'];
+  /* 同样从 PAGE_MODULES 来；app.js 已在 PAGE_MODULES 里。
+     再并上页面外壳与样式，避免漏 index.html / css 这类非 JS 文件。 */
+  const pageFiles = [...new Set(['index.html', 'app.css', 'design-tokens.css',
+    'data.js', 'demo.html', 'requirements.txt', ...PAGE_MODULES])];
   let n = 0;
   for (const f of pageFiles) {
     const src = path.join(serverDir, f);

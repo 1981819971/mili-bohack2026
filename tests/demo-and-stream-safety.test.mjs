@@ -84,4 +84,15 @@ test('评测分母只算该调工具的句子，5 条「不该调」不计入', 
   assert.equal(r.actCases, 26);
   assert.equal(r.noToolCases, 5);
   assert.equal(r.firstToolHitRate, 0.8846);
+  assert.equal(r.routerTop1Rate, 0.8846);
+  assert.equal(r.injectedHitRate, 0.9615);
+  assert.equal(r.metricScope, 'retrieval-only');
+});
+
+test('回退删的是最新技能，且同时撤掉检索样本', () => {
+  /* skillNote 用 unshift，最新在 [0]；原来删 [length-1] 删的是最老的。 */
+  assert.match(app, /var target = sk && sk\.length \? sk\[0\] : null/, '回退没有取最新技能');
+  assert.match(app, /MILI_TOOL_ROUTER\.forget/, '回退没有撤销 BM25 样本');
+  assert.ok(!/if \(!M \|\| !M\.skillList\)/.test(app),
+    'MILI_MEMO 导出的名字是 skills，M.skillList 恒为 undefined');
 });
