@@ -1779,7 +1779,7 @@ html.desk6 #page-home .dicon.d-first{box-shadow:inset 0 0 0 2px rgba(232,131,58,
 
 /* ④ 固定底栏：紧急呼叫 / 说话 / 手电筒。参考图那条横栏。 */
 html.desk6 #page-home .ddock{
-  order:4; flex:none; display:grid; grid-template-columns:1fr 1.15fr 1fr;
+  order:4; flex:none; display:grid; grid-template-columns:1fr 1.7fr .8fr;
   gap:10px; padding:10px; border-radius:24px; background:var(--d-dock);
 }
 html.desk6 #page-home .ddock > button{
@@ -1796,7 +1796,7 @@ html.desk6 #page-home .ddock .dtorch{background:rgba(255,255,255,.14)}
 /* 奶油底上白字会糊成一片，手电筒这颗反成深底深字。 */
 html.skin-cream.desk6 #page-home .ddock .dtorch{background:#EEEBFF; color:#1B1D2E}
 html.desk6 #page-home .ddock svg{width:24px;height:24px}
-html.desk6 #page-home .ddock .dsos small{font-size:14px;font-weight:600;opacity:.9}
+html.desk6 #page-home .ddock .dsos small{font-size:15px;font-weight:600;opacity:.95}
 html.desk6 #page-home .ddock .dhold{
   position:absolute; left:0; bottom:0; height:4px; width:0;
   background:#fff; opacity:.9; transition:width .1s linear;
@@ -2869,9 +2869,9 @@ html.desk6 #page-home .hhgreet{display:none}         /* 问候交给米粒的回
 html.desk6 #page-home .dtop-side{
   grid-column:2; grid-row:1 / span 2; flex-direction:row; align-items:center; gap:6px;
 }
-html.desk6 #page-home .dguard{font-size:12px; padding:5px 9px}
+html.desk6 #page-home .dguard{font-size:14px; padding:5px 10px}
 html.desk6 #page-home .dguard i{width:7px;height:7px}
-html.desk6 #page-home .dsset{min-height:34px; padding:0 10px; font-size:13px; border-radius:11px}
+html.desk6 #page-home .dsset{min-height:36px; padding:0 11px; font-size:15px; border-radius:11px}
 
 /* ---- ③ 米粒卡：主角必须完整，回话限两行不许顶飞小鸡 ---- */
 html.desk6 #page-home .petcard{
@@ -2892,7 +2892,7 @@ html.desk6 #page-home .petava video{
 }
 html.desk6 #page-home .dhint{font-size:23px; line-height:1.25; flex:none}
 html.desk6 #page-home .bubble{
-  font-size:15px; line-height:1.35; flex:none;
+  font-size:17px; line-height:1.35; flex:none; color:#3E4260;
   max-height:2.7em; overflow:hidden;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
 }
@@ -4001,3 +4001,42 @@ html.desk6 #page-home .petava.singing #petSingV{
 /* 任何 fallback 分支都不许藏视频、不许拿静态图盖住 */
 html.desk6 #page-home .petava.video-fallback video{display:block!important;opacity:1!important}
 html.desk6 #page-home .petava.video-fallback #petPoster{display:none!important;opacity:0!important}
+
+
+/* 家人日报：体征异常那一行。只在超范围时出现，所以要醒目但不吓人。 */
+.famalert{margin:6px 0 0;font-size:16px;font-weight:700;line-height:1.5;color:#B42318}
+
+
+/* ---- 底栏终版（必须放文件末尾、必须 !important）----
+   前面有多处 !important 把底栏压成「两列等宽、高 62px、副标题 12px」。
+   说话键是老人最常按的一颗：更宽、更高、字更大；紧急呼叫副标题提到 14px。
+   只改尺寸，不碰任何按钮的事件。 */
+html.desk6 #page-home .ddock{grid-template-columns:1fr 1.6fr !important}
+html.desk6 #page-home .ddock > .dtalk{min-height:76px !important; font-size:22px !important}
+html.desk6 #page-home .ddock > .dtalk svg{width:30px !important; height:30px !important}
+html.desk6 #page-home .ddock > .dsos{min-height:76px !important}
+html.desk6 #page-home .ddock > button small{font-size:14px !important}
+
+/* ---- 顶栏与回话小字终版 ----
+   之前直接改原规则没生效：文件后半段有同选择器的覆盖。量过实际生效值后，
+   在末尾用 !important 重写。回话只提到 16px，回话区限两行、不能顶飞小鸡。 */
+html.desk6 #page-home .dguard{font-size:14px !important; padding:5px 10px !important}
+html.desk6 #page-home .dsset{font-size:15px !important; min-height:36px !important}
+html.desk6 #page-home .bubble{font-size:16px !important; color:#3E4260 !important}
+
+html.desk6 #page-home .dhint.thinking{color:#5B4DF0}
+
+
+#fam7 .f7vv{font-size:20px; font-weight:800; color:#1B1D2E}
+#fam7 .f7vv.warn{color:#9A6200}
+#fam7 .f7vv.bad{color:#B42318}
+
+/* 状态行 / 提醒行：沿用原有 f7card + f7row，只按语气给图标和右侧数值上色。 */
+#fam7 .f7st.ok .ic{color:#2FA36B}
+#fam7 .f7st.warn .ic{color:#E08A00}
+#fam7 .f7st.warn .val{color:#B96F00; font-weight:700}
+#fam7 .f7st.bad .ic{color:#E5484D}
+#fam7 .f7st.bad .val{color:#E5484D; font-weight:700}
+#fam7 .f7st.wait .ic{color:#9A9FBA}
+/* 卡片下面的灰色小字说明（和页面底部原有的「部分能力还没接入」同一档字号颜色） */
+#fam7 .f7foot{margin:-6px 4px 14px; font-size:13px; line-height:1.6; color:#6B708C}

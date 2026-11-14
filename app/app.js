@@ -1972,6 +1972,15 @@ function killRepeat(s) {
    首页可能被 v9 桌面层重建，所以找不到节点时就地补一个，不依赖哪套 DOM。
    ========================================================================== */
 const PET_STATE_TXT = { idle: '待机', listen: '在听', think: '在想', speak: '在说' };
+/* 还原「想」状态时被我换掉的那句大字。只有当前文字还是我们自己换上去的那两句才改回去：
+   万一别处在这期间改了它，不能拿一句过期的旧文案盖掉。标记和样式类无论如何都清掉。 */
+function restoreThinkHint(hint) {
+  if (!hint || !hint.dataset || hint.dataset.orig === undefined) return;
+  const t = hint.textContent;
+  if (t === '米粒在想，请稍等' || t === '马上好，再等一下') hint.textContent = hint.dataset.orig;
+  delete hint.dataset.orig;
+  hint.classList.remove('thinking');
+}
 function setPetState(s) {
   s = PET_STATE_TXT[s] ? s : 'idle';
   let el = $('petState');
@@ -1988,6 +1997,29 @@ function setPetState(s) {
   el.dataset.s = s;
   const t = $('petStateTxt') || el.querySelector('span');
   if (t) t.textContent = PET_STATE_TXT[s];
+  /* 想的时候 2~3 秒没声音，老人会以为死机。把首页那句固定大字换成「在想」，
+     超过 2.5 秒再换成「马上好」；离开 think 就还原。只动这一个节点的文字。 */
+  try {
+    const hint = document.querySelector('#page-home .dhint');
+    if (hint) {
+      clearTimeout(window.__thinkHintT); clearTimeout(window.__thinkHintT2);
+      if (s === 'think') {
+        if (!hint.dataset.orig) hint.dataset.orig = hint.textContent;
+        hint.textContent = '米粒在想，请稍等';
+        hint.classList.add('thinking');
+        window.__thinkHintT = setTimeout(function () {
+          if (el.dataset.s === 'think') hint.textContent = '马上好，再等一下';
+        }, 2500);
+        /* 兜底：智能体总时限是 30 秒左右。如果某条异常路径一直没把状态切回去，
+           大字提示不能一直挂着骗人「还在想」。 */
+        window.__thinkHintT2 = setTimeout(function () {
+          restoreThinkHint(hint);
+        }, 35000);
+      } else {
+        restoreThinkHint(hint);
+      }
+    }
+  } catch (e) {}
 }
 
 function say(text, ms, opts) {
@@ -3784,13 +3816,13 @@ async function accApi(path, o) {
     });
     const d = await r.json().catch(function () { return {}; });
     if (!r.ok) {
-      const out = { ok: false, why: d.why || ('服务器说不行（' + r.status + '）') };
+      const out = { ok: false, status: r.status, why: d.why || ('服务器说不行（' + r.status + '）') };
       if (d.pick) out.pick = d.pick;
       return out;
     }
     return d;
   } catch (e) {
-    return { ok: false, why: '连不上米粒的服务器，看看是不是断网了' };
+    return { ok: false, net: true, why: '连不上米粒的服务器，看看是不是断网了' };
   }
 }
 
@@ -3968,16 +4000,122 @@ async function accElderCard(elderId) {
   return d;
 }
 
-/* 老人端：把「刚办成一件事」上报。家人端首页就能看见。
-   没配对时静默失败 —— 上报不是主线，不能因为它报错就打断老人正在做的事。 */
-function accLogAct(kind, text, detail) {
+/* 老人端：把原生层拦到的可疑短信，上报成一条 kind='scam' 的办事记录，家人端才看得见。
+   原生 ScamGuard 一直在记（SharedPreferences，最多 30 条），但前端以前从没读过。
+   只上报「风险等级 + 时间」，不上报短信原文和号码 —— 那是老人的隐私，家人只需要知道「有人想骗」。
+   det 里带 at=短信到达的毫秒时间：服务端给每条记录打的是「收到上报的时间」，补报积压的旧短信时
+   如果家人端也用它，旧短信会被当成刚收到。
+
+   进度（S.scamPushedAt）只在服务端确认收到之后才往前推，而且一条一条、从旧到新发，遇到第一条失败就停：
+   老人手机没网时记录不会丢，下一轮从没送到的那条接着报。_scamSyncing 防止慢网时定时器和开机
+   两次同步同时跑、把同一条报两遍。一次最多补报最近 5 条，更早的积压直接跳过，免得刷屏挤掉别的记录。 */
+let _scamSyncing = false;
+async function syncScamLog() {
+  if (_scamSyncing) return;
   if (DEMO || !accToken() || accRole() !== 'elder') return;
+  const n = NATIVE();
+  if (!n || !n.scamLog) return;
+  let arr = [];
+  try { arr = JSON.parse(n.scamLog()) || []; } catch (e) { return; }
+  if (!Array.isArray(arr) || !arr.length) return;
+  const seen = +S.scamPushedAt || 0;
+  const todo = arr.filter((x) => x && +x.at > seen).sort((a, b) => a.at - b.at).slice(-5);
+  if (!todo.length) return;
+  _scamSyncing = true;
   try {
-    accApi('/act', {
+    for (const x of todo) {
+      const hi = +x.lv >= 2;
+      const d = await accApi('/act', {
+        body: { kind: 'scam', txt: hi ? '拦到一条高危可疑短信' : '拦到一条可疑短信',
+          det: 'lv=' + (hi ? 2 : 1) + ';at=' + x.at },
+      });
+      if (!d || d.ok !== true) break;                  // 没送到：进度不动，下一轮接着报
+      S.scamPushedAt = +x.at;
+      try { save(); } catch (e) {}
+    }
+  } finally { _scamSyncing = false; }
+}
+
+/* 体征上报：失败不能静默丢掉。
+   服务端接口的说明写的是「超标要立刻能被家人看到，所以这一步不能静默失败」，而以前这里是
+   accApi('/vital', ...).catch(() => {})：手机没网时记的读数，服务端永远收不到，家人永远看不到，也不会补发。
+   现在先把读数放进持久的待发队列（S.vitalOutbox，随 save() 落盘），再一条条按顺序发：
+     · 服务端确认收到（ok:true）才从队列里拿掉；
+     · 断网 / 服务器暂时不行（401、429、5xx……）：停在这条、留着，下一轮（开机、每 5 分钟、下一次量）接着发；
+     · 服务端明确拒收这条数据本身（400，比如数字读不出来）：重试没有意义，丢掉这条，继续发后面的，
+       免得一条坏数据永远堵住后面所有读数。
+   服务端给每条读数打的是「收到的时间」，不是量的时间，所以把真正的测量时间放进 note（at=毫秒），
+   家人端按它判断「24 小时内」「几点量的」，补发的旧读数才不会被当成刚量的。
+   刚量完那一下，调用方要拿到服务端对这条读数的回复（tone / alarm），所以每条读数有个只在内存里的
+   「等待者」；补发的旧读数没有等待者，发完就算。队列最多留 50 条，超出丢最旧的。
+   没登录 / 不是老人端：立刻返回失败（和以前一样，调用方照常念出读数），不进队列 —— 没有账号就没处可发。 */
+let _vitalFlushing = false;
+const _vitalWaiters = new Map();
+function vitalOutbox() { return Array.isArray(S.vitalOutbox) ? S.vitalOutbox : (S.vitalOutbox = []); }
+async function flushVitalOutbox() {
+  if (_vitalFlushing) return;
+  if (DEMO || !accToken() || accRole() !== 'elder') return;
+  const q = vitalOutbox();
+  if (!q.length) return;
+  _vitalFlushing = true;
+  let lastFail = null;
+  try {
+    while (q.length) {
+      const x = q[0];
+      let r = null;
+      try { r = await accApi('/vital', { body: { kind: x.kind, sys: x.sys, dia: x.dia, val: x.val, note: 'at=' + x.at } }); }
+      catch (e) { r = null; }          // accApi 正常不会抛；万一抛了也当作「没传上去」，别让队列和等待者卡死、也别冒出未处理的异常
+      if ((r && r.ok === true) || (r && r.status === 400)) {   // 收到了 / 服务端拒收这条数据本身：都从队列拿掉
+        q.shift();
+        try { save(); } catch (e) {}
+        const w = _vitalWaiters.get(x.id);
+        if (w) { _vitalWaiters.delete(x.id); w(r); }
+        continue;
+      }
+      lastFail = r || { ok: false, why: '没传上去' };
+      break;                                                   // 断网 / 暂时不行：留着，下一轮接着发
+    }
+  } finally {
+    _vitalFlushing = false;
+    if (_vitalWaiters.size) {                                  // 没发出去的：别让刚量完的调用方一直等
+      const f = lastFail || { ok: false, why: '暂时没传上去，稍后自动补传' };
+      _vitalWaiters.forEach((w) => w(f));
+      _vitalWaiters.clear();
+    }
+  }
+}
+function vitalUpload(kind, sys, dia, val) {
+  if (DEMO || !accToken() || accRole() !== 'elder') {
+    return Promise.resolve({ ok: false, why: '还没登录老人端，没法上报' });
+  }
+  const q = vitalOutbox();
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  q.push({ id: id, kind: kind, sys: sys, dia: dia, val: val, at: Date.now() });
+  while (q.length > 50) q.shift();
+  try { save(); } catch (e) {}
+  const p = new Promise((res) => { _vitalWaiters.set(id, res); });
+  flushVitalOutbox();                                          // 不 await：回复通过等待者回来
+  return p;
+}
+
+/* 老人端：把「刚办成一件事」上报。家人端首页就能看见。
+   没配对时静默失败 —— 上报不是主线，不能因为它报错就打断老人正在做的事。
+   返回一个永远 resolve、永远不抛的结果：{ ok:true } 服务端收下了；{ ok:false, skipped:true } 没登录老人端、
+   根本没去发；{ ok:false, net:true } 断网；{ ok:false, why } 服务端没收。绝大多数调用方不看它（上报不是主线）；
+   只有老人主动点「发给家里人」那种、要对老人说「发出去了」的地方才看 —— 没发出去就不能说发出去了。 */
+function accLogAct(kind, text, detail) {
+  if (DEMO || !accToken() || accRole() !== 'elder') {
+    return Promise.resolve({ ok: false, skipped: true, why: '这台手机还没登录老人端' });
+  }
+  try {
+    return accApi('/act', {
       body: { kind: String(kind || ''), txt: String(text || '').slice(0, 60),
         det: detail ? String(detail).slice(0, 200) : '' },
-    }).catch(function () {});
-  } catch (e) {}
+    }).then(function (d) { return d || { ok: false, why: '没收到回复' }; },
+            function () { return { ok: false, why: '没传出去' }; });
+  } catch (e) {
+    return Promise.resolve({ ok: false, why: '没传出去' });
+  }
 }
 
 /* ============================================================================
@@ -7179,7 +7317,7 @@ function vitalSave(kind, sys, dia, val) {
   renderVital();
 
   /* 本地先记上，再异步上报。上报失败不影响老人已经看到的数。 */
-  accApi('/vital', { body: { kind: kind, sys: sys, dia: dia, val: val } })
+  vitalUpload(kind, sys, dia, val)
     .then((r) => {
       if (r && r.ok) {
         if (r.tone) { item.tone = r.tone; }
@@ -7196,15 +7334,38 @@ function vitalSave(kind, sys, dia, val) {
   try { accLogAct('vital', kind === 'bp' ? '量了血压 ' + sys + '/' + dia : '量了血糖 ' + val, ''); } catch (e) {}
 }
 
-/* 把这个数发给家里人：走已有的「办过的事」通道，家属端立刻能看见。 */
+/* 「发给家里人」的结果怎么说。只有服务端真收下了才说「发出去了」。
+   这是老人主动点的一次通知，不排队补发：隔很久再补一条「血压 150/95」，家人端会显示成刚发生的事，
+   反而误导。体征读数本身另有待发队列保证送达（vitalUpload）。 */
+function vitalTellWords(r) {
+  if (r && r.ok === true) {
+    return { ok: true, out: '已经发了。家里人打开家人端就能看见。',
+      say: '发出去了。家里人打开家人端就能看见。', detail: '发出去了，家里人打开家人端就能看见。' };
+  }
+  if (r && r.skipped) {
+    return { ok: false, out: '这台手机还没连上家里人，发不出去。',
+      say: '这台手机还没连上家里人，发不出去。', detail: '这台手机还没连上家里人，发不出去。' };
+  }
+  const why = (r && r.net) ? '现在连不上网' : '服务器没收下';
+  return { ok: false, out: '这次没发出去：' + why + '。等好了您再点一次。',
+    say: '没发出去，' + why + '。等好了您再点一次。', detail: '没发出去：' + why + '，等好了再发一次。' };
+}
+
+/* 把这个数发给家里人：走已有的「办过的事」通道，家属端立刻能看见。
+   等服务端真回了再说结果（以前是不管成没成都念「发出去了」）。 */
 function vitalTell() {
   const list = vitalAll();
   if (!list.length) { say('还没有数可以发。先量一次。', 5200, { slow: true }); return; }
   const x = list[0];
   const txt = x.kind === 'bp' ? '血压 ' + x.sys + '/' + x.dia : '血糖 ' + x.val;
-  try { accLogAct('vital', txt, TONE_TXT[x.tone] || ''); } catch (e) {}
-  if ($('vitalTellOut')) $('vitalTellOut').textContent = '已经发了。家里人打开家人端就能看见。';
-  say('发出去了。家里人打开家人端就能看见。', 6200, { slow: true });
+  if ($('vitalTellOut')) $('vitalTellOut').textContent = '正在发……';
+  Promise.resolve().then(function () { return accLogAct('vital', txt, TONE_TXT[x.tone] || ''); })
+    .catch(function () { return { ok: false, why: '没传出去' }; })
+    .then(function (r) {
+      const w = vitalTellWords(r);
+      if ($('vitalTellOut')) $('vitalTellOut').textContent = w.out;
+      say(w.say, 6200, { slow: true });
+    });
 }
 
 /* ---------- ② 扫码付款 ----------
@@ -7746,7 +7907,7 @@ window.MILI_VITAL = {
     const item = { kind: kind, sys: sys, dia: dia, val: val, tone: tone, at: Date.now() };
     vitalPush(item);
     try { renderVital(); } catch (e) {}
-    accApi('/vital', { body: { kind: kind, sys: sys, dia: dia, val: val } })
+    vitalUpload(kind, sys, dia, val)
       .then((r) => { if (r && r.alarm) { try { accLogAct('vital', '连续超标', ''); } catch (e) {} } })
       .catch(() => {});
     try { accLogAct('vital', kind === 'bp' ? '量了血压 ' + sys + '/' + dia : '量了血糖 ' + val, ''); } catch (e) {}
@@ -7761,8 +7922,12 @@ window.MILI_VITAL = {
     const list = vitalAll();
     if (!list.length) return { ok: false, detail: '还没有数可以发，先量一次。' };
     const x = list[0];
-    try { accLogAct('vital', x.kind === 'bp' ? '血压 ' + x.sys + '/' + x.dia : '血糖 ' + x.val, TONE_TXT[x.tone] || ''); } catch (e) {}
-    return { ok: true, detail: '发出去了，家里人打开家人端就能看见。' };
+    /* 返回 Promise：agent-tools 的 exec 会 Promise.resolve 它。真发出去了才说发出去了，
+       没发出去就如实说，智能体才不会对老人报一个假的「办好了」。 */
+    return Promise.resolve().then(function () {
+      return accLogAct('vital', x.kind === 'bp' ? '血压 ' + x.sys + '/' + x.dia : '血糖 ' + x.val, TONE_TXT[x.tone] || '');
+    }).catch(function () { return { ok: false, why: '没传出去' }; })
+      .then(function (r) { const w = vitalTellWords(r); return { ok: w.ok, detail: w.detail }; });
   },
   last: function (kind) {
     const list = vitalAll();
@@ -8075,6 +8240,103 @@ function renderMe() {
   renderMeActs();
 }
 
+/* 体征读数的「测量时间」。老人端补发时把真正的测量时间放在 note 里（at=毫秒）；
+   服务端自己打的 ts 是收到上报的时间。优先用 note 里的；没有（老数据）或明显不对（比现在晚一小时以上，
+   手机时钟错了）就退回服务端的 ts。 */
+function vitalAtOf(x, nowMs) {
+  if (!x) return 0;
+  const m = /at=(\d{10,})/.exec(String(x.note || ''));
+  if (m && +m[1] <= (nowMs || Date.now()) + 3600000) return +m[1];
+  return x.ts ? x.ts * 1000 : 0;
+}
+
+/* 家人日报·体征异常：只取每种最新一条、且 24 小时内的记录，该提醒才返回。
+   纯函数（传入列表，新的在前），不碰全局，方便单测。
+   「该提醒」跟着服务端自己的两级设计走（mili_auth.py 的 _vital_tone / alarm）：
+     bad  很高（血压 >=160/100，血糖 >=11.1 或 <=3.0）—— 服务端注释写的是「必须告诉家人」，单次就报；
+     warn 只是偏高 —— 服务端要连着三次都不正常才算 alarm（「单次高可能是刚爬完楼，连着高才是事」），
+          所以单次 warn 不进红框，免得告警疲劳；最近三条都不 ok 才算。
+   正常时返回空文本 —— 「异常才说话」。不判断偏高还是偏低：服务端只给了 tone，没给方向。 */
+function famVitalAlerts(list, nowMs) {
+  const now = nowMs || Date.now();
+  const rows = (list || []).filter((x) => x && x.kind);
+  const seen = {}, items = [], alist = [];
+  let tone = '';
+  rows.forEach((x) => {
+    if (seen[x.kind]) return;
+    seen[x.kind] = 1;
+    if (x.tone !== 'warn' && x.tone !== 'bad') return;
+    const at = vitalAtOf(x, now);   // 和调用方传进来的「现在」用同一个钟
+    if (!at || now - at > 86400000) return;
+    const last3 = rows.filter((y) => y.kind === x.kind).slice(0, 3);
+    const persistent = last3.length >= 3 && last3.every((y) => y.tone !== 'ok');
+    if (x.tone !== 'bad' && !persistent) return;
+    items.push(x.kind === 'bp' ? ('血压 ' + x.sys + '/' + x.dia)
+      : x.kind === 'glu' ? ('血糖 ' + (Math.round((+x.val || 0) * 10) / 10)) : String(x.kind));
+    alist.push({ label: x.kind === 'bp' ? '血压' : x.kind === 'glu' ? '血糖' : String(x.kind),
+      val: x.kind === 'bp' ? (x.sys + '/' + x.dia) : String(Math.round((+x.val || 0) * 10) / 10),
+      tone: x.tone, persistent: persistent });
+    if (x.tone === 'bad') tone = 'bad'; else if (!tone) tone = 'warn';
+  });
+  return { tone: tone, text: items.length ? ('体征超出范围：' + items.join('、') + '。') : '', list: alist };
+}
+
+/* 服务端的 lastat（最后动静）和 nact（今天办了几件）把所有上报都算成「老人的动静」，
+   包括手机自动同步上来的防诈骗记录 —— 那不是老人做了什么。不扣掉的话，老人手机放了 30 小时没人碰，
+   只要来一条垃圾短信，家人端就会从「该打电话了」变成「刚还在用」，白白让人放心。
+   这里按 acts 里 kind='scam' 的记录把它们扣掉；原值留在 lastat_raw / nact_raw，
+   重复调用结果不变（永远从原值算）。服务端只回最近 12 条：如果这 12 条全是防诈记录，
+   真正的最后动静在窗口之外，只能标成「暂时看不出」（lastat_unknown），不能编一个时间。 */
+function famDiscountScam(card) {
+  if (!card || card.ok !== true) return card;
+  if (card.lastat_raw === undefined) { card.lastat_raw = card.lastat; card.nact_raw = card.nact; }
+  /* 优先用 GET /act 的 40 条（acts_ext）；拿不到才退回家属卡自带的 12 条。窗口越大，
+     「整个窗口全是防诈记录、看不出真正最后动静」的情况越少见。 */
+  const ext = (Array.isArray(card.acts_ext) && card.acts_ext.length) ? card.acts_ext : null;
+  const acts = ext || (Array.isArray(card.acts) ? card.acts : []);
+  const LIMIT = ext ? 40 : 12;
+  const tsOf = (a) => (a && a.ts ? a.ts * 1000 : 0);
+  const now = Date.now();
+  const scamIn24h = acts.filter((a) => a && a.kind === 'scam' && tsOf(a) && now - tsOf(a) < 86400000).length;
+  card.nact = Math.max(0, (+card.nact_raw || 0) - scamIn24h);
+  card.lastat_unknown = false;
+  card.lastat = card.lastat_raw;
+  if (acts.length && acts[0] && acts[0].kind === 'scam') {
+    const real = acts.find((a) => a && a.kind !== 'scam');
+    if (real) card.lastat = tsOf(real);
+    else if (acts.length >= LIMIT) { card.lastat = 0; card.lastat_unknown = true; }
+    else card.lastat = 0;                               // 整个历史就这几条、全是防诈：老人确实没办过事
+  }
+  return card;
+}
+window.__famDiscountScam = famDiscountScam;
+
+/* 家人日报·防诈战报：只数老人端上报的 kind='scam' 记录。
+   服务端只回老人最近 12 条动态，所以这是「近期」，不是历史总数 —— 界面上也这么写。
+   det 里 lv=2 表示高危，否则算可疑。纯函数，传入列表，方便单测。 */
+function famScamReport(acts, nowMs) {
+  const now = nowMs || Date.now();
+  const items = [];
+  (acts || []).forEach((a) => {
+    if (!a || a.kind !== 'scam') return;
+    const m = /at=(\d{10,})/.exec(String(a.det || ''));
+    const at = m ? +m[1] : (a.at || (a.ts ? a.ts * 1000 : 0));
+    items.push({ lv: /lv=2/.test(String(a.det || '')) ? 2 : 1, at: at });
+  });
+  const in24 = items.filter((x) => x.at && now - x.at < 86400000);
+  const hi24 = in24.filter((x) => x.lv === 2);
+  return {
+    total: items.length,
+    high: items.filter((x) => x.lv === 2).length,
+    lastAt: items.reduce((m, x) => Math.max(m, x.at || 0), 0),
+    hi24: hi24.length, any24: in24.length,
+    alert: hi24.length ? ('24 小时内收到 ' + hi24.length + ' 条高危可疑短信，米粒已提醒老人。')
+      : in24.length ? ('24 小时内收到 ' + in24.length + ' 条可疑短信，米粒已提醒老人。') : '',
+  };
+}
+window.__famScamReport = famScamReport;
+window.__famVitalAlerts = famVitalAlerts;
+
 /* ---- 我的页 · 老人今天怎么样 ----
    家人打开这一页，三十秒内只要一个判断：要不要打个电话。
    所以先给结论（刚还在用 / 快一天没动静），数字退到第二行。
@@ -8140,12 +8402,16 @@ function renderMeToday() {
   else if (gapH < 24) { tone = 'warn'; line = '快一天没动静了（' + Math.round(gapH) + ' 小时）。'; }
   else { tone = 'bad'; line = '超过一天没动静（' + Math.round(gapH) + ' 小时）。该打个电话了。'; }
 
+  const al = famVitalAlerts(_famVital);
+  if (al.tone === 'bad') tone = 'bad';
+  else if (al.tone === 'warn' && tone === 'ok') tone = 'warn';
   const nact = d.nact || 0;
   box.innerHTML = '<div class="famcard ' + tone + '">'
     + '<div class="famhd"><span class="famdot"></span>'
     + '<b class="famnm">' + esc(d.name || '爸妈') + '</b>'
     + '<span class="famtag">' + (d.nmed || 0) + ' 种药</span></div>'
     + '<p class="famline">' + esc(line) + '</p>'
+    + (al.text ? '<p class="famalert">' + esc(al.text) + '</p>' : '')
     + '<p class="famsub">今天办了 ' + nact + ' 件事。'
     + (d.nmed ? '药按家里人填的提醒。' : '药箱还空着，去家人控制台加一种。') + '</p>'
     + '</div>';
@@ -8162,7 +8428,7 @@ function renderMeVital() {
   if (!box) return;
   const remote = (_famVital && _famVital.length) ? _famVital.map((x) => ({
     kind: x.kind, sys: x.sys, dia: x.dia, val: x.val, tone: x.tone,
-    at: x.ts ? x.ts * 1000 : 0,
+    at: vitalAtOf(x),
   })) : [];
   const list = remote.length ? remote : vitalAll();
   if (!list.length) {
@@ -8233,7 +8499,7 @@ function renderMeActs() {
   }
   const K = { nav: '带路', call: '打电话', wx: '微信', tv: '看电视', sms: '短信',
     weather: '问天气', watch: '找片', med: '吃药', reg: '挂号', ir: '遥控', say: '说话',
-    band: '手环', pay: '付款', vital: '量体征' };
+    band: '手环', pay: '付款', vital: '量体征', scam: '防诈骗' };
   box.innerHTML = '<div class="panel">' + acts.slice(0, 8).map((a, i) => {
     const raw = a.at || (a.ts ? a.ts * 1000 : 0);
     const t = raw ? new Date(raw) : null;
@@ -8641,7 +8907,7 @@ function renderFamVital() {
   const remote = (_famVital && _famVital.length) ? _famVital : [];
   const list = remote.length ? remote.map((x) => ({
     kind: x.kind, sys: x.sys, dia: x.dia, val: x.val, tone: x.tone,
-    at: x.ts ? x.ts * 1000 : 0,
+    at: vitalAtOf(x),
   })) : vitalAll();
   if (!list.length && famReadBad()) { box.innerHTML = FAM_BAD_LINE; return; }
   if (!list.length) {
@@ -8793,12 +9059,16 @@ function renderFamOverview() {
   else if (gapH < 24) { tone = 'warn'; line = '快一天没动静了（' + Math.round(gapH) + ' 小时）。'; }
   else { tone = 'bad'; line = '超过一天没动静（' + Math.round(gapH) + ' 小时）。该打个电话了。'; }
 
+  const al = famVitalAlerts(_famVital);
+  if (al.tone === 'bad') tone = 'bad';
+  else if (al.tone === 'warn' && tone === 'ok') tone = 'warn';
   const nact = d.nact || 0;
   box.innerHTML = '<div class="famcard ' + tone + '">'
     + '<div class="famhd"><span class="famdot"></span>'
     + '<b class="famnm">' + esc(d.name || '爸妈') + '</b>'
     + '<span class="famtag">' + (d.nmed || 0) + ' 种药</span></div>'
     + '<p class="famline">' + esc(line) + '</p>'
+    + (al.text ? '<p class="famalert">' + esc(al.text) + '</p>' : '')
     + '<p class="famsub">今天办了 ' + nact + ' 件事。'
     + (d.nmed ? '药按你填的提醒。' : '药箱还空着，下面加一种。') + '</p>'
     + '</div>';
@@ -8817,7 +9087,7 @@ function renderFamActs() {
   }
   const K = { nav: '带路', call: '打电话', wx: '微信', tv: '看电视', sms: '短信',
     weather: '问天气', watch: '找片', med: '吃药', reg: '挂号', ir: '遥控', say: '说话',
-    band: '手环', pay: '付款', vital: '量体征' };
+    band: '手环', pay: '付款', vital: '量体征', scam: '防诈骗' };
   box.innerHTML = acts.map((a) => {
     /* 2026-11-06 修：服务端 acts 表存的是 ts（秒），这里原来读 a.at（毫秒）——
        字段名对不上，家人端「最近办的事」时间一直是空白。
@@ -8837,7 +9107,7 @@ function renderFamActs() {
    否则第一次渲染（那时 ACC.user 还是空的）写进去的「还没跟老人配对」会被缓存锁住，
    明明已经连上了，屏幕上还是让人去出码。实测就卡在这儿。 */
 function famCardReset() {
-  _famCard = null; _famCardAt = 0; _famVital = [];
+  _famCard = null; _famCardAt = 0; _famVital = []; window.__FAM_SRV = null;
 }
 
 /* 家人端血压、付款、办过的事，数据全来自服务端。
@@ -8852,6 +9122,9 @@ const FAM_BAD_LINE = '<p class="cp small">这会儿读不到老人的记录 —�
 async function refreshFamCard(force) {
   if (!ACC.user) {
     _famCard = { ok: false, why: 'not_bound' }; _famCardAt = Date.now();
+    /* 没登录也要告诉 fam7「没连上」，否则它会一直停在「正在读老人的情况」 */
+    window.__FAM_SRV = { card: _famCard, vital: [], at: Date.now() };
+    try { if (window.__f7refresh) window.__f7refresh(); } catch (e) {}
     renderFamOverview(); renderFamVital(); renderFamActs(); renderFamPay();
     return;
   }
@@ -8861,7 +9134,18 @@ async function refreshFamCard(force) {
   if (!force && _famCard && _famCard.ok === true && Date.now() - _famCardAt < FAM_TTL) {
     renderFamOverview(); renderFamVital(); renderFamActs(); renderFamPay(); return;
   }
-  const d = await accElderCard();
+  /* 取数失败（哪怕是意外抛异常）也要落到「读不到」，不能让家人端永远停在「正在读」。 */
+  let d = null;
+  try { d = await accElderCard(); } catch (e) { d = null; }
+  if (d && d.ok === true) {
+    /* 再取一份更长的动态（40 条）给防诈统计和「最后动静」用；失败不影响主流程。
+       先算完再放进 _famCard：中间有 await，先放进去会让别处渲染到没扣过防诈记录的原始值。 */
+    try {
+      const r = await accApi('/act');
+      if (r && r.ok === true && Array.isArray(r.acts)) d.acts_ext = r.acts;
+    } catch (e) {}
+    famDiscountScam(d);   // 自动同步的防诈记录不算「老人的动静」
+  }
   _famCard = d || { ok: false, why: 'read_fail' };
   _famCardAt = Date.now();
   /* 体征单独拉一次。老人换机或重装后本地是空的，
@@ -8870,6 +9154,9 @@ async function refreshFamCard(force) {
     const v = await accApi('/vital');
     _famVital = (v && v.ok && Array.isArray(v.items)) ? v.items : [];
   } catch (e) { _famVital = []; }
+  /* fam7 覆盖层只读本机 S、不读服务端。把服务端这份交给它，拉到之后让它重画一次。 */
+  window.__FAM_SRV = { card: _famCard, vital: _famVital, at: Date.now() };
+  try { if (window.__f7refresh) window.__f7refresh(); } catch (e) {}
   renderFamOverview(); renderFamVital(); renderFamActs(); renderFamPay();
 }
 
@@ -9923,6 +10210,12 @@ function bootRefresh() {
   try { renderDesk(); } catch (e) {}
   try { renderDialPad(); } catch (e) {}
   try { bindSpeakTime(); } catch (e) {}
+  /* 后台补发：开机补一次，之后每 5 分钟一次 —— 原生拦到的可疑短信、以及没传上去的体征读数 */
+  try {
+    const bgSync = () => { try { syncScamLog(); } catch (e) {} try { flushVitalOutbox(); } catch (e) {} };
+    bgSync();
+    if (!window.__scamTimer) window.__scamTimer = setInterval(bgSync, 300000);
+  } catch (e) {}
   try { bindBigFont(); applyBig(); } catch (e) {}
   /* 气泡常驻：开机先给它一句主动的话（有到点的事会被下面 checkDueTasks 覆盖） */
   const bb = $('bubble'), bt = $('bubbleText');
@@ -10743,7 +11036,7 @@ window.MILI = { state: S, mode: DEMO ? 'demo' : 'product', reset: () => { localS
 
     /* ---- 固定底栏：三颗真按钮，全部复用已有节点上的事件 ---- */
     var dock = el('div','ddock');
-    var sos = el('button','dsos', SOSICO + '<span>紧急呼叫</span><small>点一下，再确认</small><i class="dhold"></i>');
+    var sos = el('button','dsos', SOSICO + '<span>紧急呼叫</span><small>点一下或长按</small><i class="dhold"></i>');
     var talk = el('button','dtalk', MIC + '<span>说话</span>');
     var lamp = el('button','dtorch', LAMP + '<span>手电筒</span>');
     dock.appendChild(sos); dock.appendChild(talk); dock.appendChild(lamp);
@@ -11153,7 +11446,8 @@ window.MILI_FALL_NOW = function(by){
     scale:'<path d="M5 5h14v14H5z"/><path d="M9 9h6"/>',
     band:'<rect x="7" y="7" width="10" height="10" rx="3"/><path d="M10 4v3M14 4v3M10 17v3M14 17v3"/>',
     drop:'<path d="M12 3s6 6.6 6 10a6 6 0 0 1-12 0c0-3.4 6-10 6-10z"/>',
-    press:'<path d="M4 12h16M12 4v16"/><circle cx="12" cy="12" r="6"/>'
+    press:'<path d="M4 12h16M12 4v16"/><circle cx="12" cy="12" r="6"/>',
+    shield:'<path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/>'
   };
   function ic(k){
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
@@ -11181,6 +11475,114 @@ window.MILI_FALL_NOW = function(by){
       did: (s.did || []).length,
       fam: (s.fam || []).length,
       medsAll: (s.med || []).slice()
+    };
+  }
+  /* 家人端空状态：先分清「连上了没有」，再说话。
+     以前守护页把家人自己手机的本机计数（0 条 / 0 件）写在「老人今天怎么样」下面，
+     没连上时看起来像老人什么都没做 —— 老页面的注释早就警告过「不能画一个空态冒充老人没事」。 */
+  function f7Conn(srv){
+    if (!srv || !srv.card) return { s: 'loading', card: null };
+    if (srv.card.ok === true) return { s: 'connected', card: srv.card };
+    return { s: srv.card.why === 'not_bound' ? 'unbound' : 'fail', card: null };
+  }
+  /* 多久没动静：1 / 12 / 24 小时分界，和老页面一致。这是家人真正在意的那个数。 */
+  function f7GapStatus(lastat, nowMs){
+    var last = lastat ? new Date(lastat).getTime() : 0;
+    if (!last || isNaN(last)) return { tone: 'wait', line: '老人还没用这台手机办过事。' };
+    var g = ((nowMs || Date.now()) - last) / 3600000;
+    if (g < 1) return { tone: 'ok', line: '刚还在用。' };
+    if (g < 12) return { tone: 'ok', line: Math.floor(g) + ' 小时前还用过。' };
+    if (g < 24) return { tone: 'warn', line: '快一天没动静了（' + Math.floor(g) + ' 小时）。' };
+    return { tone: 'bad', line: '超过一天没动静（' + Math.floor(g) + ' 小时）。该打个电话了。' };
+  }
+  /* 服务端体征列表是新的在前，每种取第一条 */
+  function f7LatestVitals(list){
+    var out = { bp: null, glu: null };
+    (list || []).forEach(function(x){ if (x && (x.kind === 'bp' || x.kind === 'glu') && !out[x.kind]) out[x.kind] = x; });
+    return out;
+  }
+  /* 状态行：放进「老人今天怎么样」卡的第一行，和下面几行同一套 f7row，不另造方框。
+     短句放左边、结论放右边（该打电话了 / 留意一下 / 未连上）；怎么配对这种长说明放卡下面的灰色小字。 */
+  function f7Row(icon, tx, val, tone){
+    return '<div class="f7row f7st ' + (tone || '') + '" style="cursor:default"><span class="ic">' + ic(icon) + '</span>' +
+      '<span class="tx">' + esc(tx) + '</span>' + (val ? '<span class="val">' + esc(val) + '</span>' : '') + '</div>';
+  }
+  function f7StatusRow(cn){
+    var tone = 'wait', tx, val = '', note = '';
+    if (cn.s === 'connected') {
+      var g = f7GapStatus(cn.card.lastat);
+      var last = cn.card.lastat ? new Date(cn.card.lastat).getTime() : 0;
+      var hrs = (last && !isNaN(last)) ? Math.floor((Date.now() - last) / 3600000) : 0;
+      tone = g.tone;
+      if (g.tone === 'wait') { tx = cn.card.lastat_unknown ? '最近动静暂时看不出' : '还没用过米粒办事'; }
+      else if (g.tone === 'ok') { tx = hrs < 1 ? '刚还在用' : hrs + ' 小时前还用过'; val = '正常'; }
+      else if (g.tone === 'warn') { tx = hrs + ' 小时没动静'; val = '留意一下'; }
+      else { tx = hrs + ' 小时没动静'; val = '该打电话了'; }
+    } else if (cn.s === 'loading') {
+      tx = '正在读老人的情况';
+    } else if (cn.s === 'unbound') {
+      tx = '还没连上老人的手机'; val = '未连上';
+      note = '让老人在他手机上生成 6 位同步码，你填上就通了。';
+    } else {
+      tx = '读不到老人的情况'; val = '稍后再试';
+      note = '网络不通，或者老人那边还没同步上来。';
+    }
+    return { row: f7Row('heart', tx, val, tone), note: note ? '<p class="f7foot">' + esc(note) + '</p>' : '' };
+  }
+  function f7VitTile(title, x, unit, cn){
+    var head = '<div class="f7tile"><h4 class="red"><i></i>' + title + '</h4>';
+    var btn = '<button class="rec" data-go="bp">去记录</button></div>';
+    if (!x) {
+      var t = cn.s === 'connected' ? '老人还没量过' : cn.s === 'loading' ? '' : '还没连上老人';
+      return head + '<div class="sub">' + t + '</div>' + btn;
+    }
+    var big = x.kind === 'bp' ? (x.sys + '/' + x.dia) : (Math.round((+x.val || 0) * 10) / 10).toFixed(1);
+    var when = '';
+    if (vitalAtOf(x)) {
+      var d = new Date(vitalAtOf(x));
+      when = (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+        String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+    var recent = vitalAtOf(x) && (Date.now() - vitalAtOf(x)) < 86400000;   // 超过 24 小时的读数只显示、不标红黄
+    var cls = !recent ? '' : x.tone === 'bad' ? ' bad' : x.tone === 'warn' ? ' warn' : '';
+    return head + '<div class="sub f7vv' + cls + '">' + esc(big) + ' ' + unit + '</div>' +
+      '<div class="sub">' + esc(when) + '</div>' + btn;
+  }
+  /* 守护页的「需要留意」卡 + 「防诈骗」卡。都用原有的 f7card / f7row，数据来自服务端
+     （refreshFamCard 放到 window.__FAM_SRV）；没连上就如实说没连上，不画「一切正常」冒充。 */
+  function f7Digest(){
+    var srv = window.__FAM_SRV || null;
+    var card = (srv && srv.card && srv.card.ok === true) ? srv.card : null;
+    var vit = (window.__famVitalAlerts && srv) ? window.__famVitalAlerts(srv.vital || []) : { list: [] };
+    var sc = (window.__famScamReport && card) ? window.__famScamReport(card.acts_ext || card.acts || []) : null;
+    var al = [];
+    (vit.list || []).forEach(function(x){
+      al.push(f7Row('act', x.label + (x.tone === 'bad' ? '超出范围' : '连续异常'), x.val, x.tone === 'bad' ? 'bad' : 'warn'));
+    });
+    if (sc && sc.hi24) al.push(f7Row('shield', '近 24 小时收到高危短信', sc.hi24 + ' 条', 'bad'));
+    else if (sc && sc.any24) al.push(f7Row('shield', '近 24 小时收到可疑短信', sc.any24 + ' 条', 'warn'));
+    var alertHTML = al.length ? '<div class="f7card"><div class="f7cardhead">需要留意</div>' + al.join('') + '</div>' : '';
+
+    var rows;
+    if (!card) {
+      rows = f7Row('shield', '连上老人的手机后显示', '', 'wait');
+    } else if (!sc.total) {
+      rows = f7Row('shield', '近期没有可疑短信', '', 'ok');
+    } else {
+      var when = '';
+      if (sc.lastAt) {
+        var t = new Date(sc.lastAt);
+        when = (t.getMonth() + 1) + '/' + t.getDate() + ' ' +
+          String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+      }
+      rows = f7Row('shield', '近期拦到可疑短信', sc.total + ' 条') +
+        (sc.high ? f7Row('bell', '其中高危', sc.high + ' 条', 'bad') : '') +
+        (when ? f7Row('clock', '最近一条', when) : '');
+    }
+    return {
+      alertHTML: alertHTML,
+      scamHTML: '<div class="f7card"><div class="f7cardhead">防诈骗</div>' + rows + '</div>' +
+        '<p class="f7foot">只覆盖短信，电话暂不拦截；靠关键词判断，可能漏报或误报。数字取自老人最近的动态，不是总数。</p>'
     };
   }
   function nav(title, opt){
@@ -11413,27 +11815,29 @@ window.MILI_FALL_NOW = function(by){
           '跑第 1 次会真问一句，答完再点第 2 次，同一句原话直达。</p>';
     },
     guard: function(){
-      var d = D(), dt = new Date();
+      var d = D(), dt = new Date(), dg = f7Digest(), cn = f7Conn(window.__FAM_SRV), st = f7StatusRow(cn);
+      /* 「最近办的事」是老人那边产生的数据：连上了才有数；没连上就老实写「未连上」，不写 0。 */
+      var didVal = cn.s === 'connected' ? ('今天 ' + (cn.card.nact || 0) + ' 件') : (cn.s === 'loading' ? '' : '未连上');
       return nav('守护', { lead:true }) + profile() +
         '<div class="f7hero" style="margin:0 0 14px;border-radius:20px;padding:20px">' +
           '<h1 style="font-size:24px;margin:0 0 6px">Hi，今天是 ' + (dt.getMonth()+1) + ' 月 ' + dt.getDate() + ' 日</h1>' +
           '<p style="margin:0;font-size:15px;line-height:1.6;color:#3E4260">米粒替你看着' + d.me +
           '。有事喊「米粒米粒」，打电话、看天气、记血压都不用找按钮。</p></div>' +
+        dg.alertHTML +
         '<div class="f7card">' +
           '<div class="f7cardhead">老人今天怎么样</div>' +
+          st.row +
           row('spark', '米粒学会的', 'learn', d.rules + ' 条') +
-          row('act', '最近办的事', 'did', d.did + ' 件') +
-          row('med', '正在吃的药', 'medbox', d.meds + ' 种') +
+          row('act', '最近办的事', 'did', didVal) +
+          row('med', '正在吃的药', 'medbox', (cn.s === 'connected' ? (cn.card.nmed || 0) : d.meds) + ' 种') +
           row('user', '常联系的人', 'family', d.fam + ' 位') +
-        '</div>' +
+        '</div>' + st.note +
+        dg.scamHTML +
         '<div class="f7card"><div class="f7cardhead">能立刻做的</div>' +
           row('doc', '给老人捎句话', 'note2elder') +
           row('user', '打电话给老人', 'family') +
           row('med', '看他今天的药', 'medbox') +
-        '</div>' +
-        '<div class="f7card" style="margin-top:10px;padding:12px 14px">' +
-          '<span style="font-size:13px;color:#6B708C;line-height:1.6">' +
-          '部分能力还没接入，这里不摆假按钮。</span></div>';
+        '</div>';
     },
     record: function(){
       return nav('健康档案', { tool:true }) +
@@ -11460,20 +11864,18 @@ window.MILI_FALL_NOW = function(by){
           '<div class="f7card">' + row('chart', '指标与记录', 'health', '记录健康数据') + '</div></div>';
     },
     health: function(){
-      var d = D();
+      var d = D(), cn = f7Conn(window.__FAM_SRV), hv = f7LatestVitals((window.__FAM_SRV || {}).vital);
       return nav('健康', {lead:true}) +
         '<div class="f7grid2">' +
           '<div class="f7tile"><h4><i></i>体重</h4><div class="sub">记录一次体重</div>' +
             '<div class="line"></div><button class="rec" data-go="weight">去记录</button></div>' +
           '<div class="f7tile"><h4><i></i>睡眠</h4><div class="sub">记一次睡眠时长</div>' +
             '<button class="rec" data-go="sleep">去记录</button></div>' +
-          '<div class="f7tile"><h4 class="red"><i></i>血糖</h4><div class="sub">暂无数据</div>' +
-            '<button class="rec" data-go="bp">去记录</button></div>' +
-          '<div class="f7tile"><h4 class="red"><i></i>血压</h4><div class="sub">暂无数据</div>' +
-            '<button class="rec" data-go="bp">去记录</button></div>' +
+          f7VitTile('血糖', hv.glu, 'mmol/L', cn) +
+          f7VitTile('血压', hv.bp, 'mmHg', cn) +
         '</div>' +
         '<div class="f7card">' + row('doc', '健康档案', 'record') +
-          row('med', '药箱', 'medbox', d.meds + ' 种') + '</div>';
+          row('med', '药箱', 'medbox', (cn.s === 'connected' ? (cn.card.nmed || 0) : d.meds) + ' 种') + '</div>';
     },
     device: function(){
       return nav('设备', {lead:true}) +
@@ -11758,6 +12160,15 @@ window.MILI_FALL_NOW = function(by){
     if (name === 'adddev') fillDev(0);
     var b = q('.f7body', root); if (b) b.scrollTop = 0;
   }
+  /* 服务端数据到了以后重画守护页 / 健康页（只在当前就停在这两页时），并保住滚动位置 */
+  window.__f7refresh = function(){
+    try {
+      if (!root || (cur !== 'guard' && cur !== 'health')) return;
+      var b0 = q('.f7body', root), st = b0 ? b0.scrollTop : 0;
+      render(cur);
+      var b1 = q('.f7body', root); if (b1) b1.scrollTop = st;
+    } catch (e) {}
+  };
   function go(name){
     if (name === 'back') name = hist.pop() || 'mine';
     else if (MAIN.indexOf(name) >= 0) hist = [];
