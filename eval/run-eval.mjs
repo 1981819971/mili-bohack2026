@@ -174,3 +174,4 @@ console.log(`压缩状态 ${JSON.stringify(memory.contextStats)}`);
 console.log('=== 未命中明细 ===');
 console.log(JSON.stringify(memory.details.filter((x) => !x.ok), null, 1));
 console.log('\n⚠ 只作回归门禁，不作进化证据。结果已写 eval/results.json');
+if (memory.overallAccuracy < 1 || tools.injectedHitRate < 0.9615) process.exitCode = 1;

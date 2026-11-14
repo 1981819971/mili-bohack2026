@@ -27,28 +27,17 @@ const R = (p) => fs.readFileSync(P(p), 'utf8');
 const threeSrc  = R('./vendor/three/three.module.js');
 const loaderSrc = R('./vendor/three/addons/loaders/GLTFLoader.js');
 const dataSrc   = R('./data_src.js');
-/* app_boot.js 曾经是 app.js 的手工副本：两份 13000 行，只差 35 行，
-   但其中几条是实质逻辑差异 —— boot 版还停在 11-12 之前的「满 3 天」，
-   线上版早改成「3 次或 3 天」。手工同步必然再次漂移。
-   现在 app.js 是唯一真源，构建时按四条规则现场生成 boot 版。 */
+// 所有运行形态都从 app.js 生成，避免离线版本仍使用旧的记忆实现。
 function toBoot(src) {
-  const stripped = src
-    .replace(/^import \* as THREE from 'three';\s*$/m, '')
-    .replace(/^import \{ GLTFLoader \} from 'three\/addons\/loaders\/GLTFLoader\.js';\s*$/m, '')
-    .replace(/^import \{ MILI_DATA, greeting \} from '\.\/data\.js';\s*$/m, '')
-    .replace(/\bnew GLTFLoader\(/g, 'new THREE.GLTFLoader(');
-  return 'window.__boot = function(){\n'
-    + 'var MILI_DATA = window.MILI_DATA, greeting = window.greeting, THREE = window.THREE;\n'
-    + stripped + '\n};\n';
+  return 'window.__boot = function(){\nvar MILI_DATA = window.MILI_DATA, greeting = window.greeting, THREE = window.THREE;\n' + src
+    .replace(/^import .*;\s*$/gm, '')
+    .replace(/\bnew GLTFLoader\(/g, 'new THREE.GLTFLoader(') + '\n};\n';
 }
-const bootSrc   = toBoot(R('./app.js'));
+const bootSrc = toBoot(R('./app.js'));
 const evolveSrc = R('./evolve.js');
 const html      = R('./index.html');
-/* 页面模块清单只从 index.html 来，不再手写三份 —— 见 tools/page-modules.mjs 顶部说明。
-   app.js 是 type="module" 加载，也在这份清单里；单文件版要把它换成 bootSrc。 */
 const PAGE_MODULES = pageModules(html);
-if (!PAGE_MODULES.length) throw new Error('index.html 里没解析到任何页面模块');
-if (!PAGE_MODULES.includes('app.js')) throw new Error('index.html 没有引用 app.js，构建清单不完整');
+if (!PAGE_MODULES.includes('memory.js') || !PAGE_MODULES.includes('app.js')) throw new Error('页面缺少记忆总线或主入口');
 
 /* ---------------- 线上版：资源外置 ----------------
    原来这里是 base64 内嵌。现在改成相对路径，浏览器按需拉。
@@ -90,9 +79,6 @@ console.log('语音对照表:', Object.keys(t2f).length, '条 /', voiceFiles.len
 
 /* ---------------- 单文件版：仍然全内联 ---------------- */
 const B64 = (p) => 'data:model/gltf-binary;base64,' + fs.readFileSync(P(p)).toString('base64');
-/* 3D 小鸡模型是必需的：m1 待机、m2 说话。缺了就不要吐一个「看起来成功、
-   其实没有模型」的单文件版 —— 那种产物现场打开是空白，比构建失败更难查。
-   这里直接报缺哪个文件、去哪拿（BUILD.md「仍然缺的」）。 */
 function reqB64(p) {
   try { return B64(p); } catch (e) {
     throw new Error('单文件构建缺少素材 ' + p +
@@ -169,16 +155,25 @@ const webHead = html.replace(
 /* ============================================================
    产物 2：单文件版（米粒.html / 米粒-演示版.html）
    ============================================================ */
-const head0 = html.split('<script type="importmap">')[0];
+const head0 = html
+  .replace(/<script\s+type="importmap">[\s\S]*?<\/script>/g, '')
+  .replace(/<script\b[^>]*\bsrc="[^"]+"[^>]*>\s*<\/script>/g, '');
 /* 单文件版把两份 CSS 按原顺序内联：tokens 在前、app 在后。
    顺序不能反 —— app.css 全程引用 tokens 里的变量，
    反过来写就等于变量还没定义就被用了。 */
 const head = head0
   .replace('<link rel="stylesheet" href="design-tokens.css">', '<style>/*TOKENS*/' + tokensCss + '</style>')
   .replace('<link rel="stylesheet" href="app.css">', '<style>/*INLINE_CSS*/' + css + '</style>');
+// 保持 Three.js 的 ESM 语义，通过内联 data 模块满足离线导入。
+const dataModule = (src) => 'data:text/javascript;base64,' + Buffer.from(src).toString('base64');
+const threeURL = dataModule(threeSrc);
+const utilsURL = dataModule(R('./vendor/three/addons/utils/BufferGeometryUtils.js').replace(/from 'three'/g, 'from ' + JSON.stringify(threeURL)));
+const loaderURL = dataModule(loaderSrc.replace(/from 'three'/g, 'from ' + JSON.stringify(threeURL))
+  .replace("from '../utils/BufferGeometryUtils.js'", 'from ' + JSON.stringify(utilsURL)));
 const js = [
-  threeSrc,
-  loaderSrc,
+  'import * as THREE from ' + JSON.stringify(threeURL) + ';',
+  'import { GLTFLoader } from ' + JSON.stringify(loaderURL) + ';',
+  'window.THREE = Object.assign({ GLTFLoader }, THREE);',
   'window.__GLB = [' + JSON.stringify(glb1) + ',' + JSON.stringify(glb3) + ',' + JSON.stringify(glb2) + '];',
   'window.__HAS_MID = ' + (glb3 ? 'true' : 'false') + ';',
   'window.__IDLE_ANIM = ' + JSON.stringify(idleSrc) + ';',
@@ -187,16 +182,17 @@ const js = [
   'window.__VBANK = ' + JSON.stringify(voiceBank) + ';',
   'window.__T2C = ' + JSON.stringify(text2clip) + ';',
   dataSrc,
-  /* 单文件版要接上同一套记忆、检索、流式与 agent 内核。
-     清单来自 index.html（PAGE_MODULES），不再手写 —— 手写必漏。
-     app.js 换成 bootSrc（去 import、包成 __boot），其余原样按顺序拼。 */
+  ...(fs.existsSync(P('./assets/vendor/hls.min.js')) ? [R('./assets/vendor/hls.min.js')] : []),
   ...PAGE_MODULES.filter((f) => f !== 'app.js').map((f) => R('./' + f)),
   bootSrc,
   'window.__boot && window.__boot();',
 ].join('\n;\n');
 
-const single = head + '<script>\n' + js.replace(/<\/script>/g, '<\\/script>') + '\n</script>\n</body>\n</html>\n';
-const singleDemo = single.replace('<script>', '<script>window.__MODE="demo";');
+const singleCheck = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: js, encoding: 'utf8' });
+if (singleCheck.status !== 0) throw new Error('单文件版语法校验失败，拒绝写入产物');
+
+const single = head.replace('</body>', () => '<script type="module">\n' + js.replace(/<\/script>/g, '<\\/script>') + '\n</script>\n</body>');
+const singleDemo = single.replace('window.__MODE = window.__MODE ||', 'window.__MODE = "demo" ||');
 
 fs.writeFileSync(P('./米粒.html'), single);
 fs.writeFileSync(P('./米粒-演示版.html'), singleDemo);
@@ -304,16 +300,10 @@ if (fs.existsSync(serverDir)) {
      所有本地资源统一挂构建时间戳，每次构建强制换 URL。 */
   const VER = 'v' + Date.now().toString(36);
   const webHeadV = webHead
-    .replace('href="app.css"', 'href="app.css?' + VER + '"')
-    .replace('href="design-tokens.css"', 'href="design-tokens.css?' + VER + '"')
-    .replace('src="app.js"', 'src="app.js?' + VER + '"')
-    .replace('src="evolve.js"', 'src="evolve.js?' + VER + '"')
-    .replace('src="agent-memo.js"', 'src="agent-memo.js?' + VER + '"')
-    .replace('src="agent-tools.js"', 'src="agent-tools.js?' + VER + '"')
-    .replace('src="agent.js"', 'src="agent.js?' + VER + '"')
-    .replace('src="assets/vendor/hls.min.js"', 'src="assets/vendor/hls.min.js?' + VER + '"');
+    .replace(/(href="(?:app|design-tokens)\.css)"/g, '$1?' + VER + '"')
+    .replace(/(\bsrc=")([^"?]+\.js)(?:\?[^\"]*)?"/g, '$1$2?' + VER + '"');
   put('index.html', webHeadV);
-  put('demo.html', webHead.replace('window.__MODE = window.__MODE ||',
+  put('demo.html', webHeadV.replace('window.__MODE = window.__MODE ||',
                                    'window.__MODE = "demo" ||'));
 
   /* 前端代码，原样拷（走原生 module） */
@@ -325,6 +315,7 @@ if (fs.existsSync(serverDir)) {
      底色变透明、字变黑、卡片没圆角没阴影，整站塌成一张白纸。
      而且它不会报错（CSS 里未定义的 var 是静默失效），只会「看着不对劲」。 */
   put('design-tokens.css', tokensCss);
+  put('evolve.js', evolveSrc);
   put('data.js', R('./data.js'));
   for (const f of ['favicon.png', 'apple-touch-icon.png']) {
     if (fs.existsSync(P('./' + f))) {
@@ -336,9 +327,9 @@ if (fs.existsSync(serverDir)) {
      ★ 之前这三行根本不存在 —— server/ 里那三个文件是手写进去的，
        从来没被 build 管过，也没被 index.html 引用过。现在正式纳入构建。
        少拷一个，wireAgent() 就直接 return，页面上退回老正则。 */
-  for (const f of PAGE_MODULES.filter((x) => x !== 'app.js')) {
+  for (const f of PAGE_MODULES.filter((f) => f !== 'app.js')) {
     if (!fs.existsSync(P('./' + f))) {
-      throw new Error('缺少页面模块 app/' + f + ' —— 线上版会静默退回旧行为，不能发布');
+      throw new Error('缺少内核文件 app/' + f + ' —— 智能体起不来，不能发布');
     }
     put(f, R('./' + f));
   }

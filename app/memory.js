@@ -18,6 +18,7 @@
   'use strict';
 
   var BUS_KEY = 'mili.memory.bus';
+  var namespace = 'mili';
   var SCHEMA = 2;
 
   var LS = (function () {
@@ -31,6 +32,7 @@
   })();
 
   var modules = {};
+  var failedKeys = {};
   var bus = loadBus();
 
   function loadBus() {
@@ -42,20 +44,23 @@
   }
 
   function persist() {
-    try { LS.setItem(BUS_KEY, JSON.stringify(bus)); bus.writeFailed = false; return true; }
-    catch (e) { bus.writeFailed = true; return false; }
+    return put(BUS_KEY, bus);
   }
 
   /** 统一写入口。任何模块都不许再自己 try{...}catch(e){} 吞掉写入失败。 */
   function put(key, value) {
     try {
       LS.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
-      bus.writeFailed = false;
+      delete failedKeys[key];
+      bus.writeFailed = Object.keys(failedKeys).length > 0;
       return true;
-    } catch (e) { bus.writeFailed = true; return false; }
+    } catch (e) { failedKeys[key] = true; bus.writeFailed = true; return false; }
   }
   function get(key) { try { return LS.getItem(key); } catch (e) { return null; } }
-  function drop(key) { try { LS.removeItem(key); } catch (e) {} }
+  function drop(key) {
+    try { LS.removeItem(key); delete failedKeys[key]; bus.writeFailed = Object.keys(failedKeys).length > 0; return true; }
+    catch (e) { failedKeys[key] = true; bus.writeFailed = true; return false; }
+  }
 
   /** 本地日期。禁止 toISOString()：那是 UTC，北京时间 08:00 前会串到昨天。 */
   function localDay(ts) {
@@ -78,27 +83,37 @@
    */
   function clearAll() {
     var names = Object.keys(modules);
+    var errors = [];
+    // 先切换代次，正在等待模型/工具的旧请求不得在清空后把记忆写回来。
+    bus.clearedAt = Math.max(Date.now(), (bus.clearedAt || 0) + 1);
     for (var i = 0; i < names.length; i++) {
-      try { modules[names[i]].wipe(); } catch (e) {}
+      try { if (modules[names[i]].wipe() === false) errors.push(names[i]); }
+      catch (e) { errors.push(names[i]); }
     }
     var keys = {};
     names.forEach(function (n) { modules[n].keys.forEach(function (k) { keys[k] = 1; }); });
-    ['mili_agent_memo', 'mili_demo_agent', 'mili.rhythm', 'mili_evo', 'mili_demo_evo',
-     'mili.memory.v2', 'mili.memory.v2_demo'].forEach(function (k) { keys[k] = 1; });
-    Object.keys(keys).forEach(drop);
-    bus.clearedAt = Date.now();
+    [namespace + '_agent', namespace + '.rhythm', namespace + '_evo',
+     namespace + '_memory_v2', namespace === 'mili' ? 'mili.memory.v2' : 'mili.memory.v2_demo']
+      .forEach(function (k) { keys[k] = 1; });
+    Object.keys(keys).forEach(function (k) { if (!drop(k)) errors.push(k); });
     bus.deletedSkills = {};
-    persist();
-    return { ok: true, modules: names, at: bus.clearedAt, writeOk: !bus.writeFailed };
+    if (!persist()) errors.push(BUS_KEY);
+    return { ok: !errors.length, modules: names, at: bus.clearedAt, writeOk: writeOk(), errors: errors };
   }
 
   function clearedAt() { return bus.clearedAt || 0; }
-  function writeOk() { return !bus.writeFailed; }
+  function configure(prefix) {
+    var next = String(prefix || 'mili');
+    if (next === namespace) return;
+    namespace = next; BUS_KEY = namespace + '.memory.bus'; bus = loadBus();
+  }
+  function writeOk() { return !bus.writeFailed && !Object.keys(failedKeys).length; }
   function markDeletedSkill(id) { if (id) { bus.deletedSkills[id] = 1; persist(); } }
   function wasDeletedSkill(id) { return !!(id && bus.deletedSkills[id]); }
 
   w.MILI_STORE = {
     version: SCHEMA,
+    configure: configure,
     register: register,
     clearAll: clearAll,
     clearedAt: clearedAt,
@@ -107,6 +122,7 @@
     get: get,
     drop: drop,
     writeOk: writeOk,
+    failedKeys: function () { return Object.keys(failedKeys); },
     markDeletedSkill: markDeletedSkill,
     wasDeletedSkill: wasDeletedSkill,
     _modules: function () { return Object.keys(modules); }

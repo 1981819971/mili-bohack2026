@@ -1181,6 +1181,7 @@ public class MiliAccessibilityService extends AccessibilityService {
        表现就是「有时候成功，有时候一点反应都没有」。
        解绑时把它清掉，让上层能看见「它真的没了」，自愈才有触发条件。 */
     @Override public boolean onUnbind(android.content.Intent intent) {
+        OperationNotice.clear();
         INSTANCE = null;
         wxFlow = null;
         synchronized (WIN_HIST) { WIN_HIST.clear(); }
@@ -1188,6 +1189,7 @@ public class MiliAccessibilityService extends AccessibilityService {
     }
 
     @Override public void onDestroy() {
+        OperationNotice.clear();
         INSTANCE = null;
         wxFlow = null;
         super.onDestroy();

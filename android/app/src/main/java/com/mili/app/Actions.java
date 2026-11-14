@@ -49,6 +49,15 @@ public class Actions {
         this.sp = ctx.getSharedPreferences("mili_actions", Context.MODE_PRIVATE);
     }
 
+    /** 原有延迟动作执行完再收提示，等待时长和动作本身保持不变。 */
+    private void laterOperation(String title, long delay, Runnable action) {
+        long notice = OperationNotice.begin(title);
+        new Handler(ctx.getMainLooper()).postDelayed(() -> {
+            try { action.run(); }
+            finally { OperationNotice.end(notice); }
+        }, delay);
+    }
+
     /* ================= 1. 打电话 ================= */
 
     /** 按名字找人。先查通讯录，找不到就看是不是号码。 */
@@ -344,10 +353,10 @@ public class Actions {
                就是骗人 —— 模型会照着说「发好啦」。改成只说「去办了」。 */
             try {
                 String nm0 = Name.clean(who);
-                String verb = "video".equals(what) ? ("我去给" + nm0 + "打视频了，你等一下啊。")
-                            : "call".equals(what) ? ("我去给" + nm0 + "打语音了，你等一下啊。")
-                            : "redpacket".equals(what) ? ("我去给" + nm0 + "发红包了，你等一下啊。")
-                            : ("我去微信里给" + nm0 + "发了，你等一下啊。");
+                String verb = "video".equals(what) ? ("我去给" + nm0 + "打视频，操作时请先别碰屏幕。")
+                            : "call".equals(what) ? ("我去给" + nm0 + "打语音，操作时请先别碰屏幕。")
+                            : "redpacket".equals(what) ? ("我去给" + nm0 + "打开红包，操作时请先别碰屏幕。")
+                            : ("我去微信里给" + nm0 + "发消息，操作时请先别碰屏幕。");
                 JSONObject resp = ok("wechat_" + what, verb);
                 return resp;
             } catch (Throwable ignored) {}
@@ -710,15 +719,15 @@ public class Actions {
                 ci.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try {
                     ctx.startActivity(ci);
-                    new Handler(ctx.getMainLooper()).postDelayed(() -> {
+                    laterOperation("正在帮您打开电视直播", 2200, () -> {
                         try {
                             String r0 = MiliAccessibilityService.tapText("直播");
                             if (r0 == null || !r0.contains("\"ok\":true")) {
                                 MiliAccessibilityService.tapPercent(0.361, 0.958);
                             }
                         } catch (Throwable ignored) {}
-                    }, 2200);
-                    return ok("tv_channel", "给你开到" + name + "了，在直播页点一下这个台就行。");
+                    });
+                    return ok("tv_channel", "正在打开" + name + "，请先别碰屏幕。直播页打开后，点一下这个台就行。");
                 } catch (Exception ignored) {}
             }
         }
@@ -882,7 +891,7 @@ public class Actions {
                 try {
                     ctx.startActivity(ci);
                     /* 冷启落在「我的」页，老人不知道点哪。2 秒后替他切到「直播」tab。 */
-                    new Handler(ctx.getMainLooper()).postDelayed(() -> {
+                    laterOperation("正在帮您打开电视直播", 2200, () -> {
                         try {
                             String r = MiliAccessibilityService.tapText("直播");
                             /* 央视影音的 tab 也读不到节点，按屏幕比例兜底。
@@ -891,8 +900,8 @@ public class Actions {
                                 MiliAccessibilityService.tapPercent(0.361, 0.958);
                             }
                         } catch (Throwable ignored) {}
-                    }, 2200);
-                    return ok("tv_app", "给你打开央视影音了，中央一台在直播里，想停就说「米粒暂停」。");
+                    });
+                    return ok("tv_app", "正在打开央视影音，请先别碰屏幕。想停就说「米粒暂停」。");
                 } catch (Exception ignored) {}
             }
         }

@@ -27,6 +27,7 @@
                               是另一条判据，见 app.js MILI_RHYTHM，两者别混。 */
   var DEFAULT_KEY = 'mili.memory.v2';
   var KEY = DEFAULT_KEY;
+  var namespace = 'mili';
   var ST = null;
 
   function now() { return Date.now(); }
@@ -45,6 +46,13 @@
     if (STORE) return STORE.put(KEY, ST);
     try { W.localStorage.setItem(KEY, JSON.stringify(ST)); return true; } catch (e) { return false; }
   }
+  function checkpoint() { return JSON.stringify(ensure()); }
+  function commit(before) {
+    if (save()) return true;
+    ST = JSON.parse(before);
+    return false;
+  }
+  function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
   /* 老版本 {memo,skill,cnt} → 新版本 {facts,skills,cnt}，只迁移一次 */
   function migrate(old) {
@@ -74,6 +82,8 @@
     if (!ST || typeof ST !== 'object') ST = blank();
     if (!Array.isArray(ST.facts)) ST.facts = [];
     if (!Array.isArray(ST.skills)) ST.skills = [];
+    ST.facts = ST.facts.filter(function (m) { return m && m.id && m.k && typeof m.text === 'string'; });
+    ST.skills = ST.skills.filter(function (s) { return s && s.id && s.k && Array.isArray(s.tools) && s.tools.every(function (t) { return t && typeof t.name === 'string'; }); });
     if (!ST.cnt || typeof ST.cnt !== 'object') ST.cnt = {};
     ST.v = 2;
   }
@@ -81,18 +91,18 @@
   function registerBus() {
     if (!STORE) return;
     STORE.register('memo', {
-      keys: [KEY, DEFAULT_KEY, 'mili_agent_memo', 'mili_demo_agent',
-             'mili_memory_v2', 'mili_demo_memory_v2'],
+      keys: [KEY, namespace + '_agent', namespace + '_memory_v2',
+             namespace === 'mili' ? DEFAULT_KEY : 'mili.memory.v2_demo'],
       wipe: function () { ST = blank(); }
     });
   }
 
   function load(storeKey) {
-    if (storeKey) KEY = String(storeKey) + '_memory_v2';
+    if (storeKey) { namespace = String(storeKey); KEY = namespace + '_memory_v2'; }
     var parsed = readKey(KEY);
     if (!parsed || !Array.isArray(parsed.facts)) {
-      var legacy = readKey(storeKey ? storeKey + '_agent' : 'mili_agent_memo')
-                || readKey('mili_agent_memo');
+      // 演示空间不能回退读取产品记忆。
+      var legacy = readKey(storeKey ? storeKey + '_agent' : 'mili_agent_memo');
       ST = migrate(legacy);
     } else {
       ST = parsed;
@@ -112,7 +122,9 @@
       .toLowerCase();
   }
 
-  function activeFacts() { return ST.facts.filter(function (f) { return !f.validTo; }); }
+  function activeFacts() { return ST.facts.filter(function (f) {
+    return !f.validTo && (!f.expiresAt || f.expiresAt > now());
+  }); }
   function activeSkills() { return ST.skills.filter(function (s) { return !s.validTo; }); }
 
   function trim() {
@@ -126,13 +138,13 @@
   /** 打失效戳，不物理删除。返回是否找到。 */
   function supersede(id, byId, reason) {
     ensure();
+    var before = checkpoint();
     var all = ST.facts.concat(ST.skills);
     for (var i = 0; i < all.length; i++) {
       if (all[i].id === id && !all[i].validTo) {
         all[i].validTo = now();
         all[i].supersededBy = byId || reason || 'user_delete';
-        save();
-        return true;
+        return commit(before);
       }
     }
     return false;
@@ -154,29 +166,45 @@
 
   function memoAdd(kind, text, src, meta) {
     ensure();
+    meta = meta || {};
     var t = String(text || '').trim();
-    if (t.length < 2 || !factSane(t)) return null;
+    if (t.length < 2 || t.length > 500 || !factSane(t)) return null;
+    kind = ['fact', 'preference', 'event'].indexOf(kind) >= 0 ? kind : 'fact';
     var k = norm(t);
     if (!k) return null;
-
-    var hit = activeFacts().find(function (m) { return m.k === k; });
+    var slot = String(meta.key || '').trim().slice(0, 80);
+    var replaced = meta.replaces ? activeFacts().find(function (m) { return m.id === meta.replaces; }) : null;
+    if (meta.replaces && !replaced) return null;
+    var before = checkpoint();
+    var hit = activeFacts().find(function (m) { return m.k === k && m.kind === kind; });
     if (hit) {
       /* 只追加证据，不覆盖正文。内容真变了要走 supersede + 新记录。 */
       hit.n = (hit.n || 1) + 1;
       hit.at = now();
       if (meta && meta.tag) hit.tag = meta.tag;
-      save();
-      return hit;
+      if (slot) hit.key = slot;
+      if (meta.expiresAt) hit.expiresAt = meta.expiresAt;
+      activeFacts().forEach(function (m) {
+        if (m !== hit && (m === replaced || (slot && m.key === slot))) {
+          m.validTo = now(); m.supersededBy = hit.id;
+        }
+      });
+      return commit(before) ? copy(hit) : null;
     }
     var rec = {
       id: uid('m'), k: k, kind: kind || 'fact', text: t,
-      src: src || '', tag: (meta && meta.tag) || '',
+      src: src || '', tag: meta.tag || '', key: slot,
+      expiresAt: Number(meta.expiresAt) || null,
       n: 1, validFrom: now(), validTo: null, supersededBy: null, at: now()
     };
+    activeFacts().forEach(function (m) {
+      if (m === replaced || (slot && m.key === slot)) {
+        m.validTo = now(); m.supersededBy = rec.id;
+      }
+    });
     ST.facts.unshift(rec);
     trim();
-    save();
-    return rec;
+    return commit(before) ? copy(rec) : null;
   }
 
   /* 中文 2/3-gram 滑窗。旧实现把整句当成一个片段（「我女儿叫什么」），
@@ -204,6 +232,7 @@
     var s = String(q || '').trim();
     if (!s) return [];
     var nq = norm(s);
+    if (nq.length < 2) return [];
     var parts = grams(s);
     var out = [];
     activeFacts().forEach(function (m) {
@@ -214,26 +243,44 @@
       if (overlap >= 2) out.push(m);
     });
     out.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
-    return out;
+    return copy(out);
   }
 
   /** 结构化查询，替掉业务代码里 /看视频用/ 这类正则 grep 自然语言记忆的做法。 */
   function query(opts) {
     ensure();
     opts = opts || {};
-    return activeFacts().filter(function (m) {
+    return copy(activeFacts().filter(function (m) {
       if (opts.kind && m.kind !== opts.kind) return false;
       if (opts.tag && m.tag !== opts.tag) return false;
       if (opts.contains && String(m.text).indexOf(opts.contains) < 0) return false;
       return true;
-    });
+    }));
   }
 
   function memoByKind(kind) {
     ensure();
-    return activeFacts().filter(function (m) { return m.kind === kind; });
+    return copy(activeFacts().filter(function (m) { return m.kind === kind; }));
   }
   function memoDel(id) { return supersede(id, null, 'user_delete'); }
+
+  // 历史原文可以保留，但已删除、被替换、已到期的事实不得经历史检索复活。
+  function currentText(text) {
+    ensure();
+    var live = activeFacts();
+    var retired = ST.facts.filter(function (f) {
+      return (f.validTo || (f.expiresAt && f.expiresAt <= now())) &&
+        !live.some(function (a) { return a.k === f.k; });
+    });
+    return String(text || '').split(/[；。！？\n]/).filter(function (part) {
+      var k = norm(part);
+      return !retired.some(function (f) {
+        return f.k && k.indexOf(f.k) >= 0 && !live.some(function (a) {
+          return a.k.indexOf(f.k) >= 0 && k.indexOf(a.k) >= 0;
+        });
+      });
+    }).join('；');
+  }
 
   function memoBrief(limit) {
     ensure();
@@ -281,7 +328,9 @@
     if (!tools || !tools.length) return null;
     var k = skillKey(text);
     if (!k || k.length < 2) return null;
-    var seq = tools.map(function (t) { return { name: t.name, args: t.args || {} }; });
+    if (tools.some(function (t) { return !t || !t.name || (W.MILI_TOOLS && !W.MILI_TOOLS.has(t.name)); })) return null;
+    var before = checkpoint();
+    var seq = copy(tools.map(function (t) { return { name: t.name, args: t.args || {} }; }));
 
     var s = activeSkills().find(function (x) { return x.k === k; });
     if (s) {
@@ -289,11 +338,10 @@
         s.n = (s.n || 1) + 1;
         s.at = now();
         if (s.n >= SKILL_MIN_HIT) s.on = true;
-        save();
-        return s;
+        return commit(before) ? copy(s) : null;
       }
       /* 序列变了：旧版本打失效戳，追加新版本，不原地覆盖 */
-      supersede(s.id, null, 'sequence_changed');
+      s.validTo = now(); s.supersededBy = 'sequence_changed';
     }
     var rec = {
       id: uid('s'), k: k, text: String(text).slice(0, 60), tools: seq,
@@ -302,8 +350,7 @@
     };
     ST.skills.unshift(rec);
     trim();
-    save();
-    return rec;
+    return commit(before) ? copy(rec) : null;
   }
 
   /** 精确 → 同音归一，两级。
@@ -314,7 +361,7 @@
     var k = skillKey(text);
     if (!k || k.length < 2) return null;
     var s = activeSkills().find(function (x) { return x.k === k && x.on; });
-    if (s) return s;
+    if (s) return copy(s);
     /* 同音比较要做全，不能只在「查询串自己含可归并字」时才做：
        HOMO 是单向的（打→大），存储串含「打」、查询串含「大」时，
        查询串的 homoKey 等于自身，旧写法会直接跳过这一级。 */
@@ -322,28 +369,34 @@
     s = activeSkills().find(function (x) {
       return x.on && x.k !== k && homoKey(x.k) === hk && dirOf(x.k) === d;
     });
-    return s || null;
+    return s ? copy(s) : null;
   }
 
   function skillCost(text, ms) {
     ensure();
+    var before = checkpoint();
     var s = activeSkills().find(function (x) { return x.k === skillKey(text); });
     if (!s) return;
     s.ms = ms;
-    save();
+    return commit(before);
   }
-  function skillList() { ensure(); return activeSkills().slice(); }
+  function skillList() { ensure(); return copy(activeSkills()); }
   function skillDel(id) {
-    if (STORE) STORE.markDeletedSkill(id);   /* 阻止 mergeDefaults 把它加回来 */
-    return supersede(id, null, 'user_delete');
+    var target = skillList().find(function (s) { return s.id === id; });
+    if (!supersede(id, null, 'user_delete')) return false;
+    if (STORE) STORE.markDeletedSkill(id);
+    if (target && W.MILI_TOOL_ROUTER && W.MILI_TOOL_ROUTER.forget) {
+      W.MILI_TOOL_ROUTER.forget(target.text, target.tools[0] && target.tools[0].name);
+    }
+    return true;
   }
   function skillOn(id, on) {
     ensure();
+    var before = checkpoint();
     var s = activeSkills().find(function (x) { return x.id === id; });
     if (!s) return false;
     s.on = !!on;
-    save();
-    return true;
+    return commit(before);
   }
 
   /** 只补本机没有的；用户显式删过的、已作废的一律不复活。
@@ -351,12 +404,13 @@
   function mergeDefaults(list) {
     ensure();
     if (!Array.isArray(list) || !list.length) return 0;
+    var before = checkpoint();
     var added = 0;
     for (var i = 0; i < list.length; i++) {
       var s = list[i];
       if (!s || !s.k || !Array.isArray(s.tools) || !s.tools.length) continue;
       if (s.id && STORE && STORE.wasDeletedSkill(s.id)) continue;
-      if (ST.facts.concat(ST.skills).some(function (x) { return x.id === s.id && !x.validTo; })) continue;
+      if (ST.facts.concat(ST.skills).some(function (x) { return x.id === s.id; })) continue;
       if (activeSkills().some(function (x) { return x.k === s.k; })) continue;
       ST.skills.push({
         id: s.id || uid('builtin_'), k: s.k, text: s.text || s.k,
@@ -367,7 +421,7 @@
       added++;
     }
     trim();
-    if (added) save();
+    if (added && !commit(before)) return 0;
     return added;
   }
 
@@ -376,6 +430,7 @@
    * ======================================================================== */
   function bump(text) {
     ensure();
+    var before = checkpoint();
     var k = skillKey(text);
     if (!k) return 0;
     ST.cnt[k] = (ST.cnt[k] || 0) + 1;
@@ -384,15 +439,15 @@
       ks.sort(function (a, b) { return ST.cnt[a] - ST.cnt[b]; });
       for (var i = 0; i < 40; i++) delete ST.cnt[ks[i]];
     }
-    save();
-    return ST.cnt[k];
+    return commit(before) ? ST.cnt[k] : 0;
   }
   function countOf(text) { ensure(); return ST.cnt[skillKey(text)] || 0; }
 
   function reset() {
     /* 只清本模块。全量清空请用 MILI_STORE.clearAll()。 */
+    var before = checkpoint();
     ST = blank();
-    save();
+    if (!commit(before)) return null;
     return ST;
   }
 
@@ -409,8 +464,9 @@
     byKind: memoByKind,
     del: memoDel,
     supersede: supersede,
+    currentText: currentText,
     brief: memoBrief,
-    memo: function () { ensure(); return activeFacts().slice(); },
+    memo: function () { ensure(); return copy(activeFacts()); },
     memoCount: function () { ensure(); return activeFacts().length; },
     note: skillNote,
     hit: skillFind,

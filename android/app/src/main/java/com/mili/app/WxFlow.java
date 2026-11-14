@@ -113,6 +113,7 @@ public class WxFlow {
         免得把上一次任务残留在搜索页的历史算进来。 */
     private long taskStartAt = 0;
     private boolean running = false;
+    private long operationNotice;
     /** 上一次为什么没起任务：relation:女儿 / unclear / 空 */
     public String lastRefuse = "";
 
@@ -317,12 +318,18 @@ public class WxFlow {
         lastStepAt = 0;
         taskStartAt = System.currentTimeMillis();
         running = true;
+        String action = "video".equals(what) ? "打微信视频"
+                : "call".equals(what) ? "打微信语音"
+                : "redpacket".equals(what) ? "打开微信红包" : "发微信消息";
+        operationNotice = OperationNotice.begin("正在给" + nm + action);
         waitWx(0);
         return true;
     }
 
     public void stop() {
         running = false;
+        OperationNotice.end(operationNotice);
+        operationNotice = 0;
         curWho = curWhat = curText = null;
         curIdx = 0;
         ui.removeCallbacks(runStep);
@@ -658,6 +665,8 @@ public class WxFlow {
 
     private void finish(boolean ok) {
         running = false;
+        OperationNotice.end(operationNotice);
+        operationNotice = 0;
         try {
             sp().edit().putInt(ok ? "done" : "fail",
                     sp().getInt(ok ? "done" : "fail", 0) + 1).apply();

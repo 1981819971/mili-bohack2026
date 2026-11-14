@@ -131,15 +131,22 @@
      下次相似说法检索时，该工具的语料里多了一条真实老人原话，排序自然上移。
      同一件事满 3 次（或跨 3 天）才把权重提到稳定档 —— 对齐权威口径阈值。 */
   var corrections = loadCorrections();
+  var corpusCache = null;
+  function copy(v) { return JSON.parse(JSON.stringify(v)); }
 
   function loadCorrections() {
-    try { return JSON.parse((STORE && STORE.get ? STORE.get(KEY) : w.localStorage.getItem(KEY)) || '[]') || []; }
+    try {
+      var data = JSON.parse((STORE && STORE.get ? STORE.get(KEY) : w.localStorage.getItem(KEY)) || '[]');
+      return Array.isArray(data) ? data.filter(function (c) { return c && c.u && c.tool && Array.isArray(c.days); }) : [];
+    }
     catch (e) { return []; }
   }
   function saveCorrections() {
     try {
       var s = JSON.stringify(corrections);
-      if (STORE && STORE.put) STORE.put(KEY, s); else w.localStorage.setItem(KEY, s);
+      if (STORE && STORE.put) { if (!STORE.put(KEY, s)) return false; }
+      else w.localStorage.setItem(KEY, s);
+      corpusCache = null;
       return true;
     } catch (e) { return false; }
   }
@@ -148,6 +155,7 @@
     var u = String(utterance || '').trim().slice(0, 120);
     var n = String(toolName || '').trim();
     if (!u || !n || (w.MILI_TOOLS && !w.MILI_TOOLS.has(n))) return false;
+    var before = copy(corrections);
     var day = STORE && STORE.localDay ? STORE.localDay() : String(Date.now()).slice(0, 10);
     var hit = null;
     for (var i = 0; i < corrections.length; i++) {
@@ -172,7 +180,8 @@
       });
       corrections.length = MAX_CORRECTIONS;
     }
-    return saveCorrections();
+    if (saveCorrections()) return true;
+    corrections = before; return false;
   }
 
   function stable(c) { return (c.n || 0) >= 3 || (c.days && c.days.length >= 3); }
@@ -187,19 +196,22 @@
     var n = String(toolName || '').trim();
     var cut = t.slice(0, 60);
     var before = corrections.length;
+    var previous = corrections;
     corrections = corrections.filter(function (c) {
       var sameTool = !n || c.tool === n;
       var sameText = c.u === t || String(c.u || '').slice(0, 60) === cut;
       return !(sameTool && sameText);
     });
     var removed = before - corrections.length;
-    if (removed) saveCorrections();
+    if (removed && !saveCorrections()) { corrections = previous; return 0; }
     return removed;
   }
 
   /* ---------- 建索引 ---------- */
   function buildDocs() {
     var all = (w.MILI_TOOLS && w.MILI_TOOLS.schema) ? w.MILI_TOOLS.schema() : [];
+    var signature = JSON.stringify(all);
+    if (corpusCache && corpusCache.signature === signature) return corpusCache;
     var docs = [];
     all.forEach(function (t) {
       var fn = t.function || {};
@@ -220,7 +232,8 @@
       if (!c.u || !c.tool) return;
       docs.push({ name: c.tool, terms: tokenize(c.u), weight: stable(c) ? 2.2 : 1.2 });
     });
-    return { docs: docs, all: all };
+    corpusCache = { docs: docs, all: all, signature: signature };
+    return corpusCache;
   }
 
   /* ---------- 选工具 ----------
@@ -283,6 +296,16 @@
     return { corrections: corrections.length, stable: corrections.filter(stable).length,
              domains: Object.keys(DOMAINS).length };
   }
+  function reset() {
+    var previous = corrections; corrections = [];
+    if (saveCorrections()) return true;
+    corrections = previous; return false;
+  }
+  function configure(prefix) {
+    var next = String(prefix || 'mili') + '.tool.corrections';
+    if (next === KEY) return;
+    KEY = next; corrections = loadCorrections(); corpusCache = null; registerBus();
+  }
 
   w.MILI_TOOL_ROUTER = {
     select: select,
@@ -290,13 +313,14 @@
     stats: stats,
     tokenize: tokenize,
     bm25: bm25,
-    corrections: function () { return corrections.slice(); },
+    corrections: function () { return copy(corrections); },
     forget: forget,
-    reset: function () { corrections = []; return saveCorrections(); },
+    reset: reset, configure: configure,
   };
 
   /* 一键清空必须连改口样本一起退 */
-  if (STORE && STORE.register) {
-    STORE.register('tool-router', { keys: [KEY], wipe: function () { corrections = []; } });
-  }
+  function registerBus() { if (STORE && STORE.register) {
+    STORE.register('tool-router', { keys: [KEY], wipe: function () { corrections = []; corpusCache = null; } });
+  } }
+  registerBus();
 })(typeof window !== 'undefined' ? window : globalThis);

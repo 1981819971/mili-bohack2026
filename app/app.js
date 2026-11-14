@@ -13,6 +13,9 @@ const MODE = QS0.get('mode') === 'product' ? 'product'
     ? 'demo' : 'product';
 const DEMO = MODE === 'demo';
 const STORE_KEY = DEMO ? 'mili_demo' : 'mili';
+if (window.MILI_STORE) window.MILI_STORE.configure(STORE_KEY);
+if (window.MILI_CONTEXT) window.MILI_CONTEXT.configure(STORE_KEY);
+if (window.MILI_TOOL_ROUTER) window.MILI_TOOL_ROUTER.configure(STORE_KEY);
 document.documentElement.dataset.mode = MODE;
 
 /* ============ 状态 ============ */
@@ -212,7 +215,9 @@ const IDENTITY_KEYS = ['onboarded', 'role', 'me', 'mePhone', 'pairCode', 'pairFa
 
 function save() {
   const j = JSON.stringify(S);
-  localStorage.setItem(STORE_KEY, j);
+  if (window.MILI_STORE) {
+    if (!window.MILI_STORE.put(STORE_KEY, j)) return false;
+  } else { try { localStorage.setItem(STORE_KEY, j); } catch (e) { return false; } }
   /* 同时固化到原生：私有 SP + 公共 Downloads + 阿里云 ECS。
      只写配置，身份留给开机流程重新确认。 */
   try {
@@ -227,7 +232,17 @@ function save() {
      真机 shared_prefs/mili_call.xml 里 wl 一直是 [] —— 电话自动接永远匹配不上。
      每次存盘都把家人名单推给原生，名单改了立刻生效。 */
   try { syncCallCfg(); } catch (e) {}
+  return true;
 }
+
+if (window.MILI_STORE) window.MILI_STORE.register('app-learning', {
+  keys: [],
+  wipe: function () {
+    S.rules = []; S.fails = []; S.q = {}; S.unknown = []; S.memo = {};
+    window.__askOrigin = null;
+    return save();
+  }
+});
 
 /* 认出人之后，才把备份里的配置并回来。
    刚填的名字、刚选的角色、登录态一律保留，不被旧数据盖掉。 */
@@ -567,19 +582,21 @@ window.__petMode = petMode;   // 原生桥/调试也能切
   }
 
   /* 抖音所有入口复用同一条选片流程，避免深链打开后再重复搜索。 */
-  function openDl(d) {
+  function openDl(d, env) {
     const nn = NATIVE();
     if (!nn || !nn.openUrl) return { ok: false, detail: '这台设备上开不了。' };
     const url = new URL(String(d.url || ''));
     if (url.protocol === 'snssdk1128:' && url.hostname === 'search') {
       if (!window.MILI_TOOLS) return { ok: false, detail: '视频功能还没准备好。' };
+      const generation = window.MILI_STORE ? window.MILI_STORE.clearedAt() : 0;
       return window.MILI_TOOLS.exec('search_in_app', {
         app: '抖音', keyword: url.searchParams.get('keyword') || ''
-      }, {
+      }, Object.assign({
         native: () => nn,
-        memoAdd: (kind, text) => window.MILI_MEMO && window.MILI_MEMO.add(kind, text, 'search_in_app'),
+        memoAdd: (kind, text, meta) => window.MILI_MEMO && (!window.MILI_STORE || window.MILI_STORE.clearedAt() === generation)
+          ? window.MILI_MEMO.add(kind, text, 'search_in_app', meta) : null,
         memoFind: (q) => window.MILI_MEMO ? window.MILI_MEMO.find(q) : []
-      });
+      }, env || {}));
     }
     try {
       const result = JSON.parse(nn.openUrl(d.url) || '{}');
@@ -1270,7 +1287,7 @@ window.miliOnBarge = function () {
    ⑤ 全部可查、可单条删、可整页清空 —— 回退是一等公民
    ========================================================================== */
 (function () {
-  const KEY = 'mili.rhythm';
+  const KEY = STORE_KEY + '.rhythm';
   const MIN_DAYS = 3;          /* 同一事件至少见过 3 天，才写进画像 */
   const KINDS = ['wake', 'meal', 'med', 'tv', 'sleep', 'call', 'talk'];
 
@@ -1278,7 +1295,11 @@ window.miliOnBarge = function () {
      直接毁掉「跨 3 天」的计数。统一走总线。 */
   function today() { return window.MILI_STORE.localDay(); }
   function load() {
-    try { return JSON.parse(localStorage.getItem(KEY) || 'null') || { days: {}, nudges: {} }; }
+    try {
+      const data = JSON.parse(localStorage.getItem(KEY) || 'null') || {};
+      return { days: data.days && typeof data.days === 'object' ? data.days : {},
+               nudges: data.nudges && typeof data.nudges === 'object' ? data.nudges : {} };
+    }
     catch (e) { return { days: {}, nudges: {} }; }
   }
   let R = load();
@@ -1291,16 +1312,20 @@ window.miliOnBarge = function () {
   /* 记一笔。ts 不传就是现在。 */
   function note(kind, extra) {
     if (KINDS.indexOf(kind) < 0) return;
+    const previous = JSON.stringify(R);
     const d = today();
     const day = R.days[d] || (R.days[d] = {});
-    const arr = day[kind] || (day[kind] = []);
+    const arr = Array.isArray(day[kind]) ? day[kind] : (day[kind] = []);
     const now = new Date();
     arr.push({ t: now.getHours() * 60 + now.getMinutes(), x: extra || '' });
     if (arr.length > 40) arr.shift();
     /* 只留最近 30 天，文件不会越滚越大 */
     const keys = Object.keys(R.days).sort();
     while (keys.length > 30) delete R.days[keys.shift()];
-    persist();
+    const nudges = Object.keys(R.nudges).sort();
+    while (nudges.length > 30) delete R.nudges[nudges.shift()];
+    if (persist()) return true;
+    R = JSON.parse(previous); return false;
   }
 
   /* 聚合：每个事件取「跨天中位数」，样本天数不足就返回 null */
@@ -1315,7 +1340,8 @@ window.miliOnBarge = function () {
     KINDS.forEach(function (k) {
       const perDay = [];
       Object.keys(R.days).forEach(function (d) {
-        const arr = (R.days[d] && R.days[d][k]) || [];
+        const value = R.days[d] && R.days[d][k];
+        const arr = Array.isArray(value) ? value.filter((x) => x && Number.isFinite(x.t)) : [];
         if (arr.length) perDay.push(arr);
       });
       if (perDay.length < MIN_DAYS) { out[k] = null; return; }
@@ -1343,15 +1369,23 @@ window.miliOnBarge = function () {
     return { used: used, cap: 6, left: Math.max(0, 6 - used) };
   }
   function noteNudge(kind) {
+    const previous = JSON.stringify(R);
     const d = today();
     (R.nudges[d] || (R.nudges[d] = [])).push({ t: new Date().getHours() * 60 + new Date().getMinutes(), k: kind });
-    persist();
+    if (persist()) return true;
+    R = JSON.parse(previous); return false;
   }
 
-  function wipe() { R = { days: {}, nudges: {} }; persist(); }
+  function wipe() {
+    const previous = R; R = { days: {}, nudges: {} };
+    if (persist()) return true;
+    R = previous; return false;
+  }
   function drop(kind) {
+    const previous = JSON.stringify(R);
     Object.keys(R.days).forEach(function (d) { if (R.days[d]) delete R.days[d][kind]; });
-    persist();
+    if (persist()) return true;
+    R = JSON.parse(previous); return false;
   }
   function dump() { return JSON.parse(JSON.stringify(R)); }
 
@@ -1362,7 +1396,7 @@ window.miliOnBarge = function () {
   /* 登记到统一记忆总线。一键清空必须连作息画像一起清。 */
   if (window.MILI_STORE) {
     window.MILI_STORE.register('rhythm', {
-      keys: [KEY, 'mili.rhythm'],
+      keys: [KEY],
       wipe: function () { R = { days: {}, nudges: {} }; }
     });
   }
@@ -2596,16 +2630,21 @@ function learnKey(text) {
 
 /* 现在有几条规则（形态按这个走） */
 function ruleCount() { return S.rules.length; }
+const ANSWER_CACHE_TTL = 60 * 60 * 1000;
+function ruleAnswerFresh(rule) {
+  return !rule.auto || Date.now() < (rule.expiresAt || (rule.born || 0) + ANSWER_CACHE_TTL);
+}
 
 /* 找一条跟这句话对得上的规则 */
 function findRule(text) {
   const k = learnKey(text);
   if (!k) return null;
   // 先精确
-  let r = S.rules.find((x) => x.k === k);
+  const live = S.rules.filter((x) => !x.ans || ruleAnswerFresh(x));
+  let r = live.find((x) => x.k === k);
   if (r) return r;
   // 再宽松：互相包含（老人第二次说得短一点也能认出来）
-  r = S.rules.find((x) => x.k && (k.includes(x.k) || x.k.includes(k)) && Math.min(k.length, x.k.length) >= 4);
+  r = live.find((x) => x.k && (k.includes(x.k) || x.k.includes(k)) && Math.min(k.length, x.k.length) >= 4);
   return r || null;
 }
 
@@ -2662,17 +2701,18 @@ function learnAnswer(question, answer, src, costMs) {
   if (!answerSane(question, answer, src)) return null;
   let r = S.rules.find((x) => x.k === k);
   if (r) {
-    if (r.ans) return r;                 // 已经会了，不重复记
+    if (r.ans && ruleAnswerFresh(r)) return r;
     r.ans = String(answer).slice(0, 220);
     r.src = src || '';
     r.kind = 'recall';
+    r.expiresAt = Date.now() + ANSWER_CACHE_TTL;
     save();
     return r;
   }
   r = {
     id: 'r' + Date.now().toString(36) + Math.floor(Math.random() * 99),
     k, q: question, ans: String(answer).slice(0, 220), src: src || '',
-    kind: 'recall', n: 1, born: Date.now(),
+    kind: 'recall', n: 1, born: Date.now(), expiresAt: Date.now() + ANSWER_CACHE_TTL,
     firstMs: Math.round(costMs || 0), lastMs: Math.round(costMs || 0), hits: 0, auto: true
   };
   S.rules.push(r);
@@ -3046,8 +3086,8 @@ function wireAgent() {
     me: () => (S.me || '').trim(),
 
     /* 长期记忆：三类事实 */
-    memoAdd: (kind, text) => window.MILI_MEMO.add(kind, text, '老人说的'),
-    memoFind: (q) => window.MILI_MEMO.find(q),
+    memoAdd: (kind, text, meta) => window.MILI_MEMO.add(kind, text, '老人说的', meta),
+    memoFind: (q) => window.MILI_CONTEXT ? window.MILI_CONTEXT.recall(q) : window.MILI_MEMO.find(q),
     /* 记忆注入：跟这句话沾边的记忆直接喂进提示词。
        以前只存不喂 —— 全指望模型自己想起调 recall，它想不起来就说
        「这个我没记着」，教一百遍也白教。现在每轮先翻一遍本子。 */
@@ -3057,7 +3097,7 @@ function wireAgent() {
         if (!hits || !hits.length) return '';
         return '\n【你记着的、跟他这句话沾边的事】他教过的对应关系直接照办，'
           + '绝不说「没记着」：\n'
-          + hits.slice(0, 6).map((m) => '· ' + m.text).join('\n');
+          + hits.slice(0, 6).map((m) => '· [id=' + m.id + '] ' + m.text).join('\n');
       } catch (e) { return ''; }
     },
 
@@ -3183,13 +3223,18 @@ function goodCalls(results, trace) {
   const out = [];
   for (const rd of (trace || [])) {
     for (const ex of (rd.exec || [])) {
-      if (ex.ok && SIDE_EFFECT.test(ex.tool)) {
+      // 相对时间与逐屏点击依赖当时状态，不能截掉后半段后只重放「打开 App」。
+      if (ex.ok && REPLAY_FRESH.has(ex.tool)) return [];
+      if (ex.ok && !ex.partial && ex.completed !== false && SIDE_EFFECT.test(ex.tool)) {
         out.push({ name: ex.tool, args: ex.args || {} });
       }
     }
   }
   return out;
 }
+const REPLAY_FRESH = new Set(['set_alarm', 'register_hospital', 'tap_at', 'tap_text', 'tap_result',
+  'type_text', 'paste_text', 'press_key', 'long_press', 'swipe_screen', 'scroll_screen',
+  'go_back', 'confirm_pending', 'cancel_pending']);
 
 /* ==========================================================================
  * 本地算日期 —— 老人问「今天农历几号」不该进模型
@@ -3262,22 +3307,38 @@ async function replaySkill(text) {
   if (!nativeReady()) return false;
 
   const t0 = performance.now();
+  const generation = window.MILI_STORE ? window.MILI_STORE.clearedAt() : 0;
   const done = [];
   for (const t of sk.tools) {
-    const r = await window.MILI_TOOLS.exec(t.name, t.args, {
+    if (window.MILI_STORE && window.MILI_STORE.clearedAt() !== generation) return { handled: true, ok: false };
+    let r;
+    let timer;
+    let toolLive = true;
+    try { r = await Promise.race([window.MILI_TOOLS.exec(t.name, t.args, {
       native: () => NATIVE(),
       nextPhotoId: () => ++photoId,
-      memoAdd: (k, x) => window.MILI_MEMO.add(k, x, '老人说的'),
-      memoFind: (q) => window.MILI_MEMO.find(q),
+      memoAdd: (k, x, meta) => (toolLive && (!window.MILI_STORE || window.MILI_STORE.clearedAt() === generation))
+        ? window.MILI_MEMO.add(k, x, '老人说的', meta) : null,
+      memoFind: (q) => window.MILI_CONTEXT ? window.MILI_CONTEXT.recall(q) : window.MILI_MEMO.find(q),
       medCheck: () => ({ ok: false, detail: '重放不走药箱' }),
       searchWeb: null, seeImage: null, log: () => {},
-    });
-    if (r && r.ok) done.push(r);
-    else break;
+    }), new Promise((resolve) => { timer = setTimeout(() => resolve({ ok: false, detail: '这一步等久了，还没确认办成。' }), 15000); })]);
+    } catch (e) { r = { ok: false, detail: '这一步没办成。' }; }
+    finally { toolLive = false; clearTimeout(timer); }
+    if (window.MILI_STORE && window.MILI_STORE.clearedAt() !== generation) return { handled: true, ok: false };
+    if (r && r.ok && !r.partial && r.completed !== false) done.push(r);
+    else {
+      window.MILI_MEMO.skillOn(sk.id, false);
+      // 已执行的步骤不能从头再做，否则可能重复发消息、拨号或付款。
+      const line = done.length ? '前面办了，后面这一步还没办成。' : '这次没办成，我先停下了。';
+      say(line, 5200, { slow: true });
+      noteFail(t.name, t.args || {}, (r && r.detail) || line, '');
+      return { handled: true, ok: false, said: line, partial: done.length > 0 };
+    }
   }
   /* 重放没办成 —— 这条 skill 已经不灵了（手机换了、权限没了、软件卸了）。
      把它降级，别再让老人每次都撞一次墙；这一句退回给智能体重想。 */
-  if (!done.length) {
+  if (done.length !== sk.tools.length) {
     window.MILI_MEMO.skillOn(sk.id, false);
     return false;
   }
@@ -3292,7 +3353,11 @@ async function replaySkill(text) {
   say(human, 5200, { slow: true });
   logDid('heart', human, text, ms);
   showRecall({ ans: human, q: text, hits: sk.n || 1 }, ms);
-  return true;
+  if (window.MILI_AGENT) {
+    window.MILI_AGENT.note('user', text, { task: true });
+    window.MILI_AGENT.note('assistant', human, { task: true });
+  }
+  return { handled: true, ok: true, said: human };
 }
 
 /* 主入口：把一句话交给智能体，让它自己想办法。
@@ -3321,6 +3386,7 @@ function skillSane(tools, text) {
   } catch (e) {}
   return tools.every((t) => {
     if (!t || !t.name) return false;
+    if (REPLAY_FRESH.has(t.name)) return false;
     if (NO_ARG_TOOLS.indexOf(t.name) >= 0) return true;   // 这几个不带参数也有意义
     const a = t.args || {};
     return Object.keys(a).some((k) => {
@@ -3349,6 +3415,7 @@ function pruneSkills() {
 
 async function agentSay(text, quiet, opts) {
   wireAgent();
+  const memoryGeneration = window.MILI_STORE ? window.MILI_STORE.clearedAt() : 0;
   if (!window.MILI_AGENT || !window.MILI_AGENT.ready()) return null;
 
   const n = NATIVE();
@@ -3501,13 +3568,14 @@ async function agentSay(text, quiet, opts) {
      因为那次的最后一步正是失败的 ir_power。 */
   const anyFail = (r.results || []).some((x) => x.ok === false);
   const _lastRes = (r.results || []).length ? r.results[r.results.length - 1] : null;
-  const _lastOk = !!_lastRes && _lastRes.ok !== false;
-  const did = calls.length > 0 && (_lastOk || !anyFail);
+  const _lastOk = !!_lastRes && _lastRes.ok === true && !_lastRes.partial && _lastRes.completed !== false;
+  const did = !r.cancelled && calls.length > 0 && (_lastOk || (!_lastRes && !anyFail));
 
   /* 失败也要记下来 —— 这是「进化」的另一半。
      以前只记成功，等于下一次还从同一面墙开始撞。
      记的是「哪个工具、办谁的事、为什么没成」，下次同类事就能先绕开。 */
-  if (anyFail) {
+  const learningAllowed = !window.MILI_STORE || window.MILI_STORE.clearedAt() === memoryGeneration;
+  if (anyFail && learningAllowed) {
     for (const rd of (r.trace || [])) {
       for (const ex of (rd.exec || [])) {
         if (ex.ok === false) {
@@ -3519,21 +3587,21 @@ async function agentSay(text, quiet, opts) {
 
   /* 办成了就把成功序列记下来。同一句话再办成一次，就升格成 skill，
      下次 0ms 命中 —— 这就是「第一次慢、下次快」。 */
-  if (did) {
+  if (did && learningAllowed) {
     /* 2026-11-12：这一句如果是「追问后的回答」，skill 的钥匙要用原始请求。
        否则存进去的是「抖音，对」，老人下回再说原话命中不了 —— 追问一次换来的记忆就废了。 */
     const _ao = window.__askOrigin;
     const _fresh = !!(_ao && (Date.now() - _ao.t) < 120000);
     const _key = _fresh ? String(_ao.text || text) : text;
     if (_fresh) window.__askOrigin = null;
-    window.MILI_MEMO.note(_key, calls);
-    window.MILI_MEMO.bump(_key);
+    const learned = window.MILI_MEMO.note(_key, calls);
+    if (learned) window.MILI_MEMO.bump(_key);
     /* 改口驱动的进化落到检索正反馈，而不是 evolve.js 的正则别名：
        把「老人原话 → 第一个成功工具」记成一条检索样本，下次相似说法
        BM25 排序自然上移；满 3 次或跨 3 天才升稳定档（对齐权威口径）。
        2026-11-14：公开仓这段曾被整块复制两遍，一次改口记两次 n，已修；
        真机源码本来就只有一次，此处补齐注释保持三处一致。 */
-    if (window.MILI_TOOL_ROUTER && calls && calls.length) {
+    if (learned && window.MILI_TOOL_ROUTER && calls && calls.length) {
       try { window.MILI_TOOL_ROUTER.learn(_key, String(calls[0].name || '')); } catch (e) {}
     }
   }
@@ -4889,10 +4957,15 @@ async function handleSay(text, quiet, opts) {
           if (ACT[i][0].test(fact)) { fact += ' [动作:' + ACT[i][1] + ']'; break; }
         }
       }
-      const added = window.MILI_MEMO.add('fact', fact, '家人端补充');
-      say('好，我记住了：' + fact);
-      try { if (typeof save === 'function') save(); } catch (e) {}
-      return { ok: true, said: '好，我记住了：' + fact, taught: added };
+      const previous = window.MILI_MEMO.find(fact);
+      // 有相关旧事实时交给模型明确选择 replaces，避免新旧事实同时当成现状。
+      if (!previous.length || previous.some((m) => m.k === window.MILI_MEMO.norm(fact)) ||
+          !window.MILI_AGENT || !window.MILI_AGENT.ready()) {
+        const added = window.MILI_MEMO.add('fact', fact, '家人端补充');
+        const line = added ? ('好，我记住了：' + fact) : '这次没存下来，您稍后再试一下。';
+        say(line);
+        return { ok: !!added, said: line, taught: added };
+      }
     }
   } catch (e) {}
 
@@ -5007,7 +5080,8 @@ async function handleSay(text, quiet, opts) {
   const DATE_SKIP_RULE = /农历|阴历|老历|初几|几号|几月几|星期几|礼拜几|周几|几点|什么日子/;
   const DATE_SKIP_BLOCK = /提醒|闹钟|叫我|药|挂号|预约/;
   const rule = (DATE_SKIP_RULE.test(raw) && !DATE_SKIP_BLOCK.test(raw)) ? null : findRule(raw);
-  if (rule && rule.ans && !/药/.test(raw)) {
+  const factEvidence = window.MILI_MEMO ? window.MILI_MEMO.find(raw) : [];
+  if (rule && rule.ans && !factEvidence.length && !/药/.test(raw)) {
     const ms = Math.max(1, Math.round(performance.now() - t0));
     rule.hits = (rule.hits || 0) + 1;
     rule.lastMs = ms;
@@ -5044,8 +5118,9 @@ async function handleSay(text, quiet, opts) {
     var _demoBlk = false;
     try { _demoBlk = !!(window.__DEMO && window.__DEMO.blockSkill(raw, hit)); } catch (e) {}
     if (hit && skillSane(hit.tools, raw) && !_demoBlk) {
-      const ok = await replaySkill(raw);
-      if (ok) {
+      const replay = await replaySkill(raw);
+      if (replay && replay.handled && !replay.ok) return { did: false, said: replay.said || '', skillHit: true, partial: !!replay.partial, trace: [] };
+      if (replay && replay.ok) {
         if (window.EVO) { try { EVO.hit(raw, hit.tools[0].name); } catch (e) {} }
         if (grown) announceGrow(grown);
         /* 2026-11-12：给「日新·两次运行」页一个明确的回执。
@@ -5133,6 +5208,7 @@ async function handleSay(text, quiet, opts) {
       }
     }
     const r = await agentSay(_askMerge(raw), quiet, opts);
+    if (r && r.cancelled) return r;
     /* 2026-11-14：busy 必须在这里就收住。
        原来 r.err==='busy' 会同时跳过下面两个 if，一路落到「本地硬规则 / 查必应」
        兜底，老人听到的是「没听清」「没弄明白」甚至答非所问。
@@ -13207,9 +13283,8 @@ window.MILI_FALL_NOW = function(by){
     if (d === 'rhythmWipe') {
       /* 全量清空：memo / rhythm / evo 三套一起退。
          只调 MILI_RHYTHM.wipe() 时，旧 skill 仍会 0ms 重放，「清空」是假的。 */
-      if (window.MILI_STORE) window.MILI_STORE.clearAll();
-      else if (window.MILI_RHYTHM) window.MILI_RHYTHM.wipe();
-      setMsg('清空了。它会重新看，不再猜。', false);
+      const cleared = window.MILI_STORE ? window.MILI_STORE.clearAll() : { ok: false };
+      setMsg(cleared.ok ? '清空了。它会重新看，不再猜。' : '有些记录没清掉，您稍后再试一下。', false);
       render(); return;
     }
     if (d === 'skillOff') {

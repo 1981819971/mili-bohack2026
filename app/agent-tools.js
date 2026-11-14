@@ -292,8 +292,55 @@
     });
   }
 
+  /* 多步操作共用提示入口。包装 run，经验重放和工具内部转调也会经过这里。
+     微信由原生 WxFlow 持有提示，因为派单返回时实际点击还没结束。 */
+  const OPERATION_TITLES = {
+    search_in_app: '正在帮您查找内容',
+    play_video: '正在帮您打开视频',
+    watch_video: '正在帮您打开视频',
+    play_direct: '正在帮您打开节目',
+    tv_channel: '正在帮您打开电视',
+    watch_news: '正在帮您打开电视',
+    player_control: '正在调整播放画面',
+  };
+  let operationSpeechAt = 0;
+
+  function withOperationNotice(name, run) {
+    const title = OPERATION_TITLES[name];
+    if (!title) return run;
+    return function (a, E) {
+      E = E || {};
+      const nn = n(E);
+      if (!nn || !nn.beginOperation || !nn.endOperation) return run(a, E);
+      let id;
+      try { id = nn.beginOperation(title); } catch (e) { return run(a, E); }
+      const close = function () {
+        try { nn.endOperation(id); } catch (e) {}
+      };
+      let result;
+      try { result = run(a, E); } catch (e) { close(); throw e; }
+      // 单次打开软件立即返回，不再额外播一条提醒打断结果。长流程才在开始时提醒。
+      if (!result || typeof result.then !== 'function') { close(); return result; }
+      let announced = false;
+      // 内部转调可能再次进入包装器，短时间只播一次；不依赖后台定时器复位。
+      if (!E.quiet && Date.now() - operationSpeechAt >= 8000) {
+        const reminder = '正在帮您操作，请先别碰屏幕。';
+        try {
+          if (E.say) { E.say(reminder); announced = true; }
+          else if (nn.speak) { nn.speak(reminder, true); announced = true; }
+        } catch (e) {}
+        if (announced) operationSpeechAt = Date.now();
+      }
+      return Promise.resolve(result).then(function (value) {
+        if (announced && value && typeof value === 'object') value.operationAnnounced = true;
+        return value;
+      }).finally(close);
+    };
+  }
+
   function def(name, desc, params, required, run) {
-    T[name] = { name: name, desc: desc, params: params, required: required || [], run: run };
+    T[name] = { name: name, desc: desc, params: params, required: required || [],
+      run: withOperationNotice(name, run) };
   }
 
   /* ===== 打电话 ===== */
@@ -478,7 +525,7 @@
       return window.MILI_TV.openDl({
         url: 'snssdk1128://search?keyword=' + encodeURIComponent(kw),
         name: '抖音·' + kw
-      });
+      }, E);
       const r = fromJava(nn.watchSearch('抖音', kw));
       if (!r.ok) return r;
       /* Java 那句 ok 只代表「发起了延时任务」。真的要等悟空切到它自己的
@@ -934,7 +981,7 @@
         const d = window.MILI_TV && window.MILI_TV.resolve(show);
         if (d) {
           if (d.type === 'tv') return window.MILI_TV.open(d.url, d.name);
-          if (d.type === 'dl') return window.MILI_TV.openDl(d);
+          if (d.type === 'dl') return window.MILI_TV.openDl(d, E);
           if (d.type === 'app') return window.MILI_TV.openApp(d);
           return { ok: false, detail: '没找到。' };
         }
@@ -953,7 +1000,7 @@
         return window.MILI_TV.openDl({
           url: 'snssdk1128://search?keyword=' + encodeURIComponent(show),
           name: '抖音·' + show
-        });
+        }, E);
       }
       /* 点了名的视频 App + 片名：在那个 App 里搜 */
       if (app && show && nn.watchSearch) return fromJava(nn.watchSearch(app, show));
@@ -961,7 +1008,7 @@
         return window.MILI_TV.openDl({
           url: 'snssdk1128://search?keyword=' + encodeURIComponent(show),
           name: '抖音·' + show
-        });
+        }, E);
       }
       if (show && nn.watchShow) return fromJava(nn.watchShow(show));
       /* 🚫 2026-11-12：原来这里调到 resumeWukong —— 老人只要说「接着看」
@@ -992,7 +1039,7 @@
       const direct = tv && tv.resolve(name);
       if (direct) {
         if (direct.type === 'tv') return tv.open(direct.url, direct.name);
-        if (direct.type === 'dl') return tv.openDl(direct);
+        if (direct.type === 'dl') return tv.openDl(direct, E);
         if (direct.type === 'app') return tv.openApp(direct);
       }
       // 只点名软件时直接打开；片名统一走选片流程，不再只打开搜索页就收工。
@@ -1059,7 +1106,7 @@
       const d = window.MILI_TV && window.MILI_TV.resolve(a.channel);
       if (d) {
         if (d.type === 'tv') return window.MILI_TV.open(d.url, d.name);
-        if (d.type === 'dl') return window.MILI_TV.openDl(d);
+        if (d.type === 'dl') return window.MILI_TV.openDl(d, E);
           if (d.type === 'app') return window.MILI_TV.openApp(d);
         if (d.type === 'app') return window.MILI_TV.openApp(d.pkg, d.name);
       }
@@ -1102,9 +1149,8 @@
           try {
             if (r.fullscreen) window.__MILI_WATCH_OK = { at: Date.now(), app: app, kw: kw };
             if (E.memoAdd) {
-              const seen = !!(E.memoFind && E.memoFind('看视频用').length);
-              E.memoAdd('preference', '看视频用抖音', 'search_in_app');
-              if (seen) E.memoAdd('event', '上次看的是《' + kw + '》', 'search_in_app');
+              E.memoAdd('preference', '看视频用抖音', { key: 'video.platform', tag: 'video_platform' });
+              E.memoAdd('event', '上次看的是《' + kw + '》', { key: 'video.last_title', tag: 'last_watch' });
             }
           } catch (e) {}
         }
@@ -1296,7 +1342,7 @@
       const d = window.MILI_TV && window.MILI_TV.resolve(a.what);
       if (!d) return { ok: false, detail: '直达单子上没有「' + (a.what || '') + '」，换个说法或用别的办法找。' };
       if (d.type === 'tv') return window.MILI_TV.open(d.url, d.name);
-      if (d.type === 'dl') return window.MILI_TV.openDl(d);
+      if (d.type === 'dl') return window.MILI_TV.openDl(d, E);
           if (d.type === 'app') return window.MILI_TV.openApp(d);
       if (d.type === 'app') return window.MILI_TV.openApp(d.pkg, d.name);
     });
@@ -1522,13 +1568,15 @@
       fact: { type: 'string', description: '要记住的事实，照老人原话写' },
       kind: { type: 'string', enum: ['fact', 'preference', 'event'],
         description: 'fact 事实（如女儿叫小芳）；preference 喜好；event 要办的事/时间' },
+      key: { type: 'string', description: '可选，同一事项沿用同一个稳定键，如 daughter.name；多个不同事项用不同键' },
+      replaces: { type: 'string', description: '可选，更正旧事实时填记忆证据中的旧事实 id；不能凭空编造 id' },
     },
     ['fact', 'kind'],
     function (a, E) {
       if (!a.fact) return { ok: false, detail: '没说要记什么。' };
-      const r = E.memoAdd ? E.memoAdd(a.kind || 'fact', a.fact) : null;
+      const r = E.memoAdd ? E.memoAdd(a.kind || 'fact', a.fact, { key: a.key, replaces: a.replaces }) : null;
       if (!r) return { ok: false, detail: '这句没记下来。' };
-      return { ok: true, detail: '记住了：' + a.fact };
+      return { ok: true, detail: '记住了：' + a.fact, fastReply: '记住了：' + a.fact };
     });
 
   /* ===== 查记忆 ===== */
@@ -1539,10 +1587,11 @@
     function (a, E) {
       const hits = E.memoFind ? E.memoFind(a.query || '') : [];
       if (!hits || !hits.length) {
-        return { ok: false, detail: '这个我这儿没记着。' };
+        return { ok: true, found: false, detail: '这个我这儿没记着。', hits: [] };
       }
       return {
         ok: true,
+        found: true,
         detail: '我记着：' + hits.slice(0, 3).map(function (x) { return x.text; }).join('；'),
         hits: hits.slice(0, 3),
       };

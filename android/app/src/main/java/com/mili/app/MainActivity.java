@@ -2426,6 +2426,13 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String searchState() { return MiliAccessibilityService.searchState(); }
 
+        /** 跨软件操作提示只负责展示，任务流程仍由原有工具执行。 */
+        @JavascriptInterface
+        public long beginOperation(String title) { return OperationNotice.begin(title); }
+
+        @JavascriptInterface
+        public void endOperation(long id) { OperationNotice.end(id); }
+
         /** 旧页面只收到进行中回执，不能把它当成已播放。 */
         @JavascriptInterface
         public String playDouyin(String keyword) { return playDouyinTask(keyword, "legacy"); }
