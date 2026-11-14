@@ -16,6 +16,7 @@ const STORE_KEY = DEMO ? 'mili_demo' : 'mili';
 if (window.MILI_STORE) window.MILI_STORE.configure(STORE_KEY);
 if (window.MILI_CONTEXT) window.MILI_CONTEXT.configure(STORE_KEY);
 if (window.MILI_TOOL_ROUTER) window.MILI_TOOL_ROUTER.configure(STORE_KEY);
+if (window.MILI_SEMANTIC) window.MILI_SEMANTIC.configure(STORE_KEY);
 document.documentElement.dataset.mode = MODE;
 
 /* ============ 状态 ============ */
@@ -1308,14 +1309,19 @@ window.miliOnBarge = function () {
   }
 
   /* 记一笔。ts 不传就是现在。 */
-  function note(kind, extra) {
+  function note(kind, extra, observedAt, evidence) {
     if (KINDS.indexOf(kind) < 0) return;
     const previous = JSON.stringify(R);
-    const d = today();
+    const when = observedAt === undefined ? Date.now() : observedAt;
+    if (!Number.isFinite(when) || when > Date.now() + 60000 || Date.now() - when > 86400000) return false;
+    const d = window.MILI_STORE.localDay(when);
     const day = R.days[d] || (R.days[d] = {});
     const arr = Array.isArray(day[kind]) ? day[kind] : (day[kind] = []);
-    const now = new Date();
-    arr.push({ t: now.getHours() * 60 + now.getMinutes(), x: extra || '' });
+    const now = new Date(when);
+    // 点击确认和语义表达可能指向同一件事，两分钟内合并，避免重复算样本。
+    if (arr.some((item) => item.at && Math.abs(item.at - when) < 120000)) return true;
+    arr.push({ t: now.getHours() * 60 + now.getMinutes(), x: extra || '', at: when,
+      evidence: evidence || { origin: 'device' } });
     if (arr.length > 40) arr.shift();
     /* 只留最近 30 天，文件不会越滚越大 */
     const keys = Object.keys(R.days).sort();
@@ -3258,7 +3264,7 @@ function goodCalls(results, trace) {
     for (const ex of (rd.exec || [])) {
       // 相对时间与逐屏点击依赖当时状态，不能截掉后半段后只重放「打开 App」。
       if (ex.ok && REPLAY_FRESH.has(ex.tool)) return [];
-      if (ex.ok && !ex.partial && ex.completed !== false && SIDE_EFFECT.test(ex.tool)) {
+      if (ex.ok && !ex.partial && !ex.pending && ex.completed !== false && SIDE_EFFECT.test(ex.tool)) {
         out.push({ name: ex.tool, args: ex.args || {} });
       }
     }
@@ -3544,6 +3550,8 @@ async function agentSay(text, quiet, opts) {
     }, 18000);
   } catch (e) {}
   const r = await window.MILI_AGENT.run(text, {
+    memoryObserved: !!(opts && opts.memoryObserved),
+    memoryAllowed: voiceTools !== false,
     onSaid: onSaid,
     onToolBegin: function (tool) {
       /* 只有真动手才收麦，闲聊不进这个回调。 */
@@ -3601,7 +3609,7 @@ async function agentSay(text, quiet, opts) {
      因为那次的最后一步正是失败的 ir_power。 */
   const anyFail = (r.results || []).some((x) => x.ok === false);
   const _lastRes = (r.results || []).length ? r.results[r.results.length - 1] : null;
-  const _lastOk = !!_lastRes && _lastRes.ok === true && !_lastRes.partial && _lastRes.completed !== false;
+  const _lastOk = !!_lastRes && _lastRes.ok === true && !_lastRes.partial && !_lastRes.pending && _lastRes.completed !== false;
   const did = !r.cancelled && calls.length > 0 && (_lastOk || (!_lastRes && !anyFail));
 
   /* 失败也要记下来 —— 这是「进化」的另一半。
@@ -3627,16 +3635,12 @@ async function agentSay(text, quiet, opts) {
     const _fresh = !!(_ao && (Date.now() - _ao.t) < 120000);
     const _key = _fresh ? String(_ao.text || text) : text;
     if (_fresh) window.__askOrigin = null;
-    const learned = window.MILI_MEMO.note(_key, calls);
-    if (learned) window.MILI_MEMO.bump(_key);
+    if (window.MILI_SEMANTIC) window.MILI_SEMANTIC.learnSkill(_key, calls).catch(function () {});
     /* 改口驱动的进化落到检索正反馈，而不是 evolve.js 的正则别名：
        把「老人原话 → 第一个成功工具」记成一条检索样本，下次相似说法
        BM25 排序自然上移；满 3 次或跨 3 天才升稳定档（对齐权威口径）。
        2026-11-14：公开仓这段曾被整块复制两遍，一次改口记两次 n，已修；
        真机源码本来就只有一次，此处补齐注释保持三处一致。 */
-    if (learned && window.MILI_TOOL_ROUTER && calls && calls.length) {
-      try { window.MILI_TOOL_ROUTER.learn(_key, String(calls[0].name || '')); } catch (e) {}
-    }
   }
 
   /* 这一轮是不是已经边生成边念过了。
@@ -5013,9 +5017,7 @@ async function handleSay(text, quiet, opts) {
      老人不需要做任何额外动作。 */
   try {
     if (window.MILI_RHYTHM) {
-      const t0 = String(text || '');
       window.MILI_RHYTHM.note('talk');
-      if (/吃了|吃饭|饿|做饭|煮/i.test(t0)) window.MILI_RHYTHM.note('meal');
     }
   } catch (e) {}
   /* 2026-11-09 菲尔特：「不要搞其他的声音出来，我是要真的优化」。
@@ -5032,36 +5034,24 @@ async function handleSay(text, quiet, opts) {
   try {
     const rawT = String(text || '').trim();
     const mt = rawT.match(/^(?:米粒[，,。！!]?\s*)?(?:请\s*)?(?:你\s*)?(?:(?:帮我|替我)\s*)?记(?:住|一下|着|好)[：:，,、]?\s*(.+)$/);
-    if (mt && mt[1] && window.MILI_MEMO) {
-      let fact = mt[1].trim();
-      /* 教学里说了「要做什么」，就把动作写死进记忆，执行层按它纠正 ——
-         教什么做什么，不是猜意图。模型偶尔会挑个次优工具（比如只记体征不叫人），
-         这一层保证同一种说法永远落同一个动作。 */
-      const ACT = [
-        [/通知家人|叫人|求助|报警|不安全|快叫人/, 'emergency'],
-        [/手电|照亮|亮灯|灯/, 'torch'],
-        [/音量|声音|响/, 'volume'],
-        [/打电话|拨号|拨给/, 'call_phone'],
-        [/视频|微信通话/, 'wechat_call'],
-        [/发微信|微信说/, 'wechat_message'],
-        [/电视|频道|看戏|看新闻/, 'watch_news'],
-      ];
-      if (!/\[动作:/.test(fact)) {
-        for (let i = 0; i < ACT.length; i++) {
-          if (ACT[i][0].test(fact)) { fact += ' [动作:' + ACT[i][1] + ']'; break; }
-        }
+    if (mt && mt[1]) {
+      const result = window.MILI_AGENT && window.MILI_AGENT.rememberSemantic
+        ? await window.MILI_AGENT.rememberSemantic(rawT)
+        : { ok: false, detail: '记忆整理暂时不可用，您稍后再试。' };
+      if (!result.cancelled && !quiet) say(result.detail);
+      if (!result.cancelled && window.MILI_AGENT && window.MILI_AGENT.note) {
+        window.MILI_AGENT.note('user', rawT);
+        window.MILI_AGENT.note('assistant', result.detail);
       }
-      const previous = window.MILI_MEMO.find(fact);
-      // 有相关旧事实时交给模型明确选择 replaces，避免新旧事实同时当成现状。
-      if (!previous.length || previous.some((m) => m.k === window.MILI_MEMO.norm(fact)) ||
-          !window.MILI_AGENT || !window.MILI_AGENT.ready()) {
-        const added = window.MILI_MEMO.add('fact', fact, '家人端补充');
-        const line = added ? ('好，我记住了：' + fact) : '这次没存下来，您稍后再试一下。';
-        say(line);
-        return { ok: !!added, said: line, taught: added };
-      }
+      return { ok: result.ok, said: result.detail, taught: result.saved || [], cancelled: result.cancelled };
     }
   } catch (e) {}
+
+  // 所有日常入口都整理语义，包括没有走模型工具的本地操作；后台完成，不延迟回答。
+  if (window.MILI_SEMANTIC) {
+    window.MILI_SEMANTIC.observe(text).catch(function () {});
+    opts = Object.assign({}, opts, { memoryObserved: true });
+  }
 
   /* 电视层开着时的快速通道：不进模型，0 秒直达。
      老人在看电视，说「不看了」是让他立刻退出去，
@@ -11710,7 +11700,7 @@ window.MILI_FALL_NOW = function(by){
           if (m && m.text) learned.push('<div class="f7learnrow">记住：' + h(String(m.text).slice(0, 26)) + '</div>');
         });
         (M ? M.skills() : []).filter(function(s){ return s && s.on; }).slice(0, 3).forEach(function(s){
-          if (s.text) learned.push('<div class="f7learnrow">学会办：' + h(String(s.text).slice(0, 24)) + '</div>');
+          if (s.text) learned.push('<div class="f7learnrow">学会办：' + h(String(s.intent || s.text).slice(0, 24)) + '</div>');
         });
         (S.rules || []).filter(function(r){ return r && r.ans; }).slice(0, 2).forEach(function(r){
           learned.push('<div class="f7learnrow">听懂「' + h(String(r.q || r.src || '一句土话').slice(0, 14)) +
@@ -11966,7 +11956,7 @@ window.MILI_FALL_NOW = function(by){
         '<div class="f7sec"><i></i>记住的事 · ' + facts.length + ' 条</div>' + fl +
         (rl ? '<div class="f7sec"><i></i>以前学过的问答</div>' + rl : '') +
         (ul ? '<div class="f7sec"><i></i>答不上的 · 等着学</div>' + ul : '') +
-        '<p style="font-size:13px;color:#9A9FBA;line-height:1.6;margin:12px 2px">老人端说「帮我记住…」就往这里添；删掉就是忘了。</p>';
+        '<p style="font-size:13px;color:#9A9FBA;line-height:1.6;margin:12px 2px">交代的事和日常聊天中明确的事实、偏好，都会整理后收在这里；删掉就是忘了。</p>';
     },
     did: function(){
       var days = {};
@@ -12265,7 +12255,7 @@ window.MILI_FALL_NOW = function(by){
             }); });
           } catch(e){}
           if (calls.length && run1 && window.MILI_MEMO && window.MILI_MEMO.note){
-            try { window.MILI_MEMO.note(String(run1.text || ''), calls); } catch(e){}
+            try { if (window.MILI_SEMANTIC) window.MILI_SEMANTIC.learnSkill(String(run1.text || ''), calls).catch(function () {}); } catch(e){}
           }
           try {
             window.__F7_RUNS = window.__F7_RUNS || {};
@@ -12330,7 +12320,7 @@ window.MILI_FALL_NOW = function(by){
                  BM25 里那条样本还在，路由照样被带偏。 */
               try {
                 if (window.MILI_TOOL_ROUTER && window.MILI_TOOL_ROUTER.forget) {
-                  window.MILI_TOOL_ROUTER.forget(target.text || '',
+                  window.MILI_TOOL_ROUTER.forget(target.intent || target.text || '',
                     target.tools && target.tools[0] ? target.tools[0].name : '');
                 }
               } catch (e) {}
@@ -12981,7 +12971,7 @@ window.MILI_FALL_NOW = function(by){
     h += '<button class="v9row" data-do="vp"><span class="ic" style="color:#5B4DF0">' + ic9('mic') +
          '</span><span class="tx">录老人的声音<div class="sb">进引导第 8 步录，点一下开始、自己点一下结束</div></span><span class="go">›</span></button>';
     h += '<button class="v9row" data-do="openRhythm"><span class="ic" style="color:#5B4DF0">' + ic9('spark') +
-         '</span><span class="tx">它记住了什么<div class="sb">您交代的事 · 生活习惯 · 可删可清空</div></span><span class="go">›</span></button>';
+         '</span><span class="tx">它记住了什么<div class="sb">事实与偏好 · 生活习惯 · 可删可清空</div></span><span class="go">›</span></button>';
     /* 2026-11-12 菲尔特：「把日新板块换成演示模式」。
        日新那页是给家人端看的两次运行对照，评委在台上没法跟着点；
        这里换成一台手机就能演完的两遍。 */
@@ -13104,8 +13094,8 @@ window.MILI_FALL_NOW = function(by){
     const rows = [['wake','起床'],['med','吃药'],['meal','吃饭'],['tv','看戏'],['sleep','睡觉']];
     let h = head('它记住的', true) + '<div class="v9body">';
     h += '<div class="v9h1">它记住的</div>';
-    h += '<p class="v9sub">您交代要记住的事保存在这台手机上，保存后就会显示。生活习惯需要观察满 3 天。</p>';
-    h += '<div class="v9sec"><i></i>您交代的事 · ' + facts.length + ' 条</div>';
+    h += '<p class="v9sub">交代的事和日常聊天中的重要信息，会先理解含义再保存，整理完成后显示在这里。生活习惯需要观察满 3 天。</p>';
+    h += '<div class="v9sec"><i></i>记住的事实与偏好 · ' + facts.length + ' 条</div>';
     h += '<div class="v9card">';
     if (!facts.length) h += '<p class="v9warn" style="padding:14px 16px">还没有保存的事。可以对米粒说「帮我记住，我女儿叫小芳」。</p>';
     facts.forEach(function(m){

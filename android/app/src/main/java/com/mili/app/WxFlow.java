@@ -127,21 +127,29 @@ public class WxFlow {
        存的是「像素 + 当时屏尺寸」，回放时按比例换算，换分辨率也不会点歪。 */
     private static final Object[][] DEFAULT_POINTS = {
             {"search", 924, 185}, {"searchbox", 572, 212}, {"paste", 430, 421},
-            {"result", 400, 465}, {"inputbox", 500, 2265}, {"clipbar", 115, 1552},
+            {"result", 400, 465}, {"inputbox", 500, 2190}, {"clipbar", 115, 1552},
             {"send", 985, 1312}, {"plus", 1015, 2279},
             {"panelvideo", 663, 1623}, {"panelcall", 663, 1623},
             {"confirmvideo", 540, 1955}, {"confirmcall", 540, 2105},
             {"back", 57, 215}, {"hangup", 530, 2035}, {"speaker", 840, 2035},
     };
 
-    /** 只补缺的，不覆盖用户自己录过的点 */
+    /** 只补缺的；修正已确认失效的旧默认输入框点，不覆盖其他标定。 */
     private void seedDefaults() {
         try {
             SharedPreferences p = sp();
             boolean any = false;
             for (Object[] d : DEFAULT_POINTS) {
                 String k = (String) d[0];
-                if (p.getString(k, null) != null) continue;
+                String saved = p.getString(k, null);
+                if (saved != null) {
+                    if (!"inputbox".equals(k)) continue;
+                    JSONObject old = new JSONObject(saved);
+                    // 1080×2400 真机：2265 已落在输入框下方；2190 可正常唤起键盘。
+                    if (old.optDouble("x") != 500 || old.optDouble("y") != 2265
+                            || old.optDouble("w") != 1080 || old.optDouble("h") != 2400) continue;
+                    flog("修正旧默认输入框坐标：500,2265 -> 500,2190");
+                }
                 JSONObject o = new JSONObject();
                 o.put("x", d[1]);
                 o.put("y", d[2]);
@@ -467,6 +475,9 @@ public class WxFlow {
 
             int[] p = point(key);
             if (p == null) { finish(false); return; }
+            if ("inputbox".equals(key) || "clipbar".equals(key) || "send".equals(key)) {
+                flog("点击 " + key + " 坐标 " + p[0] + "," + p[1]);
+            }
 
             tap(p[0], p[1], new Runnable() {
                 @Override public void run() {

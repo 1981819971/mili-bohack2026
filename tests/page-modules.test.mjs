@@ -20,10 +20,10 @@ const html = fs.readFileSync(path.join(ROOT, 'app', 'index.html'), 'utf8');
 test('index.html 的本地模块清单完整，且顺序就是加载顺序', () => {
   const mods = pageModules(html);
   assert.deepEqual(mods, [
-    'memory.js', 'context.js', 'evolve.js', 'agent-memo.js', 'agent-tools.js',
+    'memory.js', 'context.js', 'evolve.js', 'agent-memo.js', 'semantic-memory.js', 'agent-tools.js',
     'tool-router.js', 'stream-speak.js', 'agent.js', 'app.js',
   ]);
-  for (const f of ['context.js', 'tool-router.js', 'stream-speak.js', 'app.js']) {
+  for (const f of ['context.js', 'semantic-memory.js', 'tool-router.js', 'stream-speak.js', 'app.js']) {
     assert.ok(mods.includes(f), `解析结果漏了 ${f}`);
   }
 });

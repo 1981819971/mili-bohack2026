@@ -73,6 +73,11 @@ Android 本地测试可使用独立包名，保留原应用及其数据：
 密钥库、本机工具链、APK 和设备备份均不上传。可选页面图标 `app/favicon.png`、
 `app/apple-touch-icon.png` 在本地补齐后，构建会同步到网页产物和 APK。
 
+额外安装一版时，为 `miliApplicationId` 选择手机上尚不存在的包名，例如
+`com.mili.app.local.v20261115`，并用 `miliAppLabel` 设置可辨认的名称。
+安装时执行 `adb install --no-streaming app-debug.apk`，不加 `-r`；若同包名已存在，
+Android 会拒绝替换。独立包与旧版数据隔离，需要分别完成首次设置和权限授权。
+
 1. `npm test && npm run check && npm run scan` —— 三条全绿
 2. 按上表补齐 `android/app/libs/`、`assets/asr/`、`app/assets/`
 3. 新建 `android/local.properties` 写本机 SDK 路径

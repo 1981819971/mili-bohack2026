@@ -1128,11 +1128,12 @@
       if (/抖音|douyin/i.test(app)) {
         const clean = kw.replace(/抖音|打开|然后|全屏|搜一下|搜搜|搜索|给我|帮我|一下|[,，。.!！?？\s]/g, '').trim() || kw;
         const r = playDouyin(nn, clean);
-        if (r.ok) {
+        if (r.ok && !r.pending && !r.partial && r.completed !== false) {
           try {
             if (E.memoAdd) {
-              E.memoAdd('preference', '看视频用抖音', { key: 'video.platform', tag: 'video_platform' });
-              E.memoAdd('event', '上次看的是《' + clean + '》', { key: 'video.last_title', tag: 'last_watch' });
+              const evidence = { version: 1, origin: 'tool', tool: 'search_in_app', observedAt: Date.now() };
+              E.memoAdd('event', '最近看视频用抖音', { key: 'video.platform', tag: 'video_platform', semantic: evidence });
+              E.memoAdd('event', '上次看的是《' + clean + '》', { key: 'video.last_title', tag: 'last_watch', semantic: evidence });
             }
           } catch (e) {}
         }
@@ -1547,18 +1548,21 @@
     '把老人交代的事长期记住。吃药时间、家里人的名字和事、他的喜好，都记。' +
     '老人说「记住…」「以后…」「我每天早上八点吃…」时用。',
     {
-      fact: { type: 'string', description: '要记住的事实，照老人原话写' },
+      fact: { type: 'string', description: '理解实际语义后提取的简洁事实，保留否定和条件，不照抄口头语；不猜写专名。最终保存由语义记忆入口校验原始证据' },
       kind: { type: 'string', enum: ['fact', 'preference', 'event'],
         description: 'fact 事实（如女儿叫小芳）；preference 喜好；event 要办的事/时间' },
       key: { type: 'string', description: '可选，同一事项沿用同一个稳定键，如 daughter.name；多个不同事项用不同键' },
       replaces: { type: 'string', description: '可选，更正旧事实时填记忆证据中的旧事实 id；不能凭空编造 id' },
     },
     ['fact', 'kind'],
-    function (a, E) {
+    async function (a, E) {
       if (!a.fact) return { ok: false, detail: '没说要记什么。' };
-      const r = E.memoAdd ? E.memoAdd(a.kind || 'fact', a.fact, { key: a.key, replaces: a.replaces }) : null;
-      if (!r) return { ok: false, detail: '这句没记下来。' };
-      return { ok: true, detail: '记住了：' + a.fact, fastReply: '记住了：' + a.fact };
+      if (E.rememberSemantic) {
+        const result = await E.rememberSemantic();
+        return { ok: result.ok, detail: result.detail, terminal: true,
+          fastReply: result.detail, needsConfirmation: !!result.question };
+      }
+      return { ok: false, detail: '缺少原始语义证据，这句还没记下来。' };
     });
 
   /* ===== 查记忆 ===== */

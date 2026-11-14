@@ -20,8 +20,9 @@ function response(text = '我在呢，您接着说呀。', call) {
 }
 
 function env(shared = new Map()) {
-  const controls = { fail: new Set(), failRemove: new Set(), fetch: null };
+  const controls = { fail: new Set(), failRemove: new Set(), fetch: null, memory: () => ({ facts: [], events: [], intent: null, question: '' }) };
   const requests = [];
+  const memoryRequests = [];
   const s = { Date, Math, JSON, Promise, setTimeout, clearTimeout, setInterval, clearInterval,
     AbortController, TextDecoder, TextEncoder, URL, performance,
     console: { log() {}, warn() {}, error() {} },
@@ -30,16 +31,28 @@ function env(shared = new Map()) {
       setItem: (k, v) => { if (controls.fail.has(k)) throw Error('QuotaExceededError'); shared.set(k, String(v)); },
       removeItem: k => { if (controls.failRemove.has(k)) throw Error('Denied'); shared.delete(k); },
     },
-    fetch: async (url, init) => { const request = JSON.parse(init.body); requests.push(request); return controls.fetch ? controls.fetch(request) : response(); },
+    fetch: async (url, init) => {
+      const request = JSON.parse(init.body);
+      if (request.messages[0]?.content?.startsWith('你是米粒的记忆整理器')) {
+        memoryRequests.push(request);
+        return response(JSON.stringify(await controls.memory(JSON.parse(request.messages[1].content))));
+      }
+      requests.push(request); return controls.fetch ? controls.fetch(request) : response();
+    },
     document: { readyState: 'complete', addEventListener() {}, querySelectorAll: () => [], getElementById: () => null, documentElement: { className: '' }, hidden: false },
     navigator: {}, location: { href: 'file:///index.html' },
   };
   s.window = s; s.globalThis = s;
   vm.createContext(s);
-  for (const name of ['memory.js', 'context.js', 'agent-memo.js', 'agent-tools.js', 'tool-router.js', 'agent.js']) vm.runInContext(read(name), s, { filename: name });
+  for (const name of ['memory.js', 'context.js', 'agent-memo.js', 'semantic-memory.js', 'agent-tools.js', 'tool-router.js', 'agent.js']) vm.runInContext(read(name), s, { filename: name });
   s.MILI_AGENT.init({ memoAdd: (kind, text, meta) => s.MILI_MEMO.add(kind, text, 'test', meta),
     memoFind: q => s.MILI_CONTEXT.recall(q), native: () => null });
-  return { s, controls, requests, data: shared };
+  return { s, controls, requests, memoryRequests, data: shared };
+}
+
+function meaning(text, evidence, key = 'user.preference', extra = {}) {
+  return { facts: [{ text, evidence, key, kind: 'fact', confidence: 0.96, uncertain: false,
+    durable: true, asserted: true, entities: [], ...extra }], events: [], intent: null, question: '' };
 }
 
 test('普通与精简闲聊的真实模型请求都包含相关长期事实、画像和独立的当前问句', async () => {
@@ -200,6 +213,8 @@ test('清空会取消等待中的旧请求，迟到回复不能回写历史', as
 test('remember 的真实工具链能传递更正 id，精简轮也能确认保存结果', async () => {
   const { s, controls } = env();
   const old = s.MILI_MEMO.add('fact', '我女儿叫小芳', 'test');
+  controls.memory = () => meaning('我女儿叫小红', '女儿叫小红', 'daughter.name', {
+    replaces: old.id, entities: [{ value: '小红', quote: '小红' }] });
   controls.fetch = () => response('', { name: 'remember', args: { kind: 'fact', fact: '我女儿叫小红', replaces: old.id } });
   const result = await s.MILI_AGENT.run('更正一下，我女儿叫小红', { lite: true,
     tools: s.MILI_TOOLS.schema().filter(t => t.function.name === 'remember') });
@@ -222,11 +237,13 @@ test('recall 同时查有效事实和历史原文，查无结果是成功的空�
 test('模型在 recall 回执中能拿到旧事实 id，随后更正而非追加冲突事实', async () => {
   const { s, controls, requests } = env();
   const old = s.MILI_MEMO.add('fact', '我家的猫叫咪咪');
+  controls.memory = () => meaning('我家的猫叫旺财', '宠物名字改成旺财', 'pet.name', {
+    replaces: old.id, entities: [{ value: '旺财', quote: '旺财' }] });
   let round = 0;
   controls.fetch = () => ++round === 1
     ? response('', { name: 'recall', args: { query: '我家的猫' } })
     : response('', { name: 'remember', args: { fact: '我家的猫叫旺财', kind: 'fact', replaces: old.id } });
-  const result = await s.MILI_AGENT.run('把我家的宠物名字改成旺财', { tools: s.MILI_TOOLS.schema() });
+  const result = await s.MILI_AGENT.run('把我家的宠物名字改成旺财', { tools: s.MILI_TOOLS.schema(), memoryObserved: true });
   assert.equal(result.err, null);
   const toolReply = requests[1].messages.find(m => m.role === 'tool');
   assert.equal(JSON.parse(toolReply.content).evidence[0].id, old.id);
@@ -410,14 +427,15 @@ function explicitRemember(s, text) {
   const app = read('app.js');
   const start = app.indexOf('  try {\n    const rawT = String(text');
   const end = app.indexOf('  /* 电视层开着时的快速通道', start);
-  s.text = text; s.say = line => { s.spoken = line; };
-  return vm.runInContext('(function(){' + app.slice(start, end) + '})()', s);
+  s.text = text; s.quiet = false; s.say = line => { s.spoken = line; };
+  return vm.runInContext('(async function(){' + app.slice(start, end) + '})()', s);
 }
 
-test('用户说帮我记住后，两处记忆页面都从真实事实库显示，重启后仍存在', () => {
-  const { s, data } = env(); s.MILI_MEMO.load('mili'); memoryScreens(s);
+test('用户说帮我记住后，两处记忆页面都从真实事实库显示，重启后仍存在', async () => {
+  const { s, data, controls } = env(); s.MILI_MEMO.load('mili'); memoryScreens(s);
+  controls.memory = () => meaning('我女儿叫小芳', '女儿叫小芳', 'daughter.name', { entities: [{ value: '小芳', quote: '小芳' }] });
   for (const prefix of ['记住：', '帮我记住，', '请你帮我记一下：', '米粒，帮我记住：']) {
-    const result = explicitRemember(s, prefix + '我女儿叫小芳');
+    const result = await explicitRemember(s, prefix + '我女儿叫小芳');
     assert.equal(result.ok, true);
   }
   assert.equal(s.MILI_MEMO.memoCount(), 1);
@@ -453,11 +471,227 @@ test('两处记忆页面正确处理空态、过期、更正、删除及 HTML �
   assert.equal(s.MILI_CONTEXT.recall('女儿叫小红').length, 0);
 });
 
-test('显式记住指令存储失败时不能报成功，也不在页面显示', () => {
+test('显式记住指令存储失败时不能报成功，也不在页面显示', async () => {
   const { s, controls } = env(); s.MILI_MEMO.load('mili'); memoryScreens(s);
+  controls.memory = () => meaning('我喜欢喝花茶', '喜欢喝花茶');
   controls.fail.add('mili_memory_v2');
-  assert.equal(explicitRemember(s, '帮我记住，我喜欢喝花茶').ok, false);
+  assert.equal((await explicitRemember(s, '帮我记住，我喜欢喝花茶')).ok, false);
   assert.ok(s.spoken.includes('没存下来'));
   assert.ok(!s.rhythmPage().includes('我喜欢喝花茶'));
   assert.ok(!s.renderNotebook().includes('我喜欢喝花茶'));
+});
+
+test('普通精简聊天无需记住指令或工具，也能后台形成规范语义事实并展示', async () => {
+  const { s, controls, memoryRequests, data } = env();
+  const raw = '那个，我喝茶不放唐的，喝甜的我不喜欢';
+  controls.memory = input => {
+    assert.equal(input.user_text, raw);
+    return meaning('喝茶不加糖', '喝茶不放唐的', 'user.tea.sugar', { kind: 'preference' });
+  };
+  await s.MILI_AGENT.run(raw, { tools: false, lite: true });
+  await s.MILI_SEMANTIC.flush();
+  const record = s.MILI_MEMO.memo()[0];
+  assert.equal(record.text, '喝茶不加糖');
+  assert.equal(record.semantic.rawText, raw);
+  assert.equal(memoryRequests.length, 1);
+  assert.equal(memoryRequests[0].tools, undefined);
+  assert.ok(s.MILI_CONTEXT.history().some(m => m.text === raw));
+  memoryScreens(s);
+  assert.ok(s.rhythmPage().includes('喝茶不加糖'));
+  assert.ok(!s.rhythmPage().includes('不放唐'));
+  const reboot = env(data).s;
+  assert.equal(reboot.MILI_MEMO.memo()[0].text, '喝茶不加糖');
+  assert.ok(reboot.MILI_CONTEXT.histMessages('我喝茶要加糖吗').some(m => m.content.includes('喝茶不加糖')));
+});
+
+test('多种口语表达用同一事项键归并，明确更正后旧语义失效', async () => {
+  const { s, controls } = env();
+  controls.memory = () => meaning('喝茶不加糖', '茶里别放糖', 'user.tea.sugar', { kind: 'preference' });
+  await s.MILI_SEMANTIC.observe('我茶里别放糖啊');
+  controls.memory = () => meaning('喝茶不加糖', '喝茶不要糖', 'user.tea.sugar', { kind: 'preference' });
+  await s.MILI_SEMANTIC.observe('喝茶不要糖，记着哈');
+  assert.equal(s.MILI_MEMO.memoCount(), 1);
+  const old = s.MILI_MEMO.memo()[0];
+  controls.memory = () => meaning('喝茶加少量糖', '现在喝茶可以放一点糖', 'user.tea.sugar', { kind: 'preference', replaces: old.id });
+  await s.MILI_SEMANTIC.observe('我现在喝茶可以放一点糖');
+  assert.equal(s.MILI_MEMO.memoCount(), 1);
+  assert.equal(s.MILI_MEMO.memo()[0].text, '喝茶加少量糖');
+  assert.ok(s.MILI_MEMO.history().facts.find(f => f.id === old.id).validTo);
+});
+
+test('人名同音猜写、低信心和非当前原文证据都不能成为确定事实', async () => {
+  for (const extra of [
+    { key: 'daughter.name', entities: [{ value: '晓芳', quote: '小方' }] },
+    { key: 'daughter.name', entities: [] },
+    { confidence: 0.7 }, { uncertain: true }, { evidence: '助手说女儿叫晓芳' },
+    { asserted: false }, { durable: false },
+  ]) {
+    const { s, controls } = env();
+    controls.memory = () => ({ ...meaning('女儿叫晓芳', '女儿叫小方', 'daughter', extra), question: '名字是哪两个字？' });
+    const result = await s.MILI_SEMANTIC.remember('我女儿叫小方');
+    assert.equal(result.ok, false);
+    assert.equal(s.MILI_MEMO.memoCount(), 0);
+    assert.equal(result.detail, '名字是哪两个字？');
+  }
+});
+
+test('自动整理得到问句、假设或闲聊的空结果时不保存，也不新增习惯', async () => {
+  const { s, controls } = env(); const events = [];
+  s.MILI_RHYTHM = { note: (...args) => { events.push(args); return true; } };
+  for (const raw of ['我女儿叫什么名字？', '如果我喜欢甜茶呢', '我还没吃饭', '我饿了', '明天吃饭去', '我女儿吃饭了']) {
+    controls.memory = () => ({ facts: [], events: [], intent: null, question: '' });
+    await s.MILI_SEMANTIC.observe(raw);
+  }
+  assert.equal(s.MILI_MEMO.memoCount(), 0);
+  assert.equal(events.length, 0);
+  // 主入口不能再凭“饿/做饭/吃饭”字样记一次 meal。
+  const block = read('app.js').slice(read('app.js').indexOf('  /* 每说一句话都是一次'), read('app.js').indexOf('  /* ===== 「记住'));
+  assert.ok(!block.includes("note('meal')"));
+});
+
+test('习惯只接收本人当前已发生的高信心事件，重复分析只记录一次', async () => {
+  const { s, controls, memoryRequests } = env(); const events = [];
+  s.MILI_RHYTHM = { note: (...args) => { events.push(args); return true; } };
+  controls.memory = () => ({ facts: [], intent: null, events: [
+    { kind: 'meal', evidence: '刚吃过饭', occurred: true, subject: 'self', time: 'now', confidence: 0.98, uncertain: false },
+    { kind: 'meal', evidence: '刚吃过饭', occurred: true, subject: 'self', time: 'now', confidence: 0.98, uncertain: false },
+    { kind: 'med', evidence: '刚吃过饭', occurred: true, subject: 'other', time: 'now', confidence: 0.98, uncertain: false },
+    { kind: 'sleep', evidence: '刚吃过饭', occurred: true, subject: 'self', time: 'past', confidence: 0.98, uncertain: false },
+  ] });
+  await Promise.all([s.MILI_SEMANTIC.observe('我刚吃过饭'), s.MILI_SEMANTIC.observe('我刚吃过饭')]);
+  assert.equal(memoryRequests.length, 1);
+  assert.equal(events.length, 1);
+  assert.equal(events[0][0], 'meal');
+  assert.ok(Number.isFinite(events[0][2]));
+  assert.equal(events[0][3].evidence, '刚吃过饭');
+});
+
+test('后台语义分析没回来时，正常对话仍能先完成', async () => {
+  const { s, controls } = env(); let release;
+  controls.memory = () => new Promise(resolve => { release = resolve; });
+  const result = await s.MILI_AGENT.run('我喝茶不加糖', { lite: true, tools: false });
+  assert.equal(result.err, null);
+  assert.equal(s.MILI_MEMO.memoCount(), 0);
+  release(meaning('喝茶不加糖', '喝茶不加糖', 'user.tea.sugar'));
+  await s.MILI_SEMANTIC.flush();
+  assert.equal(s.MILI_MEMO.memoCount(), 1);
+});
+
+test('自动分析与 remember 工具共用原始用户证据，只请求一次语义整理', async () => {
+  const { s, controls, memoryRequests } = env();
+  controls.memory = () => meaning('喝茶不加糖', '喝茶不放糖', 'user.tea.sugar');
+  controls.fetch = () => response('', { name: 'remember', args: { fact: '模型乱猜成了喜欢甜茶', kind: 'preference' } });
+  const result = await s.MILI_AGENT.run('我喝茶不放糖', { lite: true, tools: s.MILI_TOOLS.schema() });
+  assert.equal(result.err, null);
+  assert.ok(result.said.includes('喝茶不加糖'));
+  assert.equal(memoryRequests.length, 1);
+  assert.equal(s.MILI_MEMO.memo()[0].text, '喝茶不加糖');
+});
+
+test('解析失败不退回原句直接存储；remember 缺少原始证据时拒绝写入', async () => {
+  const { s, controls } = env(); controls.memory = () => '不是合法的结构化结果';
+  const result = await s.MILI_SEMANTIC.remember('帮我记住我喜欢花茶');
+  assert.equal(result.ok, false);
+  assert.equal(s.MILI_MEMO.memoCount(), 0);
+  const tool = await s.MILI_TOOLS.exec('remember', { fact: '模型猜的偏好', kind: 'preference' }, {
+    memoAdd: () => { throw Error('must not bypass semantic memory'); },
+  });
+  assert.equal(tool.ok, false);
+});
+
+test('清空和切换演示空间时，迟到的自动分析不能写回事实或习惯', async () => {
+  for (const clear of [true, false]) {
+    const { s, controls } = env(); let release; const events = [];
+    s.MILI_RHYTHM = { note: (...args) => { events.push(args); return true; } };
+    controls.memory = () => new Promise(resolve => { release = resolve; });
+    const pending = s.MILI_SEMANTIC.observe('我喝茶不加糖');
+    if (clear) s.MILI_STORE.clearAll();
+    else { s.MILI_SEMANTIC.configure('mili_demo'); s.MILI_MEMO.load('mili_demo'); }
+    release(meaning('喝茶不加糖', '喝茶不加糖', 'user.tea.sugar'));
+    assert.equal((await pending).cancelled, true);
+    assert.equal(s.MILI_MEMO.memoCount(), 0);
+    assert.equal(events.length, 0);
+  }
+});
+
+test('用户删除旧事实后，正在整理的更正结果不能将它复活', async () => {
+  const { s, controls } = env(); let release;
+  const old = s.MILI_MEMO.add('preference', '喝茶不加糖', '', { key: 'user.tea.sugar' });
+  controls.memory = () => new Promise(resolve => { release = resolve; });
+  const pending = s.MILI_SEMANTIC.observe('现在喝茶加一点糖');
+  s.MILI_MEMO.del(old.id);
+  release(meaning('喝茶加少量糖', '喝茶加一点糖', 'user.tea.sugar', { replaces: old.id }));
+  const result = await pending;
+  assert.equal(result.saved.length, 0);
+  assert.equal(result.rejected, 1);
+  assert.equal(s.MILI_MEMO.memoCount(), 0);
+});
+
+test('成功操作保存规范语义标签，实际执行参数保持原样；删除技能也删除语义路由样本', async () => {
+  const { s, controls } = env();
+  const raw = '那个，电视给我打开嘛';
+  controls.memory = () => ({ facts: [], events: [], intent: { text: '打开电视', evidence: '电视给我打开',
+    confidence: 0.96, uncertain: false, entities: [] } });
+  const tools = [{ name: 'ir_power', args: { on: true } }];
+  const pending = s.MILI_SEMANTIC.learnSkill(raw, tools);
+  tools[0].args.on = false;
+  const skill = await pending;
+  assert.equal(skill.intent, '打开电视');
+  assert.equal(skill.text, raw);
+  assert.equal(s.MILI_MEMO.hit(raw).tools[0].args.on, true);
+  assert.equal(s.MILI_MEMO.hit('打开电视').tools[0].args.on, true);
+  assert.equal(s.MILI_MEMO.hit('关闭电视'), null);
+  assert.equal(s.MILI_TOOL_ROUTER.corrections()[0].u, '打开电视');
+  assert.equal(s.MILI_TOOL_ROUTER.corrections()[0].n, 1, '一次成功操作只能增加一次路由样本计数');
+  s.MILI_MEMO.skillDel(skill.id);
+  assert.equal(s.MILI_TOOL_ROUTER.stats().corrections, 0);
+});
+
+test('只整理成功操作意图时，旧原话中的事实不会再次被提取覆盖新事实', async () => {
+  const { s, controls } = env();
+  const latest = s.MILI_MEMO.add('preference', '喝乌龙茶', '', { key: 'user.tea.type' });
+  controls.memory = input => {
+    assert.equal(input.intent_only, true);
+    return { ...meaning('喝花茶', '我喝花茶', 'user.tea.type'), intent: {
+      text: '打开电视', evidence: '开电视', confidence: 0.95, uncertain: false, entities: [] } };
+  };
+  await s.MILI_SEMANTIC.learnSkill('我喝花茶，帮我开电视', [{ name: 'ir_power', args: { on: true } }]);
+  assert.equal(s.MILI_MEMO.memo()[0].id, latest.id);
+  assert.equal(s.MILI_MEMO.memo()[0].text, '喝乌龙茶');
+});
+
+test('删除语义事实后，对应的含错字原话也不能通过历史召回复活', async () => {
+  const { s, controls } = env();
+  const raw = '那个我喝茶不放唐的';
+  controls.memory = () => meaning('喝茶不加糖', '喝茶不放唐的', 'user.tea.sugar');
+  await s.MILI_SEMANTIC.observe(raw);
+  s.MILI_CONTEXT.push('user', raw);
+  s.MILI_CONTEXT.push('assistant', '知道啦。');
+  s.MILI_MEMO.del(s.MILI_MEMO.memo()[0].id);
+  assert.equal(s.MILI_CONTEXT.recall('喝茶放唐').length, 0);
+});
+
+test('工具只是派单成功时，不得学成已经观看或完成操作的记忆', async () => {
+  const { s } = env(); let writes = 0;
+  const result = await s.MILI_TOOLS.exec('search_in_app', { app: '抖音', keyword: '西游记' }, {
+    native: () => ({ playDouyin: () => JSON.stringify({ ok: true, say: '正在查找' }) }),
+    memoAdd: () => { writes++; },
+  });
+  assert.equal(result.pending, true);
+  assert.equal(writes, 0);
+  const app = read('app.js'), start = app.indexOf('const SIDE_EFFECT =');
+  vm.runInContext(app.slice(start, app.indexOf('/* ==========================================================================', start)), s);
+  assert.equal(s.goodCalls([], [{ exec: [{ tool: 'search_in_app', args: { keyword: '西游记' }, ok: true, pending: true }] }]).length, 0);
+});
+
+test('刚删除的事实不能被分析缓存虚报已保存；明确再次交代时重新提交', async () => {
+  const { s, controls, memoryRequests } = env();
+  controls.memory = () => meaning('喝茶不加糖', '喝茶不加糖', 'user.tea.sugar');
+  const first = await s.MILI_SEMANTIC.remember('帮我记住喝茶不加糖');
+  s.MILI_MEMO.del(first.saved[0].id);
+  const second = await s.MILI_SEMANTIC.remember('帮我记住喝茶不加糖');
+  assert.equal(second.ok, true);
+  assert.equal(memoryRequests.length, 2);
+  assert.equal(s.MILI_MEMO.memoCount(), 1);
+  assert.notEqual(second.saved[0].id, first.saved[0].id);
 });

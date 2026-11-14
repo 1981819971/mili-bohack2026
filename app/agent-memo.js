@@ -183,6 +183,7 @@
       hit.at = now();
       if (meta && meta.tag) hit.tag = meta.tag;
       if (slot) hit.key = slot;
+      if (meta.semantic) hit.semantic = copy(meta.semantic);
       if (meta.expiresAt) hit.expiresAt = meta.expiresAt;
       activeFacts().forEach(function (m) {
         if (m !== hit && (m === replaced || (slot && m.key === slot))) {
@@ -195,6 +196,7 @@
       id: uid('m'), k: k, kind: kind || 'fact', text: t,
       src: src || '', tag: meta.tag || '', key: slot,
       expiresAt: Number(meta.expiresAt) || null,
+      semantic: meta.semantic ? copy(meta.semantic) : null,
       n: 1, validFrom: now(), validTo: null, supersededBy: null, at: now()
     };
     activeFacts().forEach(function (m) {
@@ -275,8 +277,13 @@
     return String(text || '').split(/[；。！？\n]/).filter(function (part) {
       var k = norm(part);
       return !retired.some(function (f) {
-        return f.k && k.indexOf(f.k) >= 0 && !live.some(function (a) {
-          return a.k.indexOf(f.k) >= 0 && k.indexOf(a.k) >= 0;
+        var evidence = f.semantic ? norm(f.semantic.evidence) : '';
+        var rawText = f.semantic ? norm(f.semantic.rawText) : '';
+        var matches = f.k && k.indexOf(f.k) >= 0;
+        if (rawText && k === rawText) matches = true;
+        if (evidence.length >= 4 && k.indexOf(evidence) >= 0) matches = true;
+        return matches && !live.some(function (a) {
+          return (a.k.indexOf(f.k) >= 0 || (evidence && a.k.indexOf(evidence) >= 0)) && k.indexOf(a.k) >= 0;
         });
       });
     }).join('；');
@@ -323,7 +330,7 @@
     });
   }
 
-  function skillNote(text, tools) {
+  function skillNote(text, tools, meta) {
     ensure();
     if (!tools || !tools.length) return null;
     var k = skillKey(text);
@@ -335,6 +342,7 @@
     var s = activeSkills().find(function (x) { return x.k === k; });
     if (s) {
       if (sameTools(s.tools, seq)) {
+        if (meta && meta.intent) s.intent = String(meta.intent).slice(0, 120);
         s.n = (s.n || 1) + 1;
         s.at = now();
         if (s.n >= SKILL_MIN_HIT) s.on = true;
@@ -345,6 +353,7 @@
     }
     var rec = {
       id: uid('s'), k: k, text: String(text).slice(0, 60), tools: seq,
+      intent: meta && meta.intent ? String(meta.intent).slice(0, 120) : '',
       n: 1, on: SKILL_MIN_HIT <= 1, ms: 0,
       validFrom: now(), validTo: null, supersededBy: null, at: now()
     };
@@ -360,14 +369,15 @@
     ensure();
     var k = skillKey(text);
     if (!k || k.length < 2) return null;
-    var s = activeSkills().find(function (x) { return x.k === k && x.on; });
+    var s = activeSkills().find(function (x) { return x.on && (x.k === k || (x.intent && skillKey(x.intent) === k)); });
     if (s) return copy(s);
     /* 同音比较要做全，不能只在「查询串自己含可归并字」时才做：
        HOMO 是单向的（打→大），存储串含「打」、查询串含「大」时，
        查询串的 homoKey 等于自身，旧写法会直接跳过这一级。 */
     var hk = homoKey(k), d = dirOf(k);
     s = activeSkills().find(function (x) {
-      return x.on && x.k !== k && homoKey(x.k) === hk && dirOf(x.k) === d;
+      return x.on && x.k !== k && ((homoKey(x.k) === hk && dirOf(x.k) === d) ||
+        (x.intent && homoKey(skillKey(x.intent)) === hk && dirOf(skillKey(x.intent)) === d));
     });
     return s ? copy(s) : null;
   }
@@ -386,7 +396,7 @@
     if (!supersede(id, null, 'user_delete')) return false;
     if (STORE) STORE.markDeletedSkill(id);
     if (target && W.MILI_TOOL_ROUTER && W.MILI_TOOL_ROUTER.forget) {
-      W.MILI_TOOL_ROUTER.forget(target.text, target.tools[0] && target.tools[0].name);
+      W.MILI_TOOL_ROUTER.forget(target.intent || target.text, target.tools[0] && target.tools[0].name);
     }
     return true;
   }

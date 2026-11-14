@@ -56,8 +56,11 @@ test('切换按钮有样式，且不碰全站配色', () => {
 });
 
 test('🔑 改口只记一次：learn() 重复调用会让 3 次阈值提前达成', () => {
-  assert.equal((app.match(/MILI_TOOL_ROUTER\.learn\(/g) || []).length, 1,
+  const semantic = norm('app/semantic-memory.js');
+  assert.equal((semantic.match(/MILI_TOOL_ROUTER\.learn\(/g) || []).length, 1,
     '一次改口被记两次 n，两次改口就凑满 3 次升稳定档');
+  assert.equal((app.match(/MILI_TOOL_ROUTER\.learn\(/g) || []).length, 0,
+    '主入口不能在语义学习之外重复累加检索样本');
 });
 
 test('流式首句起播：onDelta 接回、确定性 streamed、纯说话轮才开', () => {

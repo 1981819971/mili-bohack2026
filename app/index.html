@@ -1061,7 +1061,7 @@
 }}
 </script>
 <script src="assets/vendor/hls.min.js"></script>
-<!-- 统一记忆总线必须在所有记忆模块（含 evolve.js）之前加载 -->
+<!-- 统一记忆总线必须在任何记忆模块之前加载 -->
 <script src="memory.js"></script>
 <script src="context.js"></script>
 <script src="evolve.js"></script>
@@ -1072,6 +1072,7 @@
        结果 wireAgent() 第一行 `if (!window.MILI_AGENT) return` 永远命中，
        内核从来没接线，页面上跑的还是老正则 —— 这就是「什么都做不了」的根。 -->
 <script src="agent-memo.js"></script>
+<script src="semantic-memory.js"></script>
 <script src="agent-tools.js"></script>
 <script src="tool-router.js"></script>
 <script src="stream-speak.js"></script>

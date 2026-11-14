@@ -201,7 +201,7 @@
     if (query) {
       var evidence = recall(query, lite ? 2 : 5);
       if (evidence.length) head.push('【与本句相关的记忆证据】' + evidence.map(function (m) {
-        return '[' + (m.src === 'fact' ? '事实 id=' + m.id : '历史 ' + (m.day || '')) + '] ' + m.text;
+        return '[' + (m.src === 'fact' ? '事实 id=' + m.id : '历史转写，可能有识别错误 ' + (m.day || '')) + '] ' + m.text;
       }).join('\n').slice(0, lite ? 450 : 1000));
     } else head.push(summaryBlock());
     var cut = anchor(), nowMs = Date.now(), skipAssistant = false;
