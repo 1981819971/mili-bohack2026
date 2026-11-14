@@ -586,7 +586,7 @@
       '「抖音上搜 XX」「抖音打开 XX，然后全屏」→ search_in_app(app=抖音, keyword=XX)，一步到位，**永远第一个试它**。',
       '   这一步内部就是原生一条龙（深链→点第一个视频→全屏）。绝不许因为提示里写「上次失败过」就绕开，',
       '   也绝不用 open_app / ui_map / tap_at / tap_text 自己拆；拆开只会停在搜索结果页，老人看到一堆格子，不是全屏画面。',
-      '   🚨 search_in_app(app=抖音) 返回成功 = 已经横屏全屏在播，**到此为止**：不许再 look_screen / player_control / ui_map 去「确认」，',
+      '   🚨 search_in_app(app=抖音) 返回成功表示原生流程已启动，按工具回复交代正在操作，**到此为止**：不许再 look_screen / player_control / ui_map 去「确认」，',
       '   那些多余动作会往横屏画面上乱点、还会回错话。直接回一句「给您点开放上了，全屏了」。',
       '「看某部剧，第 N 集」→ 先 watch_video(app=对应平台)，再 tap_text(搜索) → type_text(剧名) →',
       '   tap_text(搜索) → tap_text(剧名) → 再 tap_text(选集) → tap_text(第N集)。',
@@ -1541,8 +1541,7 @@
               })(),
               new Promise((res2) => { toolTimer = setTimeout(
                 () => res2({ ok: false, detail: '这一步等了太久没动静，换个办法再试。' }),
-                /* 视频短流程在原生层最多等待 14 秒，外层预算覆盖最终回执。
-                   其它工具保留原预算。 */
+                /* 保留搜索和视频工具的现有预算；抖音在派单返回后由 Java 自行执行。 */
                 ['search_in_app', 'watch_video'].includes(call.function.name) ? 18000 :
                 ['play_direct','resume_show','tap_text',
                  'tap_result','tap_at','type_text','find_text','wait_for','swipe_screen']

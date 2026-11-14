@@ -36,11 +36,16 @@ final class OperationNotice {
 
     // 保留参数以兼容现有调用方；提示不存储或显示具体任务。
     static long begin(String ignoredTitle) {
+        return begin(ignoredTitle, TIMEOUT_MS);
+    }
+
+    /** 个别流程可以缩短提示展示上限，不改变操作自身的执行期限。 */
+    static long begin(String ignoredTitle, long timeoutMs) {
         long id = IDS.incrementAndGet();
         UI.post(() -> {
             Runnable expire = () -> finish(id);
             ACTIVE.put(id, expire);
-            UI.postDelayed(expire, TIMEOUT_MS);
+            UI.postDelayed(expire, Math.max(0, Math.min(timeoutMs, TIMEOUT_MS)));
             render();
         });
         return id;

@@ -53,7 +53,9 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private Actions actions;
-    private DouyinPlayback douyinPlayback;
+    private volatile int douyinShot;
+    private boolean douyinLanded;
+    private long douyinNotice;
     private Vision vision;
     private android.webkit.ValueCallback<Uri[]> fileCb = null;
     private IrBlaster ir;
@@ -2363,64 +2365,101 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String openUrl(String url) { return actions.openUrl(url).toString(); }
 
-        /* 抖音只走搜索深链、选片、全屏这一条短路；最终结果异步回传。 */
-        private DouyinPlayback douyinPlayer() {
-            if (douyinPlayback == null) douyinPlayback = new DouyinPlayback(new DouyinPlayback.Host() {
-                public long now() { return android.os.SystemClock.uptimeMillis(); }
-                public void later(Runnable action, long delayMs) { ui.postDelayed(action, delayMs); }
-                public String window() { return MiliAccessibilityService.currentWindow(); }
-                public boolean openSearch(String keyword) {
+        /* 恢复源码包旧版抖音流程：5.2 秒后点首条，之后每 1.2 秒尝试全屏。
+           沿用原有坐标、双尺寸基准和横屏判断，不再依赖新增的当前窗口状态机。 */
+        @JavascriptInterface
+        public String playDouyin(String kw) {
+            try {
+                String url = "snssdk1128://search?keyword="
+                        + java.net.URLEncoder.encode(String.valueOf(kw), "UTF-8");
+                actions.openUrl(url);
+                douyinShot++;
+                douyinLanded = false;
+                final int myShot = douyinShot;
+                OperationNotice.end(douyinNotice);
+                final long notice = OperationNotice.begin("", 8000);
+                douyinNotice = notice;
+                final long t0 = android.os.SystemClock.uptimeMillis();
+                final int[] card = {0}, textTap = {0}, coord = {0};
+                final float[] YS = { 0.572f, 0.480f };
+                final Runnable[] step = new Runnable[1];
+                step[0] = new Runnable() { @Override public void run() {
+                    long el = android.os.SystemClock.uptimeMillis() - t0;
+                    if (myShot != douyinShot || douyinLanded) {
+                        OperationNotice.end(notice);
+                        return;
+                    }
+                    // 提示只遮住打开视频前的阶段，不必等到横屏；不影响后面的旧版全屏尝试。
+                    if (douyinVideoPage()) OperationNotice.end(notice);
+                    if (landNow()) {
+                        douyinLanded = true;
+                        OperationNotice.end(notice);
+                        MainActivity.runJs("window.__MILI_WATCH_OK = {at:Date.now(),app:'抖音',kw:"
+                                + JSONObject.quote(kw) + "}");
+                        android.util.Log.i("MiliDouyin", "已横屏全屏 @" + el + "ms");
+                        return;
+                    }
+                    if (el > 16000) {
+                        OperationNotice.end(notice);
+                        android.util.Log.i("MiliDouyin", "16 秒仍未横屏，流程结束");
+                        return;
+                    }
                     try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(
-                                "snssdk1128://search?keyword=" + java.net.URLEncoder.encode(keyword, "UTF-8")));
-                        intent.setPackage(DouyinPlayback.PACKAGE);
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(intent);
-                        return true;
-                    } catch (Exception e) { return false; }
-                }
-                public boolean fullscreen() {
-                    String current = window();
-                    if (!current.startsWith(DouyinPlayback.PACKAGE + "/")) return false;
-                    return current.contains("Landscape")
-                            || ((current.contains("Detail")) && getResources().getConfiguration().orientation
-                                == android.content.res.Configuration.ORIENTATION_LANDSCAPE);
-                }
-                public boolean tapResult(boolean fallback) {
-                    return succeeded(fallback ? MiliAccessibilityService.tapAt(0.5f, 0.43f)
-                            : MiliAccessibilityService.tapFirstResult());
-                }
-                public boolean tapFullscreen(int attempt) {
-                    if (attempt == 0) return succeeded(MiliAccessibilityService.tapTextAny("全屏观看", "全屏"));
-                    // 每次只发一个手势，不再同时按两套屏幕基准连点。
-                    return succeeded(MiliAccessibilityService.tapAt(0.5f, attempt == 1 ? 0.572f : 0.480f));
-                }
-                public void complete(String id, boolean ok, boolean fullscreen, String detail) {
-                    JSONObject result = new JSONObject();
-                    try {
-                        result.put("ok", ok);
-                        result.put("completed", true);
-                        result.put("fullscreen", fullscreen);
-                        result.put("detail", detail);
-                    } catch (Exception ignored) {}
-                    android.util.Log.i("MiliDouyin", "complete ok=" + ok + " fullscreen=" + fullscreen);
-                    MainActivity.runJs("window.__onDouyinResult && window.__onDouyinResult("
-                            + JSONObject.quote(id) + "," + result + ")");
-                }
-                private boolean succeeded(String json) {
-                    try { return new JSONObject(json).optBoolean("ok"); }
-                    catch (Exception e) { return false; }
-                }
-            });
-            return douyinPlayback;
+                        if (el < 6200) {
+                            if (card[0] == 0) {
+                                MiliAccessibilityService.tapAt(0.5f, 0.43f);
+                                card[0] = 1;
+                            }
+                        } else if (textTap[0] == 0) {
+                            String r = MiliAccessibilityService.tapTextAny("全屏观看", "全屏");
+                            if (r != null && r.indexOf("\"ok\":true") >= 0) {
+                                textTap[0] = 1;
+                                android.util.Log.i("MiliDouyin", "点到全屏观看 @" + el + "ms");
+                            } else if (el > 8200 && coord[0] < YS.length) {
+                                float y = YS[coord[0]];
+                                coord[0] = coord[0] + 1;
+                                MiliAccessibilityService.tapAt(0.5f, y);
+                                MiliAccessibilityService.tapAtMetrics(0.5f, y);
+                            }
+                        } else if (el > 11000 && coord[0] == 0) {
+                            coord[0] = 1;
+                            MiliAccessibilityService.tapAt(0.5f, YS[0]);
+                            MiliAccessibilityService.tapAtMetrics(0.5f, YS[0]);
+                        }
+                    } catch (Throwable ignored) {}
+                    ui.postDelayed(step[0], 1200);
+                } };
+                ui.postDelayed(step[0], 5200);
+                return "{\"ok\":true,\"say\":\"正在抖音里查找并打开视频，请先别碰屏幕。\"}";
+            } catch (Throwable t) {
+                OperationNotice.end(douyinNotice);
+                return "{\"ok\":false,\"say\":\"抖音没打开。\"}";
+            }
         }
 
-        @JavascriptInterface
-        public String playDouyinTask(String keyword, String requestId) {
-            if (!MiliAccessibilityService.ready())
-                return "{\"ok\":false,\"detail\":\"请先打开米粒的无障碍服务。\"}";
-            ui.post(() -> douyinPlayer().start(keyword, requestId));
-            return "{\"ok\":true,\"pending\":true}";
+        /** 只看最近窗口事件，不用历史记录推断本次视频已经打开。 */
+        private boolean douyinVideoPage() {
+            String window = MiliAccessibilityService.lastWindow();
+            return window.startsWith("com.ss.android.ugc.aweme/")
+                    && (window.contains("UltraDetailActivity") || window.contains("LandscapeFeedActivity"));
+        }
+
+        private boolean landNow() {
+            try {
+                int r = ((android.view.WindowManager) getSystemService(WINDOW_SERVICE))
+                        .getDefaultDisplay().getRotation();
+                if (r == android.view.Surface.ROTATION_90
+                        || r == android.view.Surface.ROTATION_270) return true;
+                if (getResources().getConfiguration().orientation
+                        == android.content.res.Configuration.ORIENTATION_LANDSCAPE) return true;
+                try {
+                    String top = MiliAccessibilityService.lastWindow();
+                    if (top != null && (top.contains("Landscape") || top.contains("landscape"))) return true;
+                    String hist = MiliAccessibilityService.recentWindows();
+                    if (hist != null && (hist.contains("Landscape") || hist.contains("landscape"))) return true;
+                } catch (Throwable ignored) {}
+            } catch (Throwable t) { return false; }
+            return false;
         }
 
         @JavascriptInterface
@@ -2433,13 +2472,9 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void endOperation(long id) { OperationNotice.end(id); }
 
-        /** 旧页面只收到进行中回执，不能把它当成已播放。 */
-        @JavascriptInterface
-        public String playDouyin(String keyword) { return playDouyinTask(keyword, "legacy"); }
-
         @JavascriptInterface
         public void stopDouyin() {
-            ui.post(() -> { if (douyinPlayback != null) douyinPlayback.cancel(); });
+            stopDouyinFlow();
         }
 
         @JavascriptInterface
@@ -3109,9 +3144,15 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 
+    private void stopDouyinFlow() {
+        douyinShot++;
+        OperationNotice.end(douyinNotice);
+        douyinNotice = 0;
+    }
+
     @Override
     protected void onDestroy() {
-        if (douyinPlayback != null) douyinPlayback.cancel();
+        stopDouyinFlow();
         if (INST == this) INST = null;
         if (asr != null) { try { asr.stop(); } catch (Exception ignored) {} asr = null; }
         if (tts != null) { try { tts.stop(); tts.shutdown(); } catch (Exception e) {} tts = null; }

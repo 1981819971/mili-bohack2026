@@ -258,38 +258,18 @@
   */
   const T = {};
 
-  /* 原生负责跨 App 的等待；JS 只接收一次最终回执，不在后台轮询屏幕。 */
-  const videoRequests = new Map();
-  let videoRequestId = 0;
-  window.__onDouyinResult = function (id, result) {
-    const finish = videoRequests.get(String(id));
-    if (finish) finish(result);
-  };
-
+  /* 恢复旧版派单接口：点击和等待全部由 Java 继续执行，JS 不再等新增回调。 */
   function playDouyin(nn, title) {
-    return new Promise(function (resolve) {
-      const id = 'video-' + Date.now() + '-' + (++videoRequestId);
-      const timer = setTimeout(function () {
-        try { if (nn.stopDouyin) nn.stopDouyin(); } catch (e) {}
-        finish({ ok: false, detail: '视频还没打开，我先停下，您稍后再试。' });
-      }, 17000);
-      function finish(result) {
-        if (!videoRequests.delete(id)) return;
-        clearTimeout(timer);
-        const r = result && typeof result === 'object' ? result
-          : { ok: false, detail: '这次没拿到视频的打开结果。' };
-        r.terminal = true; // 本条短流程已经结束，失败也不再自动重开一次搜索。
-        r.fastReply = String(r.detail || '这次没打开视频。');
-        resolve(r);
-      }
-      videoRequests.set(id, finish);
-      try {
-        const r = nn.playDouyinTask ? NJ(nn.playDouyinTask(title, id)) : null;
-        if (!r || !r.ok || !r.pending) finish(r || {
-          ok: false, detail: '这个版本还不能确认视频结果，请更新米粒后再试。'
-        });
-      } catch (e) { finish({ ok: false, detail: '这次没打开抖音。' }); }
-    });
+    let result;
+    try {
+      result = nn.playDouyin ? fromJava(nn.playDouyin(title))
+        : { ok: false, detail: '这个版本还没有接好抖音播放。' };
+    } catch (e) { result = { ok: false, detail: '这次没打开抖音。' }; }
+    // ok 仅表示旧流程已经启动，回复保持进行时，不能说已经全屏播放。
+    result.pending = result.ok;
+    result.terminal = true;
+    result.fastReply = result.detail;
+    return result;
   }
 
   /* 多步操作共用提示入口。包装 run，经验重放和工具内部转调也会经过这里。
@@ -310,6 +290,8 @@
     if (!title) return run;
     return function (a, E) {
       E = E || {};
+      // 抖音的提示由原生单独管理，避免 JS 再挂一份提示，原生收起后仍有残留。
+      if (name === 'search_in_app' && /抖音|douyin/i.test(String(a && a.app || ''))) return run(a, E);
       const nn = n(E);
       if (!nn || !nn.beginOperation || !nn.endOperation) return run(a, E);
       let id;
@@ -1142,15 +1124,15 @@
       let targetPkg = '';
       if (!kw) return { ok: false, detail: '没说要搜什么。' };
 
-      // 抖音用专用深链短流程。保留完整片名，失败后不再落入通用搜索重开 App。
+      // 恢复旧版关键词清理和 playDouyin 派单；不再等待新状态机的最终回调。
       if (/抖音|douyin/i.test(app)) {
-        const r = await playDouyin(nn, kw);
-        if (r.ok && r.completed) {
+        const clean = kw.replace(/抖音|打开|然后|全屏|搜一下|搜搜|搜索|给我|帮我|一下|[,，。.!！?？\s]/g, '').trim() || kw;
+        const r = playDouyin(nn, clean);
+        if (r.ok) {
           try {
-            if (r.fullscreen) window.__MILI_WATCH_OK = { at: Date.now(), app: app, kw: kw };
             if (E.memoAdd) {
               E.memoAdd('preference', '看视频用抖音', { key: 'video.platform', tag: 'video_platform' });
-              E.memoAdd('event', '上次看的是《' + kw + '》', { key: 'video.last_title', tag: 'last_watch' });
+              E.memoAdd('event', '上次看的是《' + clean + '》', { key: 'video.last_title', tag: 'last_watch' });
             }
           } catch (e) {}
         }
