@@ -4937,7 +4937,7 @@ async function handleSay(text, quiet, opts) {
      这里保留显式备注通道，只给家人端补配置用，不作为「日新」闭环证据。 */
   try {
     const rawT = String(text || '').trim();
-    const mt = rawT.match(/^(?:米粒[，,。！!]?)?(?:你)?记(?:住|一下|着|好)[：:，,、]?\s*(.+)$/);
+    const mt = rawT.match(/^(?:米粒[，,。！!]?\s*)?(?:请\s*)?(?:你\s*)?(?:(?:帮我|替我)\s*)?记(?:住|一下|着|好)[：:，,、]?\s*(.+)$/);
     if (mt && mt[1] && window.MILI_MEMO) {
       let fact = mt[1].trim();
       /* 教学里说了「要做什么」，就把动作写死进记忆，执行层按它纠正 ——
@@ -11572,6 +11572,14 @@ window.MILI_FALL_NOW = function(by){
     /* —— 2026-11-07 老界面换皮：learn/did/family/bp 四个屏从老 page-* 框架
           搬进 f7，数据源不变（S.rules / S.did / S.fam / localStorage）—— */
     learn: function(){
+      var facts = window.MILI_MEMO ? window.MILI_MEMO.memo() : [];
+      var fl = facts.length
+        ? '<div class="f7card">' + facts.map(function(m){
+            return '<div class="f7row" style="align-items:flex-start">' +
+              '<span class="tx" style="flex:1;min-width:0;overflow-wrap:anywhere">' + esc(m.text) + '</span>' +
+              '<button class="rec" data-act="delmemo" data-id="' + esc(m.id) + '" style="flex:none">删</button></div>';
+          }).join('') + '</div>'
+        : '<div class="f7blank"><b>还没有记下的事</b><small>说「帮我记住，我女儿叫小芳」就能添加</small></div>';
       var rules = (S.rules || []).slice().reverse().slice(0, 30);
       var unk = (S.unknown || []).slice().reverse().slice(0, 12);
       var rl = rules.length
@@ -11581,7 +11589,7 @@ window.MILI_FALL_NOW = function(by){
               '<br><span style="font-size:13px;color:#6B708C">' + esc(r.ans || '') + '</span></span>' +
               '<button class="rec" data-act="delrule" data-id="' + esc(r.id || '') + '" style="flex:none">删</button></div>';
           }).join('') + '</div>'
-        : '<div class="f7blank"><b>还没有记下的事</b><small>老人说「帮我记住…」，米粒就收在这里</small></div>';
+        : '';
       var ul = unk.length
         ? '<div class="f7card">' + unk.map(function(u, i){
             return '<div class="f7row" style="cursor:default">' +
@@ -11591,7 +11599,8 @@ window.MILI_FALL_NOW = function(by){
           }).join('') + '</div>'
         : '';
       return nav('米粒记事本') +
-        '<div class="f7sec"><i></i>记住的事 · 答得上</div>' + rl +
+        '<div class="f7sec"><i></i>记住的事 · ' + facts.length + ' 条</div>' + fl +
+        (rl ? '<div class="f7sec"><i></i>以前学过的问答</div>' + rl : '') +
         (ul ? '<div class="f7sec"><i></i>答不上的 · 等着学</div>' + ul : '') +
         '<p style="font-size:13px;color:#9A9FBA;line-height:1.6;margin:12px 2px">老人端说「帮我记住…」就往这里添；删掉就是忘了。</p>';
     },
@@ -12047,6 +12056,10 @@ window.MILI_FALL_NOW = function(by){
         render('bp');
         f7toast(isBp ? '血压记下了' : '血糖记下了');
         return;
+      }
+      if (n.dataset.act === 'delmemo'){
+        var removed = window.MILI_MEMO && window.MILI_MEMO.del(n.dataset.id);
+        render('learn'); f7toast(removed ? '忘掉了' : '没删成功，请重试'); return;
       }
       if (n.dataset.act === 'delrule'){
         S.rules = (S.rules || []).filter(function(r){ return r.id !== n.dataset.id; });
@@ -12595,7 +12608,7 @@ window.MILI_FALL_NOW = function(by){
     h += '<button class="v9row" data-do="vp"><span class="ic" style="color:#5B4DF0">' + ic9('mic') +
          '</span><span class="tx">录老人的声音<div class="sb">进引导第 8 步录，点一下开始、自己点一下结束</div></span><span class="go">›</span></button>';
     h += '<button class="v9row" data-do="openRhythm"><span class="ic" style="color:#5B4DF0">' + ic9('spark') +
-         '</span><span class="tx">它记住了什么<div class="sb">不是您教的，是它看出来的 · 可删可清空</div></span><span class="go">›</span></button>';
+         '</span><span class="tx">它记住了什么<div class="sb">您交代的事 · 生活习惯 · 可删可清空</div></span><span class="go">›</span></button>';
     /* 2026-11-12 菲尔特：「把日新板块换成演示模式」。
        日新那页是给家人端看的两次运行对照，评委在台上没法跟着点；
        这里换成一台手机就能演完的两遍。 */
@@ -12707,6 +12720,8 @@ window.MILI_FALL_NOW = function(by){
 
   /* ---- ②·五 「它记住了什么」 ---- */
   function rhythmPage(){
+    const M = window.MILI_MEMO;
+    const facts = M ? M.memo() : [];
     const R = window.MILI_RHYTHM;
     const prof = R ? R.profile() : {};
     const dump = R ? R.dump() : { days: {} };
@@ -12716,7 +12731,15 @@ window.MILI_FALL_NOW = function(by){
     const rows = [['wake','起床'],['med','吃药'],['meal','吃饭'],['tv','看戏'],['sleep','睡觉']];
     let h = head('它记住的', true) + '<div class="v9body">';
     h += '<div class="v9h1">它记住的</div>';
-    h += '<p class="v9sub">这些不是您教的，是它看着您过日子记下的。同一件事记满 3 天才敢当真。</p>';
+    h += '<p class="v9sub">您交代要记住的事保存在这台手机上，保存后就会显示。生活习惯需要观察满 3 天。</p>';
+    h += '<div class="v9sec"><i></i>您交代的事 · ' + facts.length + ' 条</div>';
+    h += '<div class="v9card">';
+    if (!facts.length) h += '<p class="v9warn" style="padding:14px 16px">还没有保存的事。可以对米粒说「帮我记住，我女儿叫小芳」。</p>';
+    facts.forEach(function(m){
+      h += '<div class="v9row" style="align-items:flex-start"><span class="tx" style="min-width:0;overflow-wrap:anywhere">' + E9(m.text) + '</span>' +
+        '<button data-do="memoryDrop" data-id="' + E9(m.id) + '" style="flex:none;margin-left:10px;border:0;background:#FCEBEB;color:#A32D2D;border-radius:12px;padding:6px 10px;font-size:13px">删</button></div>';
+    });
+    h += '</div><div class="v9sec"><i></i>观察到的生活习惯</div>';
     h += '<div class="v9card">';
     h += '<div class="v9row"><span class="tx">已经看了</span><span class="go">' + days + ' 天</span></div>';
     h += '<div class="v9row"><span class="tx">今天主动说话</span><span class="go">' + bud.used + ' / ' + bud.cap + ' 次</span></div>';
@@ -12735,8 +12758,8 @@ window.MILI_FALL_NOW = function(by){
        + '<span class="tx">对照模式（现场用）<div class="sb" style="font-size:12px;color:#9A9FBA;font-weight:500">'
        + (S.rhythmOff ? '开着：只说固定时刻的通用话，不看您的习惯' : '关着：按它记住的节奏说话')
        + '</div></span></div>';
-    h += '<button class="v9btn gray" data-do="rhythmWipe">清空，从头再学</button>';
-    h += '<p class="v9warn">清空以后，它会退回「到点就提醒」，不再按您的习惯说话 —— 现场演示可回退。</p>';
+    h += '<button class="v9btn gray" data-do="rhythmWipe">清空全部记忆</button>';
+    h += '<p class="v9warn">会清除交代的事、聊天记忆、学会的操作和生活习惯，保留账号与联系人等配置。</p>';
     h += msg() + '</div>';
     return h;
   }
@@ -13270,8 +13293,13 @@ window.MILI_FALL_NOW = function(by){
       render(); return;
     }
     if (d === 'openRhythm') { page = 'rhythm'; render(); return; }
+    if (d === 'memoryDrop') {
+      const removed = window.MILI_MEMO && window.MILI_MEMO.del(n.dataset.id);
+      setMsg(removed ? '这件事忘掉了。' : '没删成功，您稍后再试一下。', !removed);
+      render(); return;
+    }
     if (d === 'rhythmDrop') {
-      const k = t.dataset.k;
+      const k = n.dataset.k;
       if (window.MILI_RHYTHM) window.MILI_RHYTHM.drop(k);
       render(); return;
     }

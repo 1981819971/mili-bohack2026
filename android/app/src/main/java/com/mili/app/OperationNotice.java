@@ -82,35 +82,46 @@ final class OperationNotice {
         banner = new LinearLayout(context);
         banner.setOrientation(LinearLayout.VERTICAL);
         banner.setGravity(Gravity.CENTER);
-        banner.setPadding(dp(context, 16), dp(context, 10), dp(context, 16), dp(context, 10));
+        banner.setPadding(dp(context, 20), dp(context, 16), dp(context, 20), dp(context, 16));
         banner.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(0xFFFFF0B3);
-        background.setStroke(dp(context, 2), 0xFFB86B00);
-        background.setCornerRadius(dp(context, 14));
+        // 与 design-tokens.css 的白卡、浅紫底、紫色点缀保持一致；只让背景半透明。
+        GradientDrawable background = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] { 0xD9FFFFFF, 0xCCF4F5FF });
+        background.setStroke(dp(context, 1), 0x80D8D8EE);
+        background.setCornerRadius(dp(context, 20));
         banner.setBackground(background);
-        banner.setElevation(dp(context, 8));
+        banner.setElevation(dp(context, 4));
+        TextView brand = text(context, 14);
+        brand.setText("米粒 · 正在帮您");
+        brand.setTextColor(0xFF4A3CD8);
+        banner.addView(brand);
         titleView = text(context, 22);
         titleView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         titleView.setMaxLines(2);
         titleView.setEllipsize(TextUtils.TruncateAt.END);
-        banner.addView(titleView);
-        TextView reminder = text(context, 20);
-        reminder.setText("请先别碰屏幕，办完提示会收起");
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, -2);
+        titleParams.setMargins(0, dp(context, 8), 0, dp(context, 8));
+        banner.addView(titleView, titleParams);
+        TextView reminder = text(context, 18);
+        reminder.setTextColor(0xFF3E4260);
+        reminder.setText("请先别碰屏幕，稍等一下");
         banner.addView(reminder);
+        android.util.DisplayMetrics display = context.getResources().getDisplayMetrics();
+        int width = Math.min(dp(context, 336), display.widthPixels - dp(context, 48));
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                width, WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        params.y = dp(context, 8);
+        // 居中后下移约 12% 屏高，避开顶部搜索栏，也不贴底部输入区。
+        params.gravity = Gravity.CENTER;
+        params.y = Math.round(display.heightPixels * 0.12f);
         manager.addView(banner, params);
     }
 
     private static TextView text(Context context, int size) {
         TextView text = new TextView(context);
-        text.setTextColor(0xFF302000);
+        text.setTextColor(0xFF1B1D2E);
         text.setTextSize(size);
         text.setGravity(Gravity.CENTER);
         return text;

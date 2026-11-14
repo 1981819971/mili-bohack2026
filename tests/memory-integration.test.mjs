@@ -393,3 +393,71 @@ test('损坏的历史或记忆记录不会拖垮启动与召回', () => {
   assert.equal(s.MILI_TOOL_ROUTER.stats().corrections, 0);
   assert.equal(s.MILI_CONTEXT.recall('我女儿叫什么名字').length, 0);
 });
+
+function memoryScreens(s) {
+  const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  Object.assign(s, { E9: escape, esc: escape, S: { rules: [], unknown: [] },
+    head: () => '', nav: () => '', msg: () => '' });
+  const app = read('app.js');
+  const start = app.indexOf('  function rhythmPage(){');
+  vm.runInContext(app.slice(start, app.indexOf('  /* ---- ③ 双端切换', start)), s);
+  const learn = app.indexOf('    learn: function(){');
+  const body = app.slice(learn + '    learn: '.length, app.indexOf('    did: function(){', learn)).trim().replace(/,$/, '');
+  vm.runInContext('this.renderNotebook = ' + body, s);
+}
+
+function explicitRemember(s, text) {
+  const app = read('app.js');
+  const start = app.indexOf('  try {\n    const rawT = String(text');
+  const end = app.indexOf('  /* 电视层开着时的快速通道', start);
+  s.text = text; s.say = line => { s.spoken = line; };
+  return vm.runInContext('(function(){' + app.slice(start, end) + '})()', s);
+}
+
+test('用户说帮我记住后，两处记忆页面都从真实事实库显示，重启后仍存在', () => {
+  const { s, data } = env(); s.MILI_MEMO.load('mili'); memoryScreens(s);
+  for (const prefix of ['记住：', '帮我记住，', '请你帮我记一下：', '米粒，帮我记住：']) {
+    const result = explicitRemember(s, prefix + '我女儿叫小芳');
+    assert.equal(result.ok, true);
+  }
+  assert.equal(s.MILI_MEMO.memoCount(), 1);
+  assert.ok(JSON.parse(data.get('mili_memory_v2')).facts.some(m => m.text === '我女儿叫小芳'));
+  assert.ok(s.rhythmPage().includes('我女儿叫小芳'));
+  assert.ok(s.renderNotebook().includes('我女儿叫小芳'));
+  const reboot = env(data).s; reboot.MILI_MEMO.load('mili'); memoryScreens(reboot);
+  assert.ok(reboot.rhythmPage().includes('我女儿叫小芳'));
+  assert.ok(reboot.renderNotebook().includes('我女儿叫小芳'));
+});
+
+test('两处记忆页面正确处理空态、过期、更正、删除及 HTML 内容', () => {
+  const { s } = env(); memoryScreens(s);
+  assert.ok(s.rhythmPage().includes('还没有保存的事'));
+  assert.ok(s.renderNotebook().includes('还没有记下的事'));
+  const old = s.MILI_MEMO.add('fact', '女儿叫旧名字', 'test', { key: 'daughter' });
+  const fact = s.MILI_MEMO.add('fact', '女儿叫小红', 'test', { key: 'daughter', replaces: old.id });
+  s.MILI_MEMO.add('event', '过期的事情', 'test', { expiresAt: Date.now() - 1000 });
+  s.MILI_MEMO.add('fact', '我的备注是<img src=x>', 'test');
+  for (const html of [s.rhythmPage(), s.renderNotebook()]) {
+    assert.ok(html.includes('女儿叫小红'));
+    assert.ok(!html.includes('女儿叫旧名字') && !html.includes('过期的事情'));
+    assert.ok(html.includes('&lt;img src=x&gt;') && !html.includes('<img src=x>'));
+  }
+  const app = read('app.js');
+  const start = app.indexOf("    if (d === 'memoryDrop') {");
+  const end = app.indexOf("    if (d === 'rhythmDrop')", start);
+  s.d = 'memoryDrop'; s.n = { dataset: { id: fact.id } };
+  s.setMsg = () => {}; s.render = () => {};
+  vm.runInContext('(function(){' + app.slice(start, end) + '})()', s);
+  assert.ok(!s.rhythmPage().includes('女儿叫小红'));
+  assert.ok(!s.renderNotebook().includes('女儿叫小红'));
+  assert.equal(s.MILI_CONTEXT.recall('女儿叫小红').length, 0);
+});
+
+test('显式记住指令存储失败时不能报成功，也不在页面显示', () => {
+  const { s, controls } = env(); s.MILI_MEMO.load('mili'); memoryScreens(s);
+  controls.fail.add('mili_memory_v2');
+  assert.equal(explicitRemember(s, '帮我记住，我喜欢喝花茶').ok, false);
+  assert.ok(s.spoken.includes('没存下来'));
+  assert.ok(!s.rhythmPage().includes('我喜欢喝花茶'));
+  assert.ok(!s.renderNotebook().includes('我喜欢喝花茶'));
+});
