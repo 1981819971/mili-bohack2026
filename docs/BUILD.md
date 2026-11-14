@@ -64,6 +64,15 @@ python -m pip install -r backend/requirements-dev.txt   # 本地开发服务器 
 
 ## 完整构建路径
 
+Android 本地测试可使用独立包名，保留原应用及其数据：
+`gradle assembleDebug -PmiliAbi=arm64-v8a -PmiliApplicationId=com.mili.app.local -PmiliAppLabel=米粒·本地测试`。
+不传这些参数时仍构建 `com.mili.app`。SDK 安装了 API 34 扩展平台时，可按实际版本传
+`-PmiliSdkExtension=12`；需要 Maven 镜像时传 `-PmiliUseMirror=true`。
+默认使用 Android 标准 debug 签名；要沿用已有本地测试签名，可传
+`-PmiliDebugKeystore=<本地 debug.keystore 路径>`（标准 `androiddebugkey` 别名与密码）。
+密钥库、本机工具链、APK 和设备备份均不上传。可选页面图标 `app/favicon.png`、
+`app/apple-touch-icon.png` 在本地补齐后，构建会同步到网页产物和 APK。
+
 1. `npm test && npm run check && npm run scan` —— 三条全绿
 2. 按上表补齐 `android/app/libs/`、`assets/asr/`、`app/assets/`
 3. 新建 `android/local.properties` 写本机 SDK 路径

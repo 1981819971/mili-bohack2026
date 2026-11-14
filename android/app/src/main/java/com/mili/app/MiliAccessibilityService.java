@@ -97,8 +97,118 @@ public class MiliAccessibilityService extends AccessibilityService {
 
     public static boolean ready() { return INSTANCE != null; }
 
+    /** 当前可操作窗口，不拿历史窗口推断当前页面。 */
+    public static String currentWindow() {
+        if (INSTANCE == null) return "";
+        try {
+            AccessibilityNodeInfo root = INSTANCE.getRootInActiveWindow();
+            if (root == null || root.getPackageName() == null) return "";
+            String pkg = root.getPackageName().toString();
+            return pkg + "/" + (pkg.equals(INSTANCE.lastPkg) ? INSTANCE.lastPage : "");
+        } catch (Throwable ignored) { return ""; }
+    }
+
+    /** 搜索流程的只读就绪检查；仅任务等待时调用，不额外订阅高频内容事件。 */
+    public static String searchState() {
+        if (INSTANCE == null) return "{}";
+        try {
+            AccessibilityNodeInfo root = INSTANCE.getRootInActiveWindow();
+            if (root == null || root.getPackageName() == null) return "{}";
+            String pkg = root.getPackageName().toString();
+            JSONObject state = new JSONObject();
+            state.put("pkg", pkg);
+            state.put("window", pkg + "/" + (pkg.equals(INSTANCE.lastPkg) ? INSTANCE.lastPage : ""));
+            state.put("readable", root.getChildCount() > 0 || root.isEditable());
+            state.put("search", findExact("搜索", 1200) != null);
+            AccessibilityNodeInfo input = findEditable(root, 0);
+            state.put("editable", input != null);
+            state.put("inputReady", input != null && input.isFocused() && input.isEnabled());
+            state.put("result", bigClickable(root, 0) != null);
+            return state.toString();
+        } catch (Throwable ignored) { return "{}"; }
+    }
+
     /** 红包那套要用服务本身（截屏 + 手势），给它一个入口 */
     public static MiliAccessibilityService self() { return INSTANCE; }
+
+    /** 微信步骤的可选提前就绪信号。只缩短等待，不筛选联系人、不增加点击或拒发分支。 */
+    public static boolean wechatStepReady(String step, String who, String text, int[] clipboardPoint) {
+        MiliAccessibilityService service = INSTANCE;
+        if (service == null) return false;
+        try {
+            AccessibilityNodeInfo root = service.getRootInActiveWindow();
+            if (root == null || !"com.tencent.mm".contentEquals(root.getPackageName())) return false;
+            if ("searchbox".equals(step) || "inputbox".equals(step)) {
+                String clipboard = "searchbox".equals(step) ? Name.searchTerm(who) : text;
+                if (clipboard == null || clipboard.isEmpty() || clipboardPoint == null) return false;
+                java.util.List<android.view.accessibility.AccessibilityWindowInfo> windows = service.getWindows();
+                if (windows != null) for (android.view.accessibility.AccessibilityWindowInfo window : windows) {
+                    if (window.getType() != android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
+                    // 确认键盘里出现本步剪贴板内容，不能仅凭键盘已打开就点粘贴。
+                    AccessibilityNodeInfo item = findExactIn(window.getRoot(), clipboard, 0, 0);
+                    if (item != null && item.isEnabled()) {
+                        android.graphics.Rect bounds = new android.graphics.Rect();
+                        item.getBoundsInScreen(bounds);
+                        if (bounds.contains(clipboardPoint[0], clipboardPoint[1])) return true;
+                    }
+                }
+                return false;
+            }
+            AccessibilityNodeInfo input = findEditable(root, 0);
+            String window = currentWindow();
+            switch (step) {
+                case "search":
+                    return (window.contains("FTS") || window.contains("Search"))
+                            && input != null && input.isEnabled();
+                case "paste":
+                    return input != null && input.getText() != null
+                            && Name.searchTerm(who).equals(input.getText().toString().trim())
+                            && findExactIn(root, Name.clean(who), 0, 0) != null;
+                case "result":
+                    return window.contains("ChattingUI") && input != null
+                            && findExactIn(root, Name.clean(who), 350, 0) != null;
+                case "clipbar":
+                    return input != null && input.getText() != null && text != null && text.contentEquals(input.getText())
+                            && visibleEnabled(root, "发送");
+                case "plus":
+                    return visibleEnabled(root, "照片") && visibleEnabled(root, "视频通话");
+                case "panelvideo":
+                case "panelcall":
+                    return visibleEnabled(root, "视频通话") && visibleEnabled(root, "语音通话")
+                            && visibleEnabled(root, "取消");
+                default: return false;
+            }
+        } catch (Exception ignored) { return false; }
+    }
+
+    private static boolean visibleEnabled(AccessibilityNodeInfo root, String label) {
+        AccessibilityNodeInfo node = findExactIn(root, label, 0, 0);
+        if (node == null || !node.isEnabled()) return false;
+        AccessibilityNodeInfo clickable = clickableUp(node, 0);
+        return clickable != null && clickable.isEnabled();
+    }
+
+    /** 只读地确认当前目标 App 的目标控件已可见可用。 */
+    public static boolean controlReady(String pkg, String... labels) {
+        if (INSTANCE == null) return false;
+        try {
+            AccessibilityNodeInfo root = INSTANCE.getRootInActiveWindow();
+            if (root == null || !pkg.contentEquals(root.getPackageName())) return false;
+            for (String label : labels) if (visibleEnabled(root, label)) return true;
+            return false;
+        } catch (Exception ignored) { return false; }
+    }
+
+    private static boolean inputTextReady(String pkg, String text) {
+        if (INSTANCE == null) return false;
+        try {
+            AccessibilityNodeInfo root = INSTANCE.getRootInActiveWindow();
+            if (root == null || !pkg.contentEquals(root.getPackageName())) return false;
+            AccessibilityNodeInfo input = findEditable(root, 0);
+            return input != null && input.isFocused() && input.isEnabled()
+                    && input.getText() != null && text.contentEquals(input.getText());
+        } catch (Exception ignored) { return false; }
+    }
 
     /** 任意界面的坐标点击（深链进抖音搜索页后点第一个视频进全屏用）。 */
     public static String tapAt(float fx, float fy) {
@@ -524,7 +634,7 @@ public class MiliAccessibilityService extends AccessibilityService {
                         return;
                     }
                     typeText(text);
-                    h.postDelayed(new Runnable() {
+                    UiWait.before(h, 700, () -> inputTextReady("com.cat.readall", text), new Runnable() {
                         @Override public void run() {
                             try {
                                 AccessibilityNodeInfo b = findExact("搜索", 500);
@@ -537,7 +647,7 @@ public class MiliAccessibilityService extends AccessibilityService {
                                 }
                             } catch (Throwable ignored) {}
                         }
-                    }, 700);
+                    });
                 } catch (Throwable ignored) {}
             }
         };
@@ -664,8 +774,9 @@ public class MiliAccessibilityService extends AccessibilityService {
         /* 控制栏收起来了：点一下画面把它唤出来，等节点树重建，再点一次。
            实测网页播放器的控制栏按钮 bounds 高度是 0（折叠态），
            isVisibleToUser() 会把它们全过滤掉 —— 所以这里不能按可见性筛。 */
+        final String pkg = currentWindow().split("/", 2)[0];
         tapPercent(0.5, 0.5);
-        try { Thread.sleep(600); } catch (Throwable ignored) {}
+        UiWait.pause(600, () -> controlReady(pkg, keys));
         String r1 = tryTapPlayer(keys);
         if (r1 != null) return r1;
         return "{\"ok\":false,\"err\":\"no_control\",\"hint\":\"已唤起控制栏\"}";

@@ -37,7 +37,7 @@ public final class A11yKeeper {
     private static final long REBIND_GAP_MS = 1000L;
 
     private static final KeeperPlan PLAN =
-            new KeeperPlan("com.mili.app", "com.mili.app.MiliAccessibilityService");
+            new KeeperPlan(BuildConfig.APPLICATION_ID, "com.mili.app.MiliAccessibilityService");
 
     private static final KeeperPlan.Clock CLOCK = SystemClock::elapsedRealtime;
 

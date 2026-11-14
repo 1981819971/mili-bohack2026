@@ -75,7 +75,7 @@ test('流式首句起播：onDelta 接回、确定性 streamed、纯说话轮才
 
 test('npm test 必须跑全部测试文件，不能只跑一个', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.match(pkg.scripts.test, /tests\/\*\.test\.mjs/, 'npm test 只跑单个文件时，其余 51 条形同虚设');
+  assert.equal(pkg.scripts.test, 'node --test', '使用 Node 自动发现全部测试，避免 Windows 不展开通配符或只运行一个文件');
 });
 
 test('评测分母只算该调工具的句子，5 条「不该调」不计入', () => {

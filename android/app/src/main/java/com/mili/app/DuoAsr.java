@@ -4,6 +4,7 @@ import android.content.Context;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.java_websocket.client.WebSocketClient;
@@ -48,17 +49,14 @@ public class DuoAsr {
 
     private static final int SR = 16000;
     private static final int CHUNK = 1600;          // 100ms @16k/16bit/mono = 3200 字节
-    /* 0.0025 是 CloudAsr（说完再传）的尺子，流式不能用：
-       真机室内底噪峰值 0.0136~0.0146，比它还高 5 倍 —— 环境声被当成
-       「老人在说话」，1.1 秒就断一句，服务端还把噪音识别成
-       「来我的这里。」「你真的是。」，米粒跟着乱答（23:51 实测）。 */
-    private static final float VAD_TH = 0.02f;
+    private static final float MIN_VAD = 0.010f;   // 底噪阈值下限，避免静音或全零帧把阈值拉到零
     private static final int TAIL_MS = 1400;        // 住口多久算说完
+    private static final int SENTENCE_TAIL_MS = 1000; // 有句末标点且文字、声音都稳定时提前收尾
     private static final int NO_VOICE_MS = 7000;    // 一直没人说话就收工
     private static final int MAX_MS = 25000;
 
     public interface OnText {
-        /** partial：边听边出的半截字，只用来显示，别拿去决策 */
+        /** partial：边听边出的半截字，用于显示和播放预连接，不拿去执行操作 */
         void onPartial(String text);
         /** final：整句定稿 */
         void onFinal(String text, boolean ok);
@@ -90,7 +88,9 @@ public class DuoAsr {
     private int seq = 1;
 
     private final StringBuilder partial = new StringBuilder();
-    private String best = "";
+    private volatile String best = "";
+    private String speechKey = "";                // 只在 WebSocket 回调里更新，忽略标点修订
+    private volatile long textChangedAt = 0;       // 录音线程也要知道识别文字是否仍在变化
 
     public DuoAsr(Context c, OnText cb) {
         this.ctx = c.getApplicationContext();
@@ -191,18 +191,18 @@ public class DuoAsr {
                     short[] buf = new short[CHUNK];
                     synchronized (voiceLock) { voiceLen = 0; }
                     Voice.lastOwn = null;
-                    long t0 = System.currentTimeMillis();
+                    long t0 = SystemClock.elapsedRealtime();
                     long lastVoice = t0;
                     boolean heard = false;
                     int packets = 0;
                     int zeroFrames = 0;
                     String stopWhy = "max";
-                    /* 前 1.5 秒（15 帧）采样底噪，取中位 × 2.2 当「有人说话」线。
-                       写死 0.02 在这台机上把人声也切了，写死 0.0025 又把底噪当话。
-                       只有按这台机自己的底噪算才两头都成立。 */
+                    /* 每 15 帧取较安静的四分位估计底噪，后续只下调阈值。
+                       开头可能就在说话，不能把这批人声永久当成底噪。
+                       静下来后重新估计，避免阈值高于整轮音量、一直等无人说话超时。 */
                     final float[] calib = new float[15];
                     int calibN = 0;
-                    float vad = 0.006f;
+                    float vad = MIN_VAD;
                     double peak = 0;
 
                     while (running && !finished) {
@@ -211,7 +211,7 @@ public class DuoAsr {
                            在线识别一帧都读不到（23:40 真机「根本不说话」）。
                            超过 12 秒就当它已经说完，强制开闸。 */
                         if (MicGate.isSpeaking() && MicGate.sinceShut() < 12000) {
-                            t0 = System.currentTimeMillis();
+                            t0 = SystemClock.elapsedRealtime();
                             lastVoice = t0;
                             Thread.sleep(60);
                             continue;
@@ -223,24 +223,24 @@ public class DuoAsr {
                         for (int i = 0; i < n; i++) { double v = buf[i] / 32768.0; sum += v * v; }
                         double rms = Math.sqrt(sum / Math.max(1, n));
                         if (rms > peak) peak = rms;
-                        if (calibN < calib.length) {
-                            /* 校准期不判人声：底噪一进来就把 heard 点着，
-                               第一轮 1.4 秒就收，阈值还没算出来。 */
-                            calib[calibN++] = (float) rms;
-                        } else {
-                            if (calibN != Integer.MAX_VALUE) {
-                                float[] c = calib.clone();
-                                java.util.Arrays.sort(c);
-                                vad = Math.max(0.010f, c[7] * 2.2f);
+                        calib[calibN++ % calib.length] = (float) rms;
+                        if (calibN % calib.length == 0) {
+                            float[] c = calib.clone();
+                            java.util.Arrays.sort(c);
+                            float nextVad = Math.max(MIN_VAD, c[calib.length / 4] * 2.2f);
+                            if (calibN == calib.length || nextVad < vad) {
+                                vad = nextVad;
                                 f(String.format(java.util.Locale.CHINA,
-                                        "底噪校准完成 中位=%.4f 阈值=%.4f", c[7], vad));
-                                calibN = Integer.MAX_VALUE;   // 只算一次
+                                        "底噪更新 四分位=%.4f 阈值=%.4f", c[calib.length / 4], vad));
                             }
-                            if (rms > vad) { heard = true; lastVoice = System.currentTimeMillis(); }
+                        }
+                        if (calibN >= calib.length && rms > vad) {
+                            heard = true;
+                            lastVoice = SystemClock.elapsedRealtime();
                         }
 
                         /* 2026-11-10 订正 11-09 的「静音帧发静音包」：
-                           当时 VAD_TH=0.02 是为了压底噪（当时底噪 0.0025），
+                           当时阈值 0.02 是为了压底噪（当时底噪 0.0025），
                            但这台机 + 真人说话实测峰值才 0.01 —— 人声全被当静音切了，
                            火山收 7 秒静音包，定稿永远「」。
                            现在改成**全部发真音频**：持续心跳不丢，静音由服务端
@@ -265,9 +265,20 @@ public class DuoAsr {
                         if (rms == 0.0) zeroFrames++; else zeroFrames = 0;
                         if (zeroFrames == 15) f("警告：连续 1.5 秒音频全 0，麦克风被占了");
 
-                        long now = System.currentTimeMillis();
-                        if (heard && now - lastVoice > TAIL_MS) { stopWhy = "tail"; break; }
-                        if (!heard && now - t0 > NO_VOICE_MS) { stopWhy = "novoice"; break; }
+                        long now = SystemClock.elapsedRealtime();
+                        long changedAt = textChangedAt;
+                        boolean hasSpeech = heard || changedAt > 0;
+                        String recognized = best.trim();
+                        boolean sentenceEnded = !recognized.isEmpty()
+                                && "。！？.!?".indexOf(recognized.charAt(recognized.length() - 1)) >= 0;
+                        int tailMs = changedAt > 0 && sentenceEnded ? SENTENCE_TAIL_MS : TAIL_MS;
+                        // 文字变化也算仍在说话；重复包和单纯补标点不会让等待反复续期。
+                        if (hasSpeech && calibN >= calib.length
+                                && now - Math.max(lastVoice, changedAt) >= tailMs) {
+                            stopWhy = tailMs == SENTENCE_TAIL_MS ? "sentence" : "tail";
+                            break;
+                        }
+                        if (!hasSpeech && now - t0 > NO_VOICE_MS) { stopWhy = "novoice"; break; }
                         if (now - t0 > MAX_MS) { stopWhy = "max"; break; }
                     }
 
@@ -279,8 +290,8 @@ public class DuoAsr {
                     /* 等最终包回来。2026-11-10 真机：3 秒经常不够，
                        末包发出去后服务端还没回 definite 帧就主动收工，
                        定稿「」—— 老人明明说了话，一个字都到不了前端。 */
-                    long w = System.currentTimeMillis();
-                    while (!finished && System.currentTimeMillis() - w < 5000) Thread.sleep(50);
+                    long w = SystemClock.elapsedRealtime();
+                    while (!finished && SystemClock.elapsedRealtime() - w < 5000) Thread.sleep(50);
                     if (!finished) { f("等最终包 5 秒超时，best=「" + best + "」"); finish(best); }
                 } catch (Throwable t) {
                     f("录音异常 " + t);
@@ -427,6 +438,7 @@ public class DuoAsr {
     }
 
     private void handle(byte[] b) {
+        if (finished) return;
         try {
             if (b.length < 4) return;
             int type = (b[1] >> 4) & 0x0f;
@@ -486,9 +498,14 @@ public class DuoAsr {
             if (result != null) {
                 String t = result.optString("text", "");
                 if (t != null && t.length() > 0) {
-                    f("服务端出字「" + t + "」");
+                    String key = t.replaceAll("[\\p{P}\\p{Z}\\s]", "");
+                    if (!key.isEmpty() && !key.equals(speechKey)) {
+                        speechKey = key;
+                        textChangedAt = SystemClock.elapsedRealtime();
+                    }
                     best = t;
                     if (!t.equals(partial.toString())) {
+                        f("服务端出字「" + t + "」");
                         partial.setLength(0);
                         partial.append(t);
                         cb.onPartial(t);

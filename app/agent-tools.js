@@ -39,6 +39,20 @@
     try { return JSON.parse(String(raw)); } catch (e) { return null; }
   }
 
+  // 条件就绪就继续；不可读或旧版原生桥仍使用原来的等待上限。
+  async function waitForSearch(nn, ready, timeout, pkg) {
+    if (!nn.searchState) { await nap(timeout); return false; }
+    const until = Date.now() + timeout;
+    while (true) {
+      let state;
+      try { state = NJ(nn.searchState()); } catch (e) {}
+      if (state && (!pkg || state.pkg === pkg) && ready(state)) return true;
+      const left = until - Date.now();
+      if (left <= 0) return false;
+      await nap(Math.min(350, left));
+    }
+  }
+
   /* 把 Java 的 {ok,did|why,say} 翻成统一的 {ok,detail}。
      say 是 Java 侧写好的老人话，直接当 detail 用，前端不再自己编。 */
   function fromJava(raw) {
@@ -243,6 +257,40 @@
      · 参数说明里明说「从老人原话里取，别改字」，人名地名才不会被翻译
   */
   const T = {};
+
+  /* 原生负责跨 App 的等待；JS 只接收一次最终回执，不在后台轮询屏幕。 */
+  const videoRequests = new Map();
+  let videoRequestId = 0;
+  window.__onDouyinResult = function (id, result) {
+    const finish = videoRequests.get(String(id));
+    if (finish) finish(result);
+  };
+
+  function playDouyin(nn, title) {
+    return new Promise(function (resolve) {
+      const id = 'video-' + Date.now() + '-' + (++videoRequestId);
+      const timer = setTimeout(function () {
+        try { if (nn.stopDouyin) nn.stopDouyin(); } catch (e) {}
+        finish({ ok: false, detail: '视频还没打开，我先停下，您稍后再试。' });
+      }, 17000);
+      function finish(result) {
+        if (!videoRequests.delete(id)) return;
+        clearTimeout(timer);
+        const r = result && typeof result === 'object' ? result
+          : { ok: false, detail: '这次没拿到视频的打开结果。' };
+        r.terminal = true; // 本条短流程已经结束，失败也不再自动重开一次搜索。
+        r.fastReply = String(r.detail || '这次没打开视频。');
+        resolve(r);
+      }
+      videoRequests.set(id, finish);
+      try {
+        const r = nn.playDouyinTask ? NJ(nn.playDouyinTask(title, id)) : null;
+        if (!r || !r.ok || !r.pending) finish(r || {
+          ok: false, detail: '这个版本还不能确认视频结果，请更新米粒后再试。'
+        });
+      } catch (e) { finish({ ok: false, detail: '这次没打开抖音。' }); }
+    });
+  }
 
   function def(name, desc, params, required, run) {
     T[name] = { name: name, desc: desc, params: params, required: required || [], run: run };
@@ -936,25 +984,19 @@
     { name: { type: 'string', description: '想看的内容或 App 名字，如「红果短剧」「哔哩」「新闻联播」' } },
     ['name'],
     function (a, E) {
-      /* 直达优先：预合成过的内容一秒内全屏 */
-      const d = window.MILI_TV && window.MILI_TV.resolve(a.name);
-      if (d) {
-        if (d.type === 'tv') return window.MILI_TV.open(d.url, d.name);
-        if (d.type === 'dl') return window.MILI_TV.openDl(d);
-          if (d.type === 'app') return window.MILI_TV.openApp(d);
-        if (d.type === 'app') return window.MILI_TV.openApp(d.pkg, d.name);
+      const name = String(a.name || '').trim();
+      if (!name) return { ok: false, detail: '您想看什么？' };
+      // 明确的软件名直接打开，不先被视频解析器改成一次搜索。
+      if (PKG[name] || ALIAS[normName(name)]) return T.open_app.run({ name: name }, E);
+      const tv = window.MILI_TV;
+      const direct = tv && tv.resolve(name);
+      if (direct) {
+        if (direct.type === 'tv') return tv.open(direct.url, direct.name);
+        if (direct.type === 'dl') return tv.openDl(direct);
+        if (direct.type === 'app') return tv.openApp(direct);
       }
-      const nn = n(E);
-      if (!nn) return noNative();
-      /* 🚫 2026-11-12：watchWhat 这个原生方法根本不存在（调了就是 noNative），
-         而且悟空下架后也没人再接这条路。直接走抖音一条龙。 */
-      if (window.MILI_TV) {
-        return window.MILI_TV.openDl({
-          url: 'snssdk1128://search?keyword=' + encodeURIComponent(a.name),
-          name: '抖音·' + a.name
-        });
-      }
-      return noNative();
+      // 只点名软件时直接打开；片名统一走选片流程，不再只打开搜索页就收工。
+      return T.search_in_app.run({ app: '抖音', keyword: name }, E);
     });
 
   def('volume',
@@ -1046,81 +1088,63 @@
     ['keyword'],
     async function (a, E) {
       const nn = n(E); if (!nn) return noNative();
-      const wait = nap;
       const J = (x) => { try { return JSON.parse(x); } catch (e) { return { ok: false }; } };
 
       const app = String(a.app || '').trim();
       const kw = String(a.keyword || '').trim();
+      let targetPkg = '';
       if (!kw) return { ok: false, detail: '没说要搜什么。' };
 
-      /* 🚨 2026-11-10 21:4x 菲尔特真机实弹：「抖音打开天天耍大牌，然后全屏」
-         被模型拆成 open_app → ui_map → tap_at(搜索框) → tap_at(搜索)，
-         停在 SearchResultActivity 结果页、全程 ROTATION_0，视频都没点开。
-         抖音不要再走 20 秒的 UI 自动化，也不许模型自己点：一次桥调用
-         playDouyin(kw) 就是原生一条龙（深链 → 点第一张卡 → 全屏 → 验横屏）。 */
+      // 抖音用专用深链短流程。保留完整片名，失败后不再落入通用搜索重开 App。
       if (/抖音|douyin/i.test(app)) {
-        const clean = String(kw)
-          .replace(/抖音|打开|然后|全屏|搜一下|搜搜|搜索|给我|帮我|一下|[,，。.!！?？\s]/g, '')
-          .trim() || kw;
-        try {
-          if (nn.playDouyin) {
-            const r = JSON.parse(nn.playDouyin(clean) || '{}');
-            if (r && r.ok) {
-              /* 演示模式要一个不会骗人的「真开播了」信号。
-                 原生 playDouyin 返回 ok 才算数：深链打开了、第一张卡点了、
-                 横屏验过了，三道都过才给 ok。演示模式的第 3 遍全靠它结算 ——
-                 那一遍一句话都没问，记忆也不会再变，除了这个没有别的证据。 */
-              try {
-                window.__MILI_WATCH_OK = { at: Date.now(), app: app, kw: clean };
-              } catch (e4) {}
-              /* 2026-11-12：办成一次就把「看视频用抖音」记进事实层。
-                 下一回他再点片名，提示词里就带着这条，模型不用再问平台 ——
-                 追问从「问平台+问片名」降到「只问片名」。这是他答一句换来的，不是预置的。 */
-              try {
-                if (E.memoAdd) {
-                  /* 2026-11-12 分级记：第一次只记「平台」，第二次才记「片名」。
-                     道理是真实的 —— 平台是稳定的（他这台手机看视频就用抖音），
-                     片名是一次性的，得再看一次才敢当成他的习惯。
-                     顺带让追问自然递减：第 1 回问平台+片名，第 2 回只问片名，第 3 回不问。 */
-                  let seenPlat = false;
-                  try { seenPlat = !!(E.memoFind && E.memoFind('看视频用').length); } catch (e3) {}
-                  E.memoAdd('preference', '看视频用抖音', 'search_in_app');
-                  if (seenPlat) E.memoAdd('event', '上次看的是《' + clean + '》', 'search_in_app');
-                }
-              } catch (e2) {}
-              return { ok: true,
-                detail: '「' + clean + '」已经在抖音横屏全屏播放了。任务到此完成，'
-                      + '不要再调用任何工具（尤其不要 look_screen / player_control / ui_map），直接回一句给老人。' };
+        const r = await playDouyin(nn, kw);
+        if (r.ok && r.completed) {
+          try {
+            if (r.fullscreen) window.__MILI_WATCH_OK = { at: Date.now(), app: app, kw: kw };
+            if (E.memoAdd) {
+              const seen = !!(E.memoFind && E.memoFind('看视频用').length);
+              E.memoAdd('preference', '看视频用抖音', 'search_in_app');
+              if (seen) E.memoAdd('event', '上次看的是《' + kw + '》', 'search_in_app');
             }
-          }
-        } catch (e) {}
+          } catch (e) {}
+        }
+        return r;
       }
 
       if (app) {
         const p = pkgOf(app, nn);
         if (!p) return { ok: false, detail: '不认得「' + app + '」这个软件。' };
         if (nn.hasApp && !nn.hasApp(p)) return { ok: false, detail: '这台手机上没装' + app + '。' };
-        if (nn.launchApp) nn.launchApp(p);
-        await wait(2600);
+        targetPkg = p;
+        const current = nn.searchState ? NJ(nn.searchState()) : null;
+        if (!current || current.pkg !== p) {
+          if (nn.launchApp) nn.launchApp(p);
+          await waitForSearch(nn, (s) => s.search || s.editable, 2600, p);
+        }
       }
 
       /* 1) 进搜索页。有的 App 要等一下才出搜索入口 */
-      let hit = J(nn.tapText('搜索'));
+      const searchPage = nn.searchState ? NJ(nn.searchState()) : null;
+      let hit = searchPage && (!targetPkg || searchPage.pkg === targetPkg) && searchPage.editable
+        ? { ok: true } : J(nn.tapText('搜索'));
       if (!hit.ok && nn.pressBack) {
         /* 常见情况：它还停在上次那个搜索结果页，界面上没有搜索入口。
            退两步回首页再找。 */
-        nn.pressBack(); await wait(900);
+        nn.pressBack(); await waitForSearch(nn, (s) => s.search, 900, targetPkg);
         hit = J(nn.tapText('搜索'));
         if (!hit.ok) {
-          nn.pressBack(); await wait(900);
+          nn.pressBack(); await waitForSearch(nn, (s) => s.search, 900, targetPkg);
           hit = J(nn.tapText('搜索'));
         }
       }
-      if (!hit.ok) { await wait(1200); hit = J(nn.tapText('搜索')); }
+      if (!hit.ok) {
+        await waitForSearch(nn, (s) => s.search, 1200, targetPkg);
+        hit = J(nn.tapText('搜索'));
+      }
       if (!hit.ok) {
         return { ok: false, detail: '这个界面上没找到搜索的地方，可能还没加载完。' };
       }
-      await wait(1400);
+      await waitForSearch(nn, (s) => s.editable, 1400, targetPkg);
 
       /* 2) 打字。搜索框可能还没焦点，先点一下再打。
          打完**必须验一遍**：有的输入框对「写字」返回成功，屏幕上却一个字没有
@@ -1134,8 +1158,6 @@
         } catch (e) { return true; }
       };
 
-      const silentFail = (r) => !(r && r.ok) || (nn.screenText && !screenHas(kw));
-
       /* 以前在这类框上白试过，就直接走粘贴 —— 这一步才是「学到了」的兑现：
          不是每次都重演一遍失败，是知道它不行就绕开。 */
       const known = !!(E.knownFail && E.knownFail('type_text', app));
@@ -1147,31 +1169,36 @@
       }
       if (!typed.ok) {
         nn.tapText('搜索');
-        await wait(700);
+        await waitForSearch(nn, (s) => s.inputReady, 700, targetPkg);
         typed = J(nn.typeText(kw));
         if (typed.ok && !screenHas(kw)) typed = { ok: false };
       }
       if (!typed.ok && nn.pasteText) {
         nn.tapText('搜索');
-        await wait(700);
+        await waitForSearch(nn, (s) => s.inputReady, 700, targetPkg);
         typed = J(nn.pasteText(kw));
       }
       if (!typed.ok) return { ok: false, detail: '搜索框里打不进字（写字和粘贴都试过了）。' };
-      await wait(900);
+      await waitForSearch(nn, (s) => s.search, 900, targetPkg);
 
       /* 3) 提交搜索：只点屏幕上半部的「搜索」，避开键盘上那个同名键 */
       let sub = { ok: false };
       if (nn.tapTextTop) sub = J(nn.tapTextTop('搜索', 1200));
-      if (!sub.ok) nn.tapText('搜索');
-      await wait(3500);
-      /* 还停在联想页就再提交一次 */
-      if (nn.tapTextTop && !sub.ok) { J(nn.tapTextTop('搜索', 1200)); await wait(2500); }
+      if (!sub.ok) sub = J(nn.tapText('搜索'));
+      if (!sub.ok) return { ok: false, detail: '没找到搜索按钮，我先停下，您可以自己点一下。' };
+      const ready = await waitForSearch(nn, (s) => s.result, 3500, targetPkg);
+      const before = nn.searchState ? NJ(nn.searchState()) : null;
+      if (!ready && before && before.readable) {
+        return { ok: false, detail: '搜索结果还没加载好，我先停下，您稍后再试。' };
+      }
 
       /* 4) 点第一条 */
       const first = J(nn.tapResult());
       if (!first.ok) return { ok: false, detail: '搜到了，但没点开第一条。' };
-      await wait(1200);
-      return { ok: true, detail: '在' + (app || '这个 App') + '里搜「' + kw + '」，第一条点开了。' };
+      const opened = await waitForSearch(nn,
+        (s) => before && before.window && s.window && s.window !== before.window, 1200, targetPkg);
+      const detail = opened ? '搜索结果页面给您打开了。' : '已点击第一条搜索结果，请稍等页面加载。';
+      return { ok: true, detail: detail, fastReply: detail };
     });
 
   def('tap_result',

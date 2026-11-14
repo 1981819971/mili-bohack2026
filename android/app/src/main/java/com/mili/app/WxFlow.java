@@ -404,7 +404,7 @@ public class WxFlow {
                             @Override public void run() {
                                 curIdx++;
                                 lastStepAt = System.currentTimeMillis();
-                                ui.postDelayed(runStep, gapFor("paste"));
+                                waitAfterStep("paste");
                             }
                         }, 420);
                     }
@@ -450,7 +450,7 @@ public class WxFlow {
                             @Override public void run() {
                                 curIdx++;
                                 lastStepAt = System.currentTimeMillis();
-                                ui.postDelayed(runStep, gapFor("result"));
+                                waitAfterStep("result");
                             }
                         }, 400);
                     }
@@ -467,7 +467,7 @@ public class WxFlow {
                         @Override public void run() {
                             curIdx++;
                             lastStepAt = System.currentTimeMillis();
-                            ui.postDelayed(runStep, gapFor(key));
+                            waitAfterStep(key);
                         }
                     }, 400);
                 }
@@ -621,7 +621,26 @@ public class WxFlow {
         return Boolean.FALSE;
     }
 
-    /** 每步之间留多久。搜索后要等结果，弹层出来要等动画 —— 不能一律同一个间隔。 */
+    /** 保留原有动作和等待上限，仅可靠读到下一步所需控件时提前继续。 */
+    private void waitAfterStep(String key) {
+        switch (key) {
+            case "search": case "searchbox": case "paste": case "result":
+            case "inputbox": case "clipbar": case "plus": case "panelvideo": case "panelcall":
+                break;
+            default:
+                ui.postDelayed(runStep, gapFor(key));
+                return;
+        }
+        final long task = taskStartAt;
+        final int step = curIdx;
+        final int[] clipboardPoint = point("clipbar");
+        UiWait.before(ui, gapFor(key),
+                () -> MiliAccessibilityService.wechatStepReady(key, curWho, curText, clipboardPoint),
+                () -> running && taskStartAt == task && curIdx == step,
+                runStep);
+    }
+
+    /** 原有兜底时长：控件读不到或无法判断就绪时保持不变。 */
     private long gapFor(String key) {
         switch (key) {
             case "search": return 2000;      // 等搜索页真的切过来（原来 1200 太急）

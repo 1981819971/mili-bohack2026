@@ -53,6 +53,7 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private Actions actions;
+    private DouyinPlayback douyinPlayback;
     private Vision vision;
     private android.webkit.ValueCallback<Uri[]> fileCb = null;
     private IrBlaster ir;
@@ -1421,6 +1422,10 @@ public class MainActivity extends Activity {
 
     /** 结果回给网页 */
     private void emit(final String text, final boolean isFinal) {
+        // 有效文字刚出现就预连接播放；只准备连接，定稿之前不播报、不执行操作。
+        if (!isFinal && text != null && text.trim().length() >= 2) {
+            try { Doubao.prepare(); } catch (Throwable ignored) {}
+        }
         ui.post(new Runnable() {
             @Override public void run() {
                 if (web == null) return;
@@ -2358,132 +2363,76 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String openUrl(String url) { return actions.openUrl(url).toString(); }
 
-        /* ===== 抖音「一句话看到」的整条路，必须在 Java 侧走 =====
-           2026-11-08 踩的坑：抖音切到前台后，米粒的 WebView 进后台，
-           Chromium 会把后台定时器节流到每分钟一次 —— JS 里 setTimeout 6 秒
-           点第一个视频，实际可能拖到一分钟，老人早就以为它坏了。
-           Handler 跑在主线程，不受这个限制。
-           2026-11-09 真机复核（verify_douyin_fullscreen_1109.py）：
-             · 深链 snssdk1128://search 直达搜索页 ✅
-             · 6s 点第一张卡 → 进视频播放页 ✅
-             · 11/15/19s 三档「全屏观看」坐标 ❌ 全点空，全程 ROTATION_0。
-               这版抖音播放页已经没有「全屏观看」按钮了，uiautomator dump
-               也是空壳（和微信一样封了节点树），没法靠控件定位。
-           所以不再承诺自动全屏，回话改实话。三档点击保留但不作为验收项，
-           换机型/换抖音版本要重新量坐标，别拿这段当已实现功能讲。 */
-        private final android.os.Handler uiH =
-                new android.os.Handler(android.os.Looper.getMainLooper());
-        private int douyinShot = 0;
-        /* 一旦真的横过屏就锁住，后面所有候选点击全部停手。
-           MIUI 的 rotation 会抖（19:49 日志：11 秒已横屏、13 秒又回 0），
-           只靠瞬时判断会横屏后继续往画面上点，把视频点暂停。 */
-        private boolean douyinLanded = false;
-
-        @JavascriptInterface
-        public String playDouyin(String kw) {
-            try {
-                String url = "snssdk1128://search?keyword="
-                        + java.net.URLEncoder.encode(String.valueOf(kw), "UTF-8");
-                actions.openUrl(url);
-                douyinShot++;
-                douyinLanded = false;
-                final int myShot = douyinShot;
-                /* 🚨 2026-11-10 19:2x 真机实弹（抖音 41.0.0）：
-                   搜索页 → 点第一张卡 (0.5,0.43) → UltraDetailActivity →
-                   「全屏观看」按钮真实存在于 (0.5,0.572) → 点下去立刻
-                   LandscapeFeedActivity 横屏，screencap 2400x1080 实证。
-                   旧代码三档 y=0.594/0.55/0.63 全擦着按钮边缘点空，
-                   而且只用 getRealSize 一套基准 —— 换屏必废。
-                   现在：文字优先 → 多基准比例 → 每点一次查横屏，命中即停。 */
-                /* 🚨 2026-11-12 真机复测：写死的 y=0.572 在新版抖音上点空 ——
-                   截图实证停在 UltraDetailActivity，「全屏观看」按钮亮着没被点。
-                   改成「找字为主、坐标为辅」的轮询：
-                     · 每 1.2 秒看一次，横屏了就立刻全部停手
-                     · 「全屏观看」按文字点，点中一次就不再点第二次（防来回切）
-                     · 文字连点两次没反应，才用坐标兜底两档
-                   ⚠ 坐标只作兜底，别再当成主路径讲。 */
-                final long t0 = android.os.SystemClock.uptimeMillis();
-                final int[] card = {0}, textTap = {0}, coord = {0};
-                final float[] YS = { 0.572f, 0.480f };
-                final Runnable[] step = new Runnable[1];
-                step[0] = new Runnable() { @Override public void run() {
-                    long el = android.os.SystemClock.uptimeMillis() - t0;
-                    if (myShot != douyinShot || douyinLanded) return;
-                    if (landNow()) {
-                        douyinLanded = true;
-                        android.util.Log.i("MiliDouyin", "已横屏全屏 ✓ @" + el + "ms");
-                        return;
-                    }
-                    if (el > 16000) {
-                        android.util.Log.i("MiliDouyin", "16 秒仍未横屏，如实报没做到");
-                        return;
-                    }
+        /* 抖音只走搜索深链、选片、全屏这一条短路；最终结果异步回传。 */
+        private DouyinPlayback douyinPlayer() {
+            if (douyinPlayback == null) douyinPlayback = new DouyinPlayback(new DouyinPlayback.Host() {
+                public long now() { return android.os.SystemClock.uptimeMillis(); }
+                public void later(Runnable action, long delayMs) { ui.postDelayed(action, delayMs); }
+                public String window() { return MiliAccessibilityService.currentWindow(); }
+                public boolean openSearch(String keyword) {
                     try {
-                        if (el < 6200) {
-                            /* 第一步：把搜索结果的第一张卡点开 */
-                            if (card[0] == 0) {
-                                MiliAccessibilityService.tapAt(0.5f, 0.43f);
-                                card[0] = 1;
-                            }
-                        } else if (textTap[0] == 0) {
-                            /* 第二步：按文字找「全屏观看」。找到点一次就锁住，
-                               避免来回点把视频点成暂停。 */
-                            String r = MiliAccessibilityService.tapTextAny("全屏观看", "全屏");
-                            if (r != null && r.indexOf("\"ok\":true") >= 0) {
-                                textTap[0] = 1;
-                                android.util.Log.i("MiliDouyin", "点到「全屏观看」@" + el + "ms");
-                            } else if (el > 8200 && coord[0] < YS.length) {
-                                /* 文字一直没出现（无障碍读不到自绘按钮）：坐标兜底 */
-                                float y = YS[coord[0]];
-                                coord[0] = coord[0] + 1;
-                                android.util.Log.i("MiliDouyin", "坐标兜底 y=" + y + " @" + el + "ms");
-                                MiliAccessibilityService.tapAt(0.5f, y);
-                                MiliAccessibilityService.tapAtMetrics(0.5f, y);
-                            }
-                        } else if (el > 11000 && coord[0] == 0) {
-                            /* 文字点过了但仍没横屏：再用一次坐标兜底 */
-                            coord[0] = 1;
-                            MiliAccessibilityService.tapAt(0.5f, YS[0]);
-                            MiliAccessibilityService.tapAtMetrics(0.5f, YS[0]);
-                        }
-                    } catch (Throwable ignored) {}
-                    uiH.postDelayed(step[0], 1200);
-                } };
-                uiH.postDelayed(step[0], 5200);
-                return "{\"ok\":true,\"say\":\"给您找着了，正在点开全屏。\"}";
-            } catch (Throwable t) {
-                return "{\"ok\":false,\"say\":\"抖音没打开。\"}";
-            }
-        }
-
-        private boolean landNow() {
-            try {
-                int r = ((android.view.WindowManager) getSystemService(WINDOW_SERVICE))
-                        .getDefaultDisplay().getRotation();
-                if (r == android.view.Surface.ROTATION_90
-                        || r == android.view.Surface.ROTATION_270) return true;
-                /* 2026-11-10 19:44 真机：前台已是 LandscapeFeedActivity、
-                   screencap 2400x1080，但 MIUI 的 getRotation() 仍回 0 ——
-                   只信它会误报「没横屏」，横屏后还继续往画面上点，把视频点暂停。
-                   补两条独立证据：系统配置朝向 + 当前前台窗口类名。 */
-                if (getResources().getConfiguration().orientation
-                        == android.content.res.Configuration.ORIENTATION_LANDSCAPE) return true;
-                try {
-                    String top = MiliAccessibilityService.lastWindow();
-                    if (top != null && (top.contains("Landscape") || top.contains("landscape"))) return true;
-                    /* 21:4x：lastWindow 也会被输入法浮层盖掉（微信那道硬闸同一个坑），
-                       于是明明已经 LandscapeFeedActivity 横屏，日志还写「12 秒仍未横屏」。
-                       再认窗口历史里出现过的横屏页，别继续往画面上点。 */
-                    String hist = MiliAccessibilityService.recentWindows();
-                    if (hist != null && (hist.contains("Landscape") || hist.contains("landscape"))) return true;
-                } catch (Throwable ignored) {}
-            } catch (Throwable t) { return false; }
-            return false;
+                        Intent intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(
+                                "snssdk1128://search?keyword=" + java.net.URLEncoder.encode(keyword, "UTF-8")));
+                        intent.setPackage(DouyinPlayback.PACKAGE);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(intent);
+                        return true;
+                    } catch (Exception e) { return false; }
+                }
+                public boolean fullscreen() {
+                    String current = window();
+                    if (!current.startsWith(DouyinPlayback.PACKAGE + "/")) return false;
+                    return current.contains("Landscape")
+                            || ((current.contains("Detail")) && getResources().getConfiguration().orientation
+                                == android.content.res.Configuration.ORIENTATION_LANDSCAPE);
+                }
+                public boolean tapResult(boolean fallback) {
+                    return succeeded(fallback ? MiliAccessibilityService.tapAt(0.5f, 0.43f)
+                            : MiliAccessibilityService.tapFirstResult());
+                }
+                public boolean tapFullscreen(int attempt) {
+                    if (attempt == 0) return succeeded(MiliAccessibilityService.tapTextAny("全屏观看", "全屏"));
+                    // 每次只发一个手势，不再同时按两套屏幕基准连点。
+                    return succeeded(MiliAccessibilityService.tapAt(0.5f, attempt == 1 ? 0.572f : 0.480f));
+                }
+                public void complete(String id, boolean ok, boolean fullscreen, String detail) {
+                    JSONObject result = new JSONObject();
+                    try {
+                        result.put("ok", ok);
+                        result.put("completed", true);
+                        result.put("fullscreen", fullscreen);
+                        result.put("detail", detail);
+                    } catch (Exception ignored) {}
+                    android.util.Log.i("MiliDouyin", "complete ok=" + ok + " fullscreen=" + fullscreen);
+                    MainActivity.runJs("window.__onDouyinResult && window.__onDouyinResult("
+                            + JSONObject.quote(id) + "," + result + ")");
+                }
+                private boolean succeeded(String json) {
+                    try { return new JSONObject(json).optBoolean("ok"); }
+                    catch (Exception e) { return false; }
+                }
+            });
+            return douyinPlayback;
         }
 
         @JavascriptInterface
-        public String wechat(String who, String what) {
-            return actions.wechat(who, what).toString();
+        public String playDouyinTask(String keyword, String requestId) {
+            if (!MiliAccessibilityService.ready())
+                return "{\"ok\":false,\"detail\":\"请先打开米粒的无障碍服务。\"}";
+            ui.post(() -> douyinPlayer().start(keyword, requestId));
+            return "{\"ok\":true,\"pending\":true}";
+        }
+
+        @JavascriptInterface
+        public String searchState() { return MiliAccessibilityService.searchState(); }
+
+        /** 旧页面只收到进行中回执，不能把它当成已播放。 */
+        @JavascriptInterface
+        public String playDouyin(String keyword) { return playDouyinTask(keyword, "legacy"); }
+
+        @JavascriptInterface
+        public void stopDouyin() {
+            ui.post(() -> { if (douyinPlayback != null) douyinPlayback.cancel(); });
         }
 
         @JavascriptInterface
@@ -3155,6 +3104,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (douyinPlayback != null) douyinPlayback.cancel();
         if (INST == this) INST = null;
         if (asr != null) { try { asr.stop(); } catch (Exception ignored) {} asr = null; }
         if (tts != null) { try { tts.stop(); tts.shutdown(); } catch (Exception e) {} tts = null; }

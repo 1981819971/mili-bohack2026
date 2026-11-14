@@ -214,7 +214,7 @@
     maxRounds: 3,
     maxTokens: 360,          // 原 700，工具参数本来就只有几十个字
     sayTokens: 560,          // 原 1600，老人一句话上限 46 字
-    effort: 'low',           // DeepSeek 合法档位：low / high / max
+    effort: 'low',            // DeepSeek 合法档位：low / high / max
     /* 0.25 → 0.55（2026-11-06）。
        低温会退化成「同一句反复念」—— 菲尔特截图里那句星星的解释，
        整段在气泡里出现了两遍，就是典型的 n-gram 退化。
@@ -1527,10 +1527,10 @@
               })(),
               new Promise((res2) => setTimeout(
                 () => res2({ ok: false, detail: '这一步等了太久没动静，换个办法再试。' }),
-                /* 2026-11-10：打开抖音→搜剧→点开→全屏是一长串 UI 自动化，
-                   15 秒的统一预算把真在办事的工具拦腰砍断（真机日志实证）。
-                   动屏类给 45 秒，其余维持 15 秒。 */
-                ['search_in_app','watch_video','play_direct','resume_show','tap_text',
+                /* 视频短流程在原生层最多等待 14 秒，外层预算覆盖最终回执。
+                   其它工具保留原预算。 */
+                ['search_in_app', 'watch_video'].includes(call.function.name) ? 18000 :
+                ['play_direct','resume_show','tap_text',
                  'tap_result','tap_at','type_text','find_text','wait_for','swipe_screen']
                   .includes(call.function.name) ? 8000 : 6000)),
             ]);
@@ -1565,7 +1565,7 @@
                免得连开三个 App 时反复念「我开软件啊」。 */
             /* 快通道工具（手电筒、扫一扫、付款码、微信派单）自己已经把话说死了，
                别再播一遍「我去办一下」，不然老人听到两句几乎一样的话。 */
-            const isFast = !!(res && res.ok && res.fastReply);
+            const isFast = !!(res && (res.ok || res.terminal) && res.fastReply);
             if (opts.onSaid && !isFast) {
               const tn = call.function.name;
               if (!saidOnce) {
@@ -1591,7 +1591,7 @@
 
             /* 快通道：手电筒、扫一扫、付款码这类「做没做成一眼可知」的动作，
                工具已经把结果写成老人话了，直接收工，不再发一轮请求。 */
-            if (res && res.ok && res.fastReply) {
+            if (isFast) {
               fastFinal = String(res.fastReply);
               break;
             }

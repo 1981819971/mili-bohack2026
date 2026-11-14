@@ -326,6 +326,11 @@ if (fs.existsSync(serverDir)) {
      而且它不会报错（CSS 里未定义的 var 是静默失效），只会「看着不对劲」。 */
   put('design-tokens.css', tokensCss);
   put('data.js', R('./data.js'));
+  for (const f of ['favicon.png', 'apple-touch-icon.png']) {
+    if (fs.existsSync(P('./' + f))) {
+      fs.copyFileSync(P('./' + f), path.join(serverDir, f));
+    }
+  }
 
   /* 智能体内核三件套。
      ★ 之前这三行根本不存在 —— server/ 里那三个文件是手写进去的，
@@ -425,7 +430,8 @@ if (fs.existsSync(webAs)) {
   /* 同样从 PAGE_MODULES 来；app.js 已在 PAGE_MODULES 里。
      再并上页面外壳与样式，避免漏 index.html / css 这类非 JS 文件。 */
   const pageFiles = [...new Set(['index.html', 'app.css', 'design-tokens.css',
-    'data.js', 'demo.html', 'requirements.txt', ...PAGE_MODULES])];
+    'data.js', 'demo.html', 'requirements.txt', 'favicon.png',
+    'apple-touch-icon.png', ...PAGE_MODULES])];
   let n = 0;
   for (const f of pageFiles) {
     const src = path.join(serverDir, f);

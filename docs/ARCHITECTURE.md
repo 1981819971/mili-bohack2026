@@ -80,7 +80,7 @@ DeepSeek 思考模式下的 tool loop 要求把该轮的 `reasoning_content` 原
 |---|---|---|---|
 | `S.rules` / `learnAnswer()` | 问答对缓存 | 一条即学 | 有 `answerSane()` 四道质量门 + `prunePoisonRules()`，但只覆盖这一套 |
 | `MILI_MEMO` facts + skills | 事实 / 原话→工具序列 | skill 一次即写 | memo 里混进「聊天的记忆分四类…」这类说明文本，重复事实并存 |
-| `MILI_RHYTHM` | 7 类作息事件，30 天滚动 | ≥3 次或跨 ≥3 天 | 唯一符合权威口径的一套 |
+| `MILI_RHYTHM` | 7 类作息事件，30 天滚动 | 跨 ≥3 天 | 作息样本按不同日期统计 |
 | `EVO` | 别名 / 形态词 / 版本快照 / 31 句考卷 | 考卷涨分即升级 | 旧口径，已标 DEPRECATED |
 
 ---
@@ -146,7 +146,7 @@ query → 中文 char-bigram 分词 → BM25 打分（工具名 + 描述 + 参�
   **同一件事满 3 次（或跨 3 天）只把检索权重从 1.2 提到 2.2**；
   技能重放是另一条闸门：`SKILL_MIN_HIT = 1`，**成功一次**即可重放。
   两条不是同一个阈值，对外别合并成「满 3 次才学会」。
-- **作息**：`MILI_RHYTHM` 保持 7 类事件、跨天中位数、≥3 次/3 天、每日 6 句预算、事件间隙才开口。
+- **作息**：`MILI_RHYTHM` 保持 7 类事件、跨天中位数、至少跨 3 天、每日 6 句预算、事件间隙才开口。
 - **一键清空**：`MILI_STORE.clearAll()` 是唯一入口，`memo / rhythm / evo / context / corrections`
   全部登记并一起退，`clearedAt` 墓碑防内置项复活。回退可演示。
 - **不变量门禁**：`eval/heldout.json` 只验「第一个被执行工具是否命中 want」，

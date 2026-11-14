@@ -87,7 +87,7 @@
     </queries>
 
     <application
-        android:label="米粒"
+        android:label="${miliAppLabel}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true"

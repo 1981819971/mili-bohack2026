@@ -566,30 +566,25 @@ window.__petMode = petMode;   // 原生桥/调试也能切
     return r;
   }
 
-  /* 深链路径：抖音搜索结果页是半屏列表，进来 6.5 秒后 a11y 点第一个视频 → 全屏沉浸流。
-     点早了撞开屏页/列表还没出卡片，点晚了用户自己点了就撤。 */
+  /* 抖音所有入口复用同一条选片流程，避免深链打开后再重复搜索。 */
   function openDl(d) {
     const nn = NATIVE();
-    if (!nn || !nn.openUrl) return { ok: false, detail: '开不了。' };
-    /* 抖音搜索：整条路（点第一个视频 → 点全屏观看 → 校验横屏）交给 Java。
-       2026-11-08 实测：抖音在前台时米粒的 WebView 被 Chromium 节流，
-       JS 定时器一分钟才跑一次 —— 在这边排 setTimeout 等于让人干等。 */
-    const kw = String(d.name || '').replace(/^抖音[·・]/, '').trim();
-    if (kw && typeof nn.playDouyin === 'function') {
-      try {
-        const r = JSON.parse(nn.playDouyin(kw) || '{}');
-        if (r && r.ok) {
-          /* 2026-11-12：点开全屏是一串原生动作，模型这一轮没有新信息可加工，
-             让它再复述一遍只会多花 1.5~2 秒，还容易把「正在点开」说成
-             「已经全屏了」（真机截图为证：当时还停在详情页）。
-             直接用原生那句当最终回复，说多少就是多少。 */
-          const s = '找到《' + kw + '》了，正给您点开。';
-          return { ok: true, detail: s, fastReply: s };
-        }
-      } catch (e) {}
+    if (!nn || !nn.openUrl) return { ok: false, detail: '这台设备上开不了。' };
+    const url = new URL(String(d.url || ''));
+    if (url.protocol === 'snssdk1128:' && url.hostname === 'search') {
+      if (!window.MILI_TOOLS) return { ok: false, detail: '视频功能还没准备好。' };
+      return window.MILI_TOOLS.exec('search_in_app', {
+        app: '抖音', keyword: url.searchParams.get('keyword') || ''
+      }, {
+        native: () => nn,
+        memoAdd: (kind, text) => window.MILI_MEMO && window.MILI_MEMO.add(kind, text, 'search_in_app'),
+        memoFind: (q) => window.MILI_MEMO ? window.MILI_MEMO.find(q) : []
+      });
     }
-    try { nn.openUrl(d.url); } catch (e) { return { ok: false, detail: '开不了。' }; }
-    return { ok: true, detail: '给您放' + (d.name || '') + '。' };
+    try {
+      const result = JSON.parse(nn.openUrl(d.url) || '{}');
+      return { ok: result.ok === true, detail: result.ok ? '链接给您打开了。' : '这个链接没打开。' };
+    } catch (e) { return { ok: false, detail: '这个链接没打开。' }; }
   }
 
   window.MILI_TV = { resolve: resolve, open: open, close: close, openApp: openApp, openDl: openDl, switch: tvSwitch, state: function () { return { idx: curIdx, hidden: !$('tvfull') || $('tvfull').hidden }; } };
@@ -1269,17 +1264,14 @@ window.miliOnBarge = function () {
    · Qorvo 商业系统：两周训练期建立基线后才开始报警 —— 样本不足不下结论。
    设计原则：
    ① 只记录产品本来就会产生的事件，老人不做任何额外动作
-   ② 样本不足不下结论：跨天 < 3 天且次数 < 3 次就闭嘴（宁可不说，不能瞎猜）
+   ② 样本 < 3 天不下结论（宁可不说，不能瞎猜）
    ③ 每天主动说话有预算（默认 6 次），用完就沉默
    ④ 只在「事件间隙」开口：他刚说完话、刚关掉电视、刚回家
    ⑤ 全部可查、可单条删、可整页清空 —— 回退是一等公民
    ========================================================================== */
 (function () {
   const KEY = 'mili.rhythm';
-  const MIN_DAYS = 3;          /* 同一事件至少跨 3 天 */
-  const MIN_HITS = 3;          /* 或者同一事件累计出现 3 次 —— 两个条件先到者生效
-                                  （2026-11-12 菲尔特拍板：42 小时赛程里跑不满 3 天，
-                                    现场要能证明「它记住了」，所以次数够也算数） */
+  const MIN_DAYS = 3;          /* 同一事件至少见过 3 天，才写进画像 */
   const KINDS = ['wake', 'meal', 'med', 'tv', 'sleep', 'call', 'talk'];
 
   /* 本地日期。toISOString() 取的是 UTC，北京时间 08:00 前会把事件记到昨天，
@@ -1322,13 +1314,11 @@ window.miliOnBarge = function () {
     const out = {};
     KINDS.forEach(function (k) {
       const perDay = [];
-      let hits = 0;
       Object.keys(R.days).forEach(function (d) {
         const arr = (R.days[d] && R.days[d][k]) || [];
-        if (arr.length) { perDay.push(arr); hits += arr.length; }
+        if (arr.length) perDay.push(arr);
       });
-      /* 跨够 3 天，或者见够 3 次，都算成型 */
-      if (perDay.length < MIN_DAYS && hits < MIN_HITS) { out[k] = null; return; }
+      if (perDay.length < MIN_DAYS) { out[k] = null; return; }
       /* wake / sleep 一天只取第一条 / 最后一条；其余取当天首条时刻 */
       const times = perDay.map(function (arr) {
         if (k === 'sleep') return arr[arr.length - 1].t;
@@ -1341,8 +1331,7 @@ window.miliOnBarge = function () {
       const freq = {};
       extra.forEach(function (e) { freq[e] = (freq[e] || 0) + 1; });
       const top = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; })[0] || '';
-      out[k] = { t: median(times), days: perDay.length, hits: hits,
-                 basis: perDay.length >= MIN_DAYS ? 'days' : 'hits', top: top };
+      out[k] = { t: median(times), days: perDay.length, top: top };
     });
     return out;
   }
@@ -1368,7 +1357,7 @@ window.miliOnBarge = function () {
 
   window.MILI_RHYTHM = { note: note, profile: profile, budget: budget,
                          noteNudge: noteNudge, wipe: wipe, drop: drop, dump: dump,
-                         MIN_DAYS: MIN_DAYS, MIN_HITS: MIN_HITS };
+                         MIN_DAYS: MIN_DAYS };
 
   /* 登记到统一记忆总线。一键清空必须连作息画像一起清。 */
   if (window.MILI_STORE) {
@@ -1481,7 +1470,7 @@ window.miliOnBarge = function () {
       for (let i = 0; i < order.length; i++) {
         const k = order[i];
         const p = prof[k];
-        if (!p) continue;                                   /* 跨天不满 3 天、次数不满 3 次，不猜 */
+        if (!p) continue;                                   /* 样本不足 3 天，不猜 */
         const win = WINDOW[k] || [0, 1440];
         if (now < win[0] || now > win[1]) continue;
         if (Math.abs(now - p.t) > NUDGE_GAP) continue;
@@ -3253,7 +3242,7 @@ function localDateSay(raw) {
 function skillSayOf(tools) {
   const last = (tools || [])[(tools || []).length - 1] || {};
   const n = String(last.name || '');
-  if (/search_in_app|watch_video|play_video/.test(n)) return '给您放上啦，全屏播放呢。';
+  if (/search_in_app|watch_video|play_video/.test(n)) return '视频页面给您打开了。';
   if (/watch_news|tv_channel/.test(n)) return '给您调到新闻台了。';
   if (/call_phone|wechat_call/.test(n)) return '给您拨出去了，等着他接。';
   if (/wechat_message|send_sms/.test(n)) return '给他发过去了。';
@@ -3542,8 +3531,8 @@ async function agentSay(text, quiet, opts) {
     /* 改口驱动的进化落到检索正反馈，而不是 evolve.js 的正则别名：
        把「老人原话 → 第一个成功工具」记成一条检索样本，下次相似说法
        BM25 排序自然上移；满 3 次或跨 3 天才升稳定档（对齐权威口径）。
-       2026-11-14 修：这段原先整块复制了两遍，一次改口会被 learn() 记两次 n，
-       两次改口就凑满 3 次升稳定档 —— 阈值当场失真。 */
+       2026-11-14：公开仓这段曾被整块复制两遍，一次改口记两次 n，已修；
+       真机源码本来就只有一次，此处补齐注释保持三处一致。 */
     if (window.MILI_TOOL_ROUTER && calls && calls.length) {
       try { window.MILI_TOOL_ROUTER.learn(_key, String(calls[0].name || '')); } catch (e) {}
     }
@@ -5050,7 +5039,7 @@ async function handleSay(text, quiet, opts) {
   /* ---- ① skill 缓存 ---- */
   if (window.MILI_MEMO && window.MILI_TOOLS) {
     const hit = window.MILI_MEMO.hit(raw);
-    /* 演示模式：前两遍不许走 skill 重放（详见文件末尾 DEMO 的 blockSkill 注释）。
+    /* 演示模式：第 1 遍不许走 skill 重放（详见文件末尾 DEMO 的 blockSkill 注释）。
        没有这一道，第 1 遍会被上次学会的序列 0 毫秒重放，一声都不问。 */
     var _demoBlk = false;
     try { _demoBlk = !!(window.__DEMO && window.__DEMO.blockSkill(raw, hit)); } catch (e) {}
@@ -12651,7 +12640,7 @@ window.MILI_FALL_NOW = function(by){
     const rows = [['wake','起床'],['med','吃药'],['meal','吃饭'],['tv','看戏'],['sleep','睡觉']];
     let h = head('它记住的', true) + '<div class="v9body">';
     h += '<div class="v9h1">它记住的</div>';
-    h += '<p class="v9sub">这些全是它看您过日子记下的。同一件事记满 3 次才敢当真。</p>';
+    h += '<p class="v9sub">这些不是您教的，是它看着您过日子记下的。同一件事记满 3 天才敢当真。</p>';
     h += '<div class="v9card">';
     h += '<div class="v9row"><span class="tx">已经看了</span><span class="go">' + days + ' 天</span></div>';
     h += '<div class="v9row"><span class="tx">今天主动说话</span><span class="go">' + bud.used + ' / ' + bud.cap + ' 次</span></div>';
@@ -12660,7 +12649,7 @@ window.MILI_FALL_NOW = function(by){
     rows.forEach(function (r) {
       const p = prof[r[0]];
       h += '<div class="v9row"><span class="tx">' + r[1] + '</span><span class="go">'
-        + (p ? (fmt(p.t) + (p.basis === 'days' ? ' · 记了 ' + p.days + ' 天' : ' · 记了 ' + p.hits + ' 次')) : '还没摸清') + '</span>'
+        + (p ? (fmt(p.t) + ' · 记了 ' + p.days + ' 天') : '还没摸清') + '</span>'
         + (p ? '<button data-do="rhythmDrop" data-k="' + r[0] + '" style="margin-left:10px;border:0;'
             + 'background:#FCEBEB;color:#A32D2D;border-radius:12px;padding:6px 10px;font-size:13px">删</button>' : '')
         + '</div>';
