@@ -84,8 +84,17 @@ console.log('语音对照表:', Object.keys(t2f).length, '条 /', voiceFiles.len
 
 /* ---------------- 单文件版：仍然全内联 ---------------- */
 const B64 = (p) => 'data:model/gltf-binary;base64,' + fs.readFileSync(P(p)).toString('base64');
-const glb1 = B64('./assets/m1-rig.glb');
-const glb2 = B64('./assets/m2-rig6.glb');
+/* 3D 小鸡模型是必需的：m1 待机、m2 说话。缺了就不要吐一个「看起来成功、
+   其实没有模型」的单文件版 —— 那种产物现场打开是空白，比构建失败更难查。
+   这里直接报缺哪个文件、去哪拿（BUILD.md「仍然缺的」）。 */
+function reqB64(p) {
+  try { return B64(p); } catch (e) {
+    throw new Error('单文件构建缺少素材 ' + p +
+      '：从真机工程 app/assets/ 同步，来源见 docs/BUILD.md「仍然缺的」一节');
+  }
+}
+const glb1 = reqB64('./assets/m1-rig.glb');
+const glb2 = reqB64('./assets/m2-rig6.glb');
 let glb3 = null;
 for (const f of ['./assets/m3.glb', './assets/m3-rig.glb']) {
   try { glb3 = B64(f); break; } catch (e) {}
