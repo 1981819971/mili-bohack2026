@@ -8,8 +8,26 @@
 
 ## 一、运行时形态
 
-Android 原生壳（Java）＋ Capacitor/WebView 内纯前端 JS，**无服务端框架、无数据库**。
-前端直连 DeepSeek 官方 `/chat/completions` 做 function calling；持久化只有 `localStorage`。
+**三部分组成**：① Android 原生壳（Java）—— ASR、豆包童声 TTS、无障碍代操作、电话/微信、桌宠；
+② Capacitor/WebView 内的纯前端 JS —— Agent 决策、记忆、工具选择；
+③ 跑在自建 ECS `:9001` 的 Python 后端 —— 语音识别、TTS 转发、跨设备状态、账号配对、药箱与健康数据。
+
+⚠️ **2026-11-14 口径纠正**：初稿写「无服务端框架、无数据库」是错的，把「Agent 决策链路」当成了整个项目。
+准确边界是：**推理 / 记忆 / 工具选择全在前端，后端不参与大模型决策**；但项目**有后端也有数据库**。
+
+| 后端服务 | 技术 | 数据落点 |
+|---|---|---|
+| `backend/mili_auth.py`（796 行） | FastAPI | **SQLite** `MILI_DB`，默认 `/root/mili-data/mili.db`；表 `users / tokens / links / pairs / meds / acts / tries / vitals` |
+| `backend/asr_server.py`（232 行） | FastAPI | 文件 `STATE_DIR`，默认 `/root/mili-state/<dev>.json`，单文件 512KB 上限、原子写 |
+| `backend/dev_server.py` | `ThreadingHTTPServer` | 本地开发静态服务 + `/tts` 转发 + `/api/*` 透传，不存业务数据 |
+| `backend/doubao_tts.py` | 豆包 TTS 封装 | 不存业务数据 |
+
+前端统一经 `app/_acc_new.js` 的 `MILI_API` 访问；公开仓里 ECS 域名与票据全为占位符。
+完整接口表见 `docs/BACKEND-CONTRACT.md`。
+
+大模型走 DeepSeek 官方 `/chat/completions`（**直连，不经过自己的后端，也不走云 SDK**）。
+**端上记忆**持久化在 `localStorage`，与服务端 SQLite 是两套独立存储 ——
+已知边界：药箱 `S.med` / 健康 `S.vital` 在本机与服务端各存一份，目前没有同步与冲突解决逻辑。
 原生层通过 JS bridge 提供电话、微信代操作、无障碍、ASR、TTS、桌宠等副作用能力。
 
 术语对照：
