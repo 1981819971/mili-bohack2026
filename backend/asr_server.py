@@ -178,9 +178,23 @@ async def state_put(request: Request, dev: str = ""):
 
 @app.post("/probe")
 async def probe(request: Request):
-    """自测回传：把浏览器里跑出来的结果写进文件，方便我在服务器上直接看。"""
+    """自测回传：把浏览器里跑出来的结果写进文件，方便我在服务器上直接看。
+
+    2026-11-14：加两道闸。这个端点没有鉴权，公网可写 ——
+    一条几十 MB 的 body 就能把 /root 写满，把 ECS 上的服务一起拖死。
+      ① 单次 body 上限 64KB，超了直接 413；
+      ② 日志超过 4MB 就轮转一次（probe.log -> probe.log.1），最多留两份。
+    """
     body = await request.body()
-    with open("/root/probe.log", "a", encoding="utf-8") as f:
+    if len(body) > 64 * 1024:
+        return JSONResponse({"ok": False, "err": "probe body too large"}, status_code=413)
+    path = "/root/probe.log"
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > 4 * 1024 * 1024:
+            os.replace(path, path + ".1")
+    except OSError:
+        pass
+    with open(path, "a", encoding="utf-8") as f:
         f.write(body.decode("utf-8", "replace") + "\n")
     return {"ok": True}
 

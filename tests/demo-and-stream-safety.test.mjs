@@ -72,3 +72,16 @@ test('流式首句起播：onDelta 接回、确定性 streamed、纯说话轮才
   assert.ok(app.includes('window.MILI_STREAM'), 'SS 没接新模块');
   assert.ok(app.includes('const id = it.id ||'), '没用稳定 id 对账');
 });
+
+test('npm test 必须跑全部测试文件，不能只跑一个', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  assert.match(pkg.scripts.test, /tests\/\*\.test\.mjs/, 'npm test 只跑单个文件时，其余 51 条形同虚设');
+});
+
+test('评测分母只算该调工具的句子，5 条「不该调」不计入', () => {
+  const r = JSON.parse(fs.readFileSync(path.join(ROOT, 'eval', 'results.json'), 'utf8')).tools;
+  assert.equal(r.cases, 31);
+  assert.equal(r.actCases, 26);
+  assert.equal(r.noToolCases, 5);
+  assert.equal(r.firstToolHitRate, 0.8846);
+});

@@ -46,6 +46,7 @@ function toolSelection(s) {
   const allNames = all.map((t) => t.function.name);
   const fullChars = JSON.stringify(all).length;
   let firstHit = 0, recall = 0, rr = 0, toolsSum = 0, fallback = 0;
+  let actN = 0, noToolN = 0;
   const details = [];
   for (const c of held.cases) {
     const r = s.MILI_TOOL_ROUTER.select(c.q, { minScore: 0 });
@@ -54,22 +55,33 @@ function toolSelection(s) {
     const ranked = Object.keys(r.scores).sort((a, b) => r.scores[b] - r.scores[a]);
     const want = c.want || [];
     const rank = ranked.findIndex((n) => want.includes(n));
-    if (rank === 0) firstHit++;
-    if (rank >= 0) { recall++; rr += 1 / (rank + 1); }
+    /* want 为空＝这句话**不该调工具**（「你是谁呀」「把这个弄一下」）。
+       它不是未命中，也不该进首个命中的分母 —— 否则 5 句必然算错，
+       真实命中率被自己压低 14 个百分点。这类题单独记数量，
+       由「不调工具」的专项测试去管，不混进工具选择准确率。 */
+    if (want.length) {
+      actN++;
+      if (rank === 0) firstHit++;
+      if (rank >= 0) { recall++; rr += 1 / (rank + 1); }
+    } else {
+      noToolN++;
+    }
     const inSelected = want.some((n) => r.names.includes(n));
     details.push({ id: c.id, cat: c.cat, q: c.q, want: want,
                    top: ranked[0] || null, rank: rank < 0 ? null : rank + 1,
                    inSelected: inSelected, tools: r.tools.length, fallback: r.fallback });
   }
-  const n = held.cases.length;
+  const allN = held.cases.length;
+  const n = actN || 1;   // 分母只算「确实该调工具」的句子
   return {
-    cases: n, firstToolHitRate: +(firstHit / n).toFixed(4),
+    cases: allN, actCases: actN, noToolCases: noToolN,
+    firstToolHitRate: +(firstHit / n).toFixed(4),
     recallAtK: +(recall / n).toFixed(4), mrr: +(rr / n).toFixed(4),
-    avgToolsInjected: +(toolsSum / n).toFixed(2),
-    fallbackRate: +(fallback / n).toFixed(4),
+    avgToolsInjected: +(toolsSum / allN).toFixed(2),
+    fallbackRate: +(fallback / allN).toFixed(4),
     fullToolCount: allNames.length,
     fullSchemaChars: fullChars,
-    approxCharsAfterRouting: Math.round(fullChars * (toolsSum / n) / allNames.length),
+    approxCharsAfterRouting: Math.round(fullChars * (toolsSum / allN) / allNames.length),
     details,
   };
 }
@@ -139,7 +151,7 @@ const result = {
 };
 fs.writeFileSync(path.join(EVAL, 'results.json'), JSON.stringify(result, null, 2));
 
-console.log('=== 工具选择（held-out 31 句，冻结）===');
+console.log(`=== 工具选择（held-out ${tools.cases} 句，其中该调工具 ${tools.actCases} 句；另有 ${tools.noToolCases} 句不该调，不计入分母）===`);
 console.log(`首个工具命中 ${tools.firstToolHitRate}  Recall@k ${tools.recallAtK}  MRR ${tools.mrr}`);
 console.log(`平均注入工具 ${tools.avgToolsInjected}/${tools.fullToolCount}  低置信度退回全量 ${tools.fallbackRate}`);
 console.log(`schema 体积 ${tools.fullSchemaChars} → 约 ${tools.approxCharsAfterRouting} 字符`);

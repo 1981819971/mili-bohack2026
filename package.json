@@ -5,7 +5,7 @@
   "type": "module",
   "description": "米粒 · BoHack 2026 日新主题赛道参赛代码（脱敏公开仓）",
   "scripts": {
-    "test": "node --test tests/memory.test.mjs",
+    "test": "node --test tests/*.test.mjs",
     "check": "node --check app/memory.js && node --check app/agent-memo.js && node --check app/agent.js && node --check app/agent-tools.js && node --check app/evolve.js && node --check app/build.mjs",
     "scan": "node tools/scan-secrets.mjs"
   },

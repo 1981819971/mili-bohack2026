@@ -794,3 +794,14 @@ async def vital_get(request: Request, authorization: str = Header(default="")):
 @router.get("/auth/ping")
 async def ping():
     return ok(srv="mili", t=int(time.time()))
+
+# ------------------------------------------------------------------ 启动
+# init() 只被定义、从来没有调用点 —— 直接 uvicorn 起这个模块时表不会建，
+# 第一次注册就报 no such table。这里在导入时幂等执行一次；
+# 失败不阻断导入（打印出来，由启动日志暴露），避免本机没写权限时连模块都加载不了。
+# 设 MILI_AUTOINIT=0 可关掉（由外部入口自己调 init）。
+if os.environ.get("MILI_AUTOINIT", "1") == "1":
+    try:
+        init()
+    except Exception as _e:  # noqa: BLE001
+        print("[mili_auth] init skipped:", _e)

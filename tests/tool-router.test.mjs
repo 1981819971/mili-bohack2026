@@ -125,3 +125,16 @@ test('域目录完整覆盖真实 67 个工具，且没有编造的工具名', (
   const ghosts = [...new Set(listed)].filter((n) => /_[a-z]/.test(n) && !known.has(n) && !n.startsWith('mili.'));
   assert.deepEqual(ghosts, [], '域目录里写了不存在的工具');
 });
+
+test('样本淘汰：超过 200 条时保留最新的改口，不留下最早的', () => {
+  const { sandbox } = makeEnv();
+  const R = sandbox.MILI_TOOL_ROUTER;
+  /* 201 条互不相同的说法，全部 n=1。只按 n 排序时稳定排序会保留最早的，
+     把最新学会的截掉 —— 老人刚纠正过的那句反而丢了。 */
+  for (let i = 0; i < 205; i++) R.learn('说法' + i, 'wechat_message');
+  const c = R.corrections();
+  assert.equal(c.length, 200, `淘汰后应保留 200 条，实际 ${c.length}`);
+  const us = c.map((x) => x.u);
+  assert.ok(us.includes('说法204'), '最新学会的说法被丢掉了');
+  assert.ok(!us.includes('说法0'), '最早的说法没有被淘汰');
+});

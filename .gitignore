@@ -17,3 +17,7 @@ credentials*
 
 # 应用图标是 Android 构建必需（约 405KB），放行；其余 PNG 截图/素材仍忽略
 !android/app/src/main/res/**/*.png
+# app/build.mjs 的生成物，不进仓
+米粒.html
+米粒-演示版.html
+server/

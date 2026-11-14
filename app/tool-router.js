@@ -161,7 +161,15 @@
       corrections.push({ u: u, tool: n, n: 1, days: [day], at: Date.now() });
     }
     if (corrections.length > MAX_CORRECTIONS) {
-      corrections.sort(function (a, b) { return (b.n || 0) - (a.n || 0); });
+      /* 次数降序；次数相同按时间降序 —— 老人**最新**学会的说法最该留住。
+         只按 n 排时全是 n=1，稳定排序会保留最早的 200 条、把最新的截掉。
+         同一毫秒内的多条 at 相同，所以再拿数组下标兜底：越靠后越新。 */
+      var order = new Map();
+      corrections.forEach(function (c, i) { order.set(c, i); });
+      corrections.sort(function (a, b) {
+        return (b.n || 0) - (a.n || 0) || (b.at || 0) - (a.at || 0) ||
+               (order.get(b) - order.get(a));
+      });
       corrections.length = MAX_CORRECTIONS;
     }
     return saveCorrections();
